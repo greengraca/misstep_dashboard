@@ -1,0 +1,176 @@
+"use client";
+import useSWR from "swr";
+import { fetcher } from "@/lib/fetcher";
+import { Settings, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+
+interface EnvVar {
+  name: string;
+  set: boolean;
+  masked?: string;
+}
+
+interface TeamMember {
+  name: string;
+  role: string;
+  email?: string;
+}
+
+const panelStyle = {
+  background: "var(--surface-gradient)",
+  backdropFilter: "var(--surface-blur)",
+  border: "var(--surface-border)",
+  boxShadow: "var(--surface-shadow)",
+  borderRadius: "var(--radius)",
+  padding: "24px",
+};
+
+export default function SettingsContent() {
+  const { data, isLoading, mutate } = useSWR<{ envVars: EnvVar[]; teamMembers: TeamMember[] }>(
+    "/api/settings",
+    fetcher
+  );
+
+  const envVars = data?.envVars ?? [];
+  const teamMembers = data?.teamMembers ?? [];
+
+  return (
+    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+          Settings
+        </h1>
+        <button
+          onClick={() => mutate()}
+          style={{
+            background: "var(--bg-card)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: "8px 14px",
+            fontSize: "14px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          <RefreshCw size={15} /> Refresh
+        </button>
+      </div>
+
+      {/* Team Members */}
+      <div style={panelStyle}>
+        <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
+          Team Members
+        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {isLoading ? (
+            [1, 2, 3].map(i => (
+              <div key={i} className="skeleton" style={{ height: "56px" }} />
+            ))
+          ) : teamMembers.length === 0 ? (
+            <p style={{ color: "var(--text-muted)", fontSize: "14px", margin: 0 }}>
+              No team members configured. Add members via the auth provider.
+            </p>
+          ) : (
+            teamMembers.map((member, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "12px 16px",
+                  background: "var(--bg-card)",
+                  borderRadius: "var(--radius)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div
+                  style={{
+                    width: "36px",
+                    height: "36px",
+                    borderRadius: "50%",
+                    background: "var(--accent)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--accent-text)",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    flexShrink: 0,
+                  }}
+                >
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{member.name}</div>
+                  {member.email && (
+                    <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{member.email}</div>
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--text-muted)",
+                    background: "var(--bg-page, var(--bg-card))",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  {member.role}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Environment Variables */}
+      <div style={panelStyle}>
+        <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
+          Environment Variables
+        </h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {isLoading ? (
+            [1, 2, 3, 4].map(i => (
+              <div key={i} className="skeleton" style={{ height: "44px" }} />
+            ))
+          ) : envVars.length === 0 ? (
+            <p style={{ color: "var(--text-muted)", fontSize: "14px", margin: 0 }}>
+              No environment variables tracked.
+            </p>
+          ) : (
+            envVars.map((ev, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "10px 16px",
+                  background: "var(--bg-card)",
+                  borderRadius: "var(--radius)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                {ev.set ? (
+                  <CheckCircle size={16} style={{ color: "var(--success)", flexShrink: 0 }} />
+                ) : (
+                  <XCircle size={16} style={{ color: "var(--danger, #ef4444)", flexShrink: 0 }} />
+                )}
+                <span style={{ fontSize: "13px", fontFamily: "monospace", color: "var(--text-primary)", flex: 1 }}>
+                  {ev.name}
+                </span>
+                <span style={{ fontSize: "13px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                  {ev.set ? (ev.masked ?? "••••••••") : "not set"}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
