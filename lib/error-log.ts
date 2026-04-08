@@ -32,6 +32,7 @@ export function logError(
   details: Record<string, unknown> | null = null
 ): void {
   const doLog = async () => {
+    if (!process.env.MONGODB_URI) return;
     try {
       await ensureIndexes();
       const db = await getDb();

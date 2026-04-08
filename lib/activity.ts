@@ -35,6 +35,7 @@ export function logActivity(
   userName: string
 ): void {
   const doLog = async () => {
+    if (!process.env.MONGODB_URI) return;
     try {
       await ensureIndexes();
       const db = await getDb();

@@ -3,6 +3,7 @@ import useSWR from "swr";
 import { useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
+import Select from "@/components/dashboard/select";
 
 interface ActivityEntry {
   _id: string;
@@ -21,7 +22,7 @@ const columns: Column<ActivityEntry>[] = [
     label: "Timestamp",
     sortable: true,
     render: (e: ActivityEntry) =>
-      new Date(e.timestamp).toLocaleString(),
+      new Date(e.timestamp).toLocaleString("pt-PT"),
   },
   { key: "user" as const, label: "User", sortable: true },
   {
@@ -44,17 +45,6 @@ const columns: Column<ActivityEntry>[] = [
   },
 ];
 
-const selectStyle = {
-  background: "var(--bg-card)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-  padding: "6px 12px",
-  color: "var(--text-primary)",
-  fontSize: "14px",
-  outline: "none",
-  cursor: "pointer",
-};
-
 export default function ActivityContent() {
   const [entityFilter, setEntityFilter] = useState("");
   const [actionFilter, setActionFilter] = useState("");
@@ -63,7 +53,7 @@ export default function ActivityContent() {
   if (entityFilter) params.set("entity_type", entityFilter);
   if (actionFilter) params.set("action", actionFilter);
 
-  const { data, isLoading } = useSWR<{ data: ActivityEntry[]; entityTypes: string[]; actions: string[] }>(
+  const { data } = useSWR<{ data: ActivityEntry[]; entityTypes: string[]; actions: string[] }>(
     `/api/activity?${params.toString()}`,
     fetcher
   );
@@ -73,44 +63,42 @@ export default function ActivityContent() {
   const actions = data?.actions ?? [];
 
   return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
         Activity
       </h1>
 
       <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-        <select
+        <Select
           value={entityFilter}
-          onChange={e => setEntityFilter(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">All Entity Types</option>
-          {entityTypes.map(et => (
-            <option key={et} value={et}>{et}</option>
-          ))}
-        </select>
-        <select
+          onChange={setEntityFilter}
+          options={[
+            { value: "", label: "All Entity Types" },
+            ...entityTypes.map((et) => ({ value: et, label: et })),
+          ]}
+          size="sm"
+        />
+        <Select
           value={actionFilter}
-          onChange={e => setActionFilter(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">All Actions</option>
-          {actions.map(a => (
-            <option key={a} value={a}>{a}</option>
-          ))}
-        </select>
+          onChange={setActionFilter}
+          options={[
+            { value: "", label: "All Actions" },
+            ...actions.map((a) => ({ value: a, label: a })),
+          ]}
+          size="sm"
+        />
         {(entityFilter || actionFilter) && (
           <button
             onClick={() => { setEntityFilter(""); setActionFilter(""); }}
+            className="px-3 py-1 rounded-lg border text-xs font-medium transition-colors"
             style={{
               background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
-              padding: "6px 12px",
+              borderColor: "var(--border)",
               color: "var(--text-muted)",
-              fontSize: "13px",
               cursor: "pointer",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             Clear filters
           </button>

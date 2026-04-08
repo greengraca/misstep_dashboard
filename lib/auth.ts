@@ -21,6 +21,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/login",
   },
   callbacks: {
+    authorized({ auth: session, request: { nextUrl } }) {
+      const isLoggedIn = !!session?.user;
+      const isOnLogin = nextUrl.pathname.startsWith("/login");
+      if (isOnLogin) return isLoggedIn ? Response.redirect(new URL("/", nextUrl)) : true;
+      return isLoggedIn;
+    },
     async session({ session, token }) {
       if (token?.sub && session.user) {
         session.user.id = token.sub;

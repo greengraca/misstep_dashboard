@@ -8,6 +8,7 @@ const ROUTE_PREFETCH_MAP: Record<string, string[]> = {
   "/meetings": ["/api/meetings"],
   "/tasks": ["/api/tasks"],
   "/activity": ["/api/activity"],
+  "/cardmarket": ["/api/ext/status", "/api/ext/orders?page=1&limit=15"],
   "/settings": ["/api/settings"],
 };
 
