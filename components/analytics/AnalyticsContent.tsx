@@ -111,7 +111,7 @@ export default function AnalyticsContent() {
                 cx="50%"
                 cy="50%"
                 outerRadius={80}
-                label={({ name, percent }: { name: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                label={(props: { name?: string; percent?: number }) => `${props.name ?? ''} ${((props.percent ?? 0) * 100).toFixed(0)}%`}
               >
                 {byCategory.map((_, index) => (
                   <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
