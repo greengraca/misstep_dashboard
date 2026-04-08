@@ -109,6 +109,7 @@ const STATUS_TABS = [
   { key: "unpaid", label: "Unpaid" },
   { key: "paid", label: "Paid" },
   { key: "sent", label: "Sent" },
+  { key: "arrived", label: "Arrived" },
 ] as const;
 
 export default function CardmarketContent() {
@@ -286,6 +287,13 @@ export default function CardmarketContent() {
         <StatCard
           title="Balance"
           value={formatEur(status?.currentBalance)}
+          subtitle={(() => {
+            const ov = status?.orderValues || {};
+            const u = ov.unpaid || 0;
+            const p = ov.paid || 0;
+            const t = (status?.currentBalance ?? 0) + u + p;
+            return `U: ${formatEur(u)} | P: ${formatEur(p)} | T: ${formatEur(t)}`;
+          })()}
           icon={<DollarSign size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
@@ -297,8 +305,9 @@ export default function CardmarketContent() {
           icon={<Package size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
-          title="Orders Synced"
-          value={orders?.total?.toLocaleString() ?? "—"}
+          title={activeTab === "shopping_cart" ? "In Cart" : activeTab === "unpaid" ? "Awaiting Payment" : activeTab === "paid" ? "To Ship" : "Sent"}
+          value={formatEur(orders?.totalValue ?? null)}
+          subtitle={orders?.total != null ? `${orders.total} orders` : undefined}
           icon={<ShoppingCart size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
@@ -567,7 +576,7 @@ function OrderRow({
         className="cursor-pointer transition-all"
         style={{
           borderBottom: isExpanded ? "none" : "1px solid var(--border)",
-          opacity: order.printed ? 0.5 : 1,
+          opacity: showPrint && order.printed ? 0.75 : 1,
         }}
         onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -586,8 +595,30 @@ function OrderRow({
             />
           </td>
         )}
-        <td className="py-2 px-2" style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>
-          {order.orderId}
+        <td className="py-2 px-2" style={{ fontFamily: "var(--font-mono)" }}>
+          <span className="inline-flex items-center gap-1.5">
+            <a
+              href={`https://www.cardmarket.com/en/Magic/Orders/${order.orderId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{ color: "var(--accent)", textDecoration: "none" }}
+              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+            >
+              {order.orderId}
+            </a>
+            <span
+              title={(order as unknown as Record<string, unknown>).shippingAddress ? "Detail synced" : "Needs sync — visit order on CM"}
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: (order as unknown as Record<string, unknown>).shippingAddress ? "var(--success)" : "#f44336",
+                flexShrink: 0,
+              }}
+            />
+          </span>
         </td>
         <td className="py-2 px-2" style={{ color: "var(--text-primary)" }}>
           <span className="inline-flex items-center gap-1.5">

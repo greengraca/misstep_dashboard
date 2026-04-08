@@ -14,6 +14,7 @@ import {
   TrendingUp,
   TrendingDown,
   Banknote,
+  ShoppingBag,
   PlusCircle,
   Clock,
   CheckCircle,
@@ -87,6 +88,12 @@ export default function FinanceContent() {
   const { data, isLoading, mutate } = useSWR<{ data: Transaction[] }>(swrKey, fetcher);
   const transactions = data?.data ?? [];
 
+  // CM Revenue for this month
+  const { data: cmRevData } = useSWR<{ data: { orderCount: number; totalSales: number; grossArticleValue: number; sellingFees: number; trusteeFees: number; shippingCosts: number; netRevenue: number } }>(
+    `/api/ext/revenue?month=${month}`, fetcher
+  );
+  const cmRev = cmRevData?.data;
+
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
@@ -102,10 +109,12 @@ export default function FinanceContent() {
   const [formAmount, setFormAmount] = useState("");
   const [formPaidBy, setFormPaidBy] = useState("");
 
-  // Stats (withdrawals excluded from net balance)
-  const totalIncome = transactions
+  // Stats (withdrawals excluded from net balance, CM revenue included in income)
+  const manualIncome = transactions
     .filter((t) => t.type === "income")
     .reduce((s, t) => s + t.amount, 0);
+  const cmIncome = cmRev?.netRevenue ?? 0;
+  const totalIncome = manualIncome + cmIncome;
   const totalExpenses = transactions
     .filter((t) => t.type === "expense")
     .reduce((s, t) => s + t.amount, 0);
@@ -352,6 +361,61 @@ export default function FinanceContent() {
           active={netBalance > 0}
         />
       </div>
+
+      {/* CM Revenue breakdown */}
+      {cmRev && cmRev.orderCount > 0 && (
+        <div
+          className="p-4 rounded-xl"
+          style={{
+            background: "var(--surface-gradient)",
+            backdropFilter: "var(--surface-blur)",
+            border: "var(--surface-border)",
+            boxShadow: "var(--surface-shadow)",
+          }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <ShoppingBag size={16} style={{ color: "var(--accent)" }} />
+            <h2 style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
+              Cardmarket Revenue
+            </h2>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {cmRev.orderCount} orders
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Total Sales</span>
+              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                €{cmRev.totalSales.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Gross</span>
+              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                €{cmRev.grossArticleValue.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Fees</span>
+              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--error, #ef4444)", fontFamily: "var(--font-mono)" }}>
+                -€{(cmRev.sellingFees + cmRev.trusteeFees).toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Shipping Costs</span>
+              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                €{cmRev.shippingCosts.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <span style={{ color: "var(--text-muted)" }}>Net Revenue</span>
+              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--success)", fontFamily: "var(--font-mono)" }}>
+                €{cmRev.netRevenue.toFixed(2)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Transaction table */}
       <div

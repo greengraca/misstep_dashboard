@@ -209,6 +209,23 @@ async function processOrders(
 
   if (!ops.length) return { added: 0, updated: 0, skipped: 0 };
   const result = await col.bulkWrite(ops, { ordered: false });
+
+  // If this is a single-page view of shopping cart, orders that disappeared
+  // were removed by buyers — delete them. Other statuses don't need cleanup;
+  // orders that moved forward will get updated when we browse their new page.
+  const totalPages = (data.totalPages as number) || 1;
+  const currentPage = (data.currentPage as number) || 1;
+  if (status === "shopping_cart" && totalPages === 1 && currentPage === 1) {
+    const syncedIds = orders.map(o => o.orderId);
+    const staleFilter = { status, direction, orderId: { $nin: syncedIds } };
+    const staleIds = await col.find(staleFilter).project({ orderId: 1 }).toArray();
+    if (staleIds.length) {
+      const ids = staleIds.map(d => d.orderId as string);
+      await col.deleteMany(staleFilter);
+      await db.collection(COL.orderItems).deleteMany({ orderId: { $in: ids } });
+    }
+  }
+
   return {
     added: result.upsertedCount || 0,
     updated: result.modifiedCount || 0,
@@ -419,7 +436,7 @@ export async function getOrders(filters: {
   direction?: string;
   page?: number;
   limit?: number;
-} = {}): Promise<{ orders: CmOrder[]; total: number }> {
+} = {}): Promise<{ orders: CmOrder[]; total: number; totalValue: number }> {
   const db = await getDb();
   const col = db.collection(COL.orders);
   const query: Record<string, unknown> = {};
@@ -429,12 +446,70 @@ export async function getOrders(filters: {
   const limit = filters.limit || 20;
   const skip = ((filters.page || 1) - 1) * limit;
 
-  const [docs, total] = await Promise.all([
+  const [docs, total, valueResult] = await Promise.all([
     col.find(query).sort({ orderDate: 1, orderTime: 1 }).skip(skip).limit(limit).toArray(),
     col.countDocuments(query),
+    col.aggregate([
+      { $match: query },
+      { $group: { _id: null, totalValue: { $sum: "$totalPrice" } } },
+    ]).toArray(),
   ]);
 
-  return { orders: docs as unknown as CmOrder[], total };
+  return {
+    orders: docs as unknown as CmOrder[],
+    total,
+    totalValue: valueResult[0]?.totalValue || 0,
+  };
+}
+
+export async function getCmRevenueForMonth(month: string): Promise<{
+  orderCount: number;
+  totalSales: number;
+  grossArticleValue: number;
+  sellingFees: number;
+  trusteeFees: number;
+  shippingCosts: number;
+  netRevenue: number;
+}> {
+  const db = await getDb();
+  // month is "YYYY-MM", orderDate is "DD.MM.YYYY" — match by the MM.YYYY part
+  const [year, mm] = month.split("-");
+  const monthSuffix = `${mm}.${year}`; // e.g., "04.2026"
+
+  const orders = await db.collection(COL.orders).find({
+    direction: "sale",
+    status: { $in: ["paid", "sent", "arrived"] },
+    orderDate: { $regex: `\\.${monthSuffix}$` },
+  }).toArray();
+
+  let totalSales = 0;
+  let grossArticleValue = 0;
+  let shippingCosts = 0;
+  let trusteeArticleValue = 0;
+
+  for (const order of orders) {
+    totalSales += (order.totalPrice as number) || 0;
+    const articleVal = order.itemValue != null ? (order.itemValue as number) : (order.totalPrice as number) || 0;
+    grossArticleValue += articleVal;
+    shippingCosts += (order.shippingPrice as number) || 0;
+    if (order.trustee) trusteeArticleValue += articleVal;
+  }
+
+  // 5% selling fee on all article value
+  const sellingFees = Math.ceil(grossArticleValue * 0.05 * 100) / 100;
+  // 1% trustee fee on trustee orders only
+  const trusteeFees = Math.ceil(trusteeArticleValue * 0.01 * 100) / 100;
+  const netRevenue = grossArticleValue - sellingFees - trusteeFees;
+
+  return {
+    orderCount: orders.length,
+    totalSales: Math.round(totalSales * 100) / 100,
+    grossArticleValue: Math.round(grossArticleValue * 100) / 100,
+    sellingFees,
+    trusteeFees,
+    shippingCosts: Math.round(shippingCosts * 100) / 100,
+    netRevenue: Math.round(netRevenue * 100) / 100,
+  };
 }
 
 export async function markOrdersPrinted(orderIds: string[], printed: boolean): Promise<void> {
@@ -443,6 +518,15 @@ export async function markOrdersPrinted(orderIds: string[], printed: boolean): P
     { orderId: { $in: orderIds } },
     { $set: { printed } }
   );
+}
+
+export async function getOrderValuesByStatus(): Promise<Record<string, number>> {
+  const db = await getDb();
+  const results = await db.collection(COL.orders).aggregate([
+    { $match: { direction: "sale" } },
+    { $group: { _id: "$status", total: { $sum: "$totalPrice" } } },
+  ]).toArray();
+  return Object.fromEntries(results.map(r => [r._id as string, r.total as number]));
 }
 
 export async function getOrderCounts(): Promise<Record<string, { sale: number; purchase: number }>> {

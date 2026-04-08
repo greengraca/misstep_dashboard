@@ -1,12 +1,13 @@
 import { withExtAuthRead } from "@/lib/api-ext-helpers";
-import { getSyncStatus, getLatestBalance, getStockCoverage, getOrderCounts } from "@/lib/cardmarket";
+import { getSyncStatus, getLatestBalance, getStockCoverage, getOrderCounts, getOrderValuesByStatus } from "@/lib/cardmarket";
 
 export const GET = withExtAuthRead(async () => {
-  const [syncStatus, latestBalance, coverage, orderCounts] = await Promise.all([
+  const [syncStatus, latestBalance, coverage, orderCounts, orderValues] = await Promise.all([
     getSyncStatus(),
     getLatestBalance(),
     getStockCoverage(),
     getOrderCounts(),
+    getOrderValuesByStatus(),
   ]);
 
   return {
@@ -16,6 +17,7 @@ export const GET = withExtAuthRead(async () => {
       currentBalance: latestBalance?.balance ?? null,
       stockCoverage: coverage,
       orderCounts,
+      orderValues,
     },
   };
 }, "ext-status");
