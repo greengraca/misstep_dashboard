@@ -1,11 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
-import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer } from "lucide-react";
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
+
+const SENDER_ADDRESS = {
+  name: "João Graça",
+  street: "Rua Dr. Caldas Lopes 19 R/C DTO",
+  city: "2500-189 Caldas da Rainha",
+  country: "Portugal",
+};
 
 /** Renders a sprite icon from a CM sprite sheet stored locally. */
 function SpriteIcon({ src, pos, size = 16, title }: { src: string; pos?: string; size?: number; title?: string }) {
@@ -109,6 +116,7 @@ export default function CardmarketContent() {
   const [direction, setDirection] = useState<"sale" | "purchase">("sale");
   const [orderPage, setOrderPage] = useState(1);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const printRef = useRef<HTMLDivElement>(null);
 
   const { data: statusData, mutate: mutateStatus } = useSWR("/api/ext/status", fetcher, { refreshInterval: 30000 });
   const { data: balanceData } = useSWR("/api/ext/balance?days=30", fetcher, { refreshInterval: 60000 });
@@ -117,9 +125,9 @@ export default function CardmarketContent() {
     status: activeTab,
     direction,
     page: String(orderPage),
-    limit: "15",
+    limit: "20",
   });
-  const { data: ordersData } = useSWR(`/api/ext/orders?${orderParams}`, fetcher, { refreshInterval: 60000 });
+  const { data: ordersData, mutate: mutateOrders } = useSWR(`/api/ext/orders?${orderParams}`, fetcher, { refreshInterval: 60000 });
 
   // Fetch detail when an order is expanded
   const { data: detailData } = useSWR(
@@ -161,6 +169,96 @@ export default function CardmarketContent() {
     setOrderPage(1);
     setExpandedOrder(null);
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const togglePrinted = useCallback(async (orderId: string, printed: boolean) => {
+    await fetch("/api/ext/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderIds: [orderId], printed }),
+    });
+    mutateOrders();
+  }, [mutateOrders]);
+
+  const printEnvelopes = useCallback((ordersToprint: CmOrder[]) => {
+    // Filter to orders that have shipping address data
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const withAddress = ordersToprint.filter((o: any) => o.shippingAddress?.name);
+    if (!withAddress.length) {
+      alert("No orders with shipping address data. Visit the order detail pages on Cardmarket first.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pages = withAddress.map((order: any) => {
+      const addr = order.shippingAddress;
+      return `
+        <div class="envelope-page">
+          <div class="sender">
+            <div>${SENDER_ADDRESS.name}</div>
+            <div>${SENDER_ADDRESS.street}</div>
+            <div>${SENDER_ADDRESS.city}</div>
+            <div>${SENDER_ADDRESS.country}</div>
+          </div>
+          <div class="recipient">
+            <div>${addr.name}</div>
+            <div>${addr.street}</div>
+            <div>${addr.city}</div>
+            <div>${addr.country}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Print Envelopes</title>
+        <style>
+          @page { size: 114mm 162mm; margin: 0; }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, Helvetica, sans-serif; }
+          .envelope-page {
+            width: 114mm;
+            height: 162mm;
+            position: relative;
+            page-break-after: always;
+            overflow: hidden;
+          }
+          .envelope-page:last-child { page-break-after: auto; }
+          .sender {
+            position: absolute;
+            top: 10mm;
+            right: 10mm;
+            writing-mode: vertical-rl;
+            font-size: 13px;
+            line-height: 1.8;
+            color: #595959;
+            white-space: nowrap;
+          }
+          .recipient {
+            position: absolute;
+            bottom: 30mm;
+            left: 18%;
+            writing-mode: vertical-rl;
+            font-size: 17px;
+            line-height: 1.8;
+            color: #000;
+            white-space: nowrap;
+          }
+        </style>
+      </head>
+      <body>${pages}</body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }, []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -304,6 +402,19 @@ export default function CardmarketContent() {
           })}
         </div>
 
+        {/* Print All bar (only on Paid tab with sale direction) */}
+        {activeTab === "paid" && direction === "sale" && orders?.orders?.length > 0 && (
+          <div className="flex items-center justify-end gap-2 px-4 pt-2">
+            <button
+              onClick={() => printEnvelopes(orders.orders)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ background: "var(--accent)", color: "var(--bg-primary)" }}
+            >
+              <Printer size={13} /> Print All Envelopes
+            </button>
+          </div>
+        )}
+
         {/* Order rows */}
         <div className="px-4 pb-4">
           {orders?.orders?.length ? (
@@ -312,6 +423,7 @@ export default function CardmarketContent() {
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
                     <th className="text-center py-2 px-1 font-medium w-6">#</th>
+                    {activeTab === "paid" && <th className="text-center py-2 px-1 font-medium w-6"></th>}
                     <th className="text-left py-2 px-2 font-medium">ID</th>
                     <th className="text-left py-2 px-2 font-medium">{direction === "sale" ? "Buyer" : "Seller"}</th>
                     <th className="text-left py-2 px-2 font-medium">Last Name</th>
@@ -333,7 +445,10 @@ export default function CardmarketContent() {
                         isExpanded={isExpanded}
                         detail={detail}
                         formatEur={formatEur}
+                        showPrint={activeTab === "paid"}
                         onToggle={() => setExpandedOrder(isExpanded ? null : order.orderId)}
+                        onTogglePrinted={(printed) => togglePrinted(order.orderId, printed)}
+                        onPrint={() => printEnvelopes([order])}
                       />
                     );
                   })}
@@ -341,10 +456,10 @@ export default function CardmarketContent() {
               </table>
 
               {/* Pagination */}
-              {orders.total > 15 && (
+              {orders.total > 20 && (
                 <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    Page {orderPage} of {Math.ceil(orders.total / 15)}
+                    Page {orderPage} of {Math.ceil(orders.total / 20)}
                   </span>
                   <div className="flex gap-2">
                     <button
@@ -359,12 +474,12 @@ export default function CardmarketContent() {
                       Prev
                     </button>
                     <button
-                      disabled={orderPage >= Math.ceil(orders.total / 15)}
+                      disabled={orderPage >= Math.ceil(orders.total / 20)}
                       onClick={() => setOrderPage((p) => p + 1)}
                       className="px-2 py-1 rounded text-xs"
                       style={{
                         background: "var(--bg-card)", border: "1px solid var(--border)",
-                        color: "var(--text-primary)", opacity: orderPage >= Math.ceil(orders.total / 15) ? 0.4 : 1,
+                        color: "var(--text-primary)", opacity: orderPage >= Math.ceil(orders.total / 20) ? 0.4 : 1,
                       }}
                     >
                       Next
@@ -426,14 +541,20 @@ function OrderRow({
   isExpanded,
   detail,
   formatEur,
+  showPrint,
   onToggle,
+  onTogglePrinted,
+  onPrint,
 }: {
   order: CmOrder;
   rowNum: number;
   isExpanded: boolean;
   detail: { order: CmOrder | null; items: CmOrderItem[] } | null;
   formatEur: (n: number | null | undefined) => string;
+  showPrint: boolean;
   onToggle: () => void;
+  onTogglePrinted: (printed: boolean) => void;
+  onPrint: () => void;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fullOrder = detail?.order as any;
@@ -444,13 +565,27 @@ function OrderRow({
       <tr
         onClick={onToggle}
         className="cursor-pointer transition-all"
-        style={{ borderBottom: isExpanded ? "none" : "1px solid var(--border)" }}
+        style={{
+          borderBottom: isExpanded ? "none" : "1px solid var(--border)",
+          opacity: order.printed ? 0.5 : 1,
+        }}
         onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
       >
         <td className="py-2 px-1 text-center" style={{ color: "var(--text-muted)" }}>
           {rowNum}
         </td>
+        {showPrint && (
+          <td className="py-2 px-1 text-center" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={!!order.printed}
+              onChange={(e) => onTogglePrinted(e.target.checked)}
+              title={order.printed ? "Printed" : "Not printed"}
+              style={{ accentColor: "var(--accent)", cursor: "pointer" }}
+            />
+          </td>
+        )}
         <td className="py-2 px-2" style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>
           {order.orderId}
         </td>
@@ -480,7 +615,7 @@ function OrderRow({
 
       {isExpanded && (
         <tr>
-          <td colSpan={8} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
+          <td colSpan={showPrint ? 9 : 8} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
             <div
               className="px-4 py-3 mx-2 mb-2 rounded-lg"
               style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}
@@ -498,6 +633,15 @@ function OrderRow({
                       )}
                       {fullOrder.shippingAddress?.country && (
                         <span>To: <span style={{ color: "var(--text-secondary)" }}>{fullOrder.shippingAddress.name}, {fullOrder.shippingAddress.country}</span></span>
+                      )}
+                      {showPrint && fullOrder.shippingAddress?.name && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onPrint(); }}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium"
+                          style={{ background: "rgba(63,206,229,0.15)", color: "var(--accent)" }}
+                        >
+                          <Printer size={10} /> Print Envelope
+                        </button>
                       )}
                       {fullOrder.timeline && Object.keys(fullOrder.timeline).length > 0 && (
                         <span>

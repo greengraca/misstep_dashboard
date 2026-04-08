@@ -1,17 +1,16 @@
 import { withExtAuthRead } from "@/lib/api-ext-helpers";
-import { getOrders, getOrderDetail } from "@/lib/cardmarket";
+import { withAuth } from "@/lib/api-helpers";
+import { getOrders, getOrderDetail, markOrdersPrinted } from "@/lib/cardmarket";
 
 export const GET = withExtAuthRead(async (req) => {
   const params = req.nextUrl.searchParams;
   const orderId = params.get("orderId");
 
-  // Single order detail
   if (orderId) {
     const detail = await getOrderDetail(orderId);
     return { data: detail };
   }
 
-  // Paginated list
   const orders = await getOrders({
     status: params.get("status") || undefined,
     direction: params.get("direction") || undefined,
@@ -21,3 +20,10 @@ export const GET = withExtAuthRead(async (req) => {
 
   return { data: orders };
 }, "ext-orders");
+
+export const PATCH = withAuth(async (req) => {
+  const { orderIds, printed } = await req.json();
+  if (!orderIds?.length) return { error: "orderIds required" };
+  await markOrdersPrinted(orderIds, printed ?? true);
+  return { data: { success: true } };
+}, "ext-orders-patch");

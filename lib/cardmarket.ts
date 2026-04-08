@@ -177,7 +177,12 @@ async function processOrders(
     if (existing) {
       const existingIdx = STATUS_ORDER.indexOf(existing.status as string);
       const updates: Record<string, unknown> = { lastSeenAt: now, submittedBy };
-      if (newIdx > existingIdx) updates.status = status;
+      if (newIdx > existingIdx) {
+        updates.status = status;
+        // Update date/time to match the new status page (Paid shows paid date, Sent shows sent date, etc.)
+        if (order.orderDate) updates.orderDate = order.orderDate;
+        if (order.orderTime) updates.orderTime = order.orderTime;
+      }
       if (order.lastName) updates.lastName = order.lastName;
       if (order.trustee != null) updates.trustee = order.trustee;
       if (order.countryFlagPos) updates.countryFlagPos = order.countryFlagPos;
@@ -232,7 +237,15 @@ async function processOrderDetail(
   if (detail.shippingPrice != null) orderUpdates.shippingPrice = detail.shippingPrice;
   if (detail.itemValue != null) orderUpdates.itemValue = detail.itemValue;
   if (detail.totalPrice != null) orderUpdates.totalPrice = detail.totalPrice;
-  if (detail.timeline) orderUpdates.timeline = detail.timeline;
+  if (detail.timeline) {
+    orderUpdates.timeline = detail.timeline;
+    // Use the current status timestamp from the timeline as the order's display date
+    if (detail.status && detail.timeline[detail.status]) {
+      const parts = detail.timeline[detail.status].split(" ");
+      if (parts[0]) orderUpdates.orderDate = parts[0];
+      if (parts[1]) orderUpdates.orderTime = parts[1];
+    }
+  }
   if (detail.status) orderUpdates.status = detail.status;
   if (detail.counterparty) orderUpdates.counterparty = detail.counterparty;
   if (detail.country) orderUpdates.country = detail.country;
@@ -422,6 +435,14 @@ export async function getOrders(filters: {
   ]);
 
   return { orders: docs as unknown as CmOrder[], total };
+}
+
+export async function markOrdersPrinted(orderIds: string[], printed: boolean): Promise<void> {
+  const db = await getDb();
+  await db.collection(COL.orders).updateMany(
+    { orderId: { $in: orderIds } },
+    { $set: { printed } }
+  );
 }
 
 export async function getOrderCounts(): Promise<Record<string, { sale: number; purchase: number }>> {

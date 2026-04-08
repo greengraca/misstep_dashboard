@@ -24,7 +24,7 @@ export interface ErrorLogEntry {
   timestamp: Date;
 }
 
-export type TransactionType = "income" | "expense";
+export type TransactionType = "income" | "expense" | "withdrawal";
 export type TransactionCategory = "shipping" | "operational" | "other";
 
 export interface Transaction {
@@ -76,6 +76,7 @@ export interface CmOrder {
   totalPrice: number;
   orderDate: string;
   orderTime?: string;
+  printed?: boolean;
   lastSeenAt?: string;
   submittedBy?: string;
 }

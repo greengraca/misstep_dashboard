@@ -13,6 +13,7 @@ import {
   Wallet,
   TrendingUp,
   TrendingDown,
+  Banknote,
   PlusCircle,
   Clock,
   CheckCircle,
@@ -29,6 +30,7 @@ const CATEGORIES = [
 const TYPE_OPTIONS = [
   { value: "expense", label: "Expense" },
   { value: "income", label: "Income" },
+  { value: "withdrawal", label: "Withdrawal" },
 ];
 const PAID_BY_OPTIONS = [
   { value: "", label: "None" },
@@ -100,12 +102,15 @@ export default function FinanceContent() {
   const [formAmount, setFormAmount] = useState("");
   const [formPaidBy, setFormPaidBy] = useState("");
 
-  // Stats
+  // Stats (withdrawals excluded from net balance)
   const totalIncome = transactions
     .filter((t) => t.type === "income")
     .reduce((s, t) => s + t.amount, 0);
   const totalExpenses = transactions
     .filter((t) => t.type === "expense")
+    .reduce((s, t) => s + t.amount, 0);
+  const totalWithdrawals = transactions
+    .filter((t) => t.type === "withdrawal")
     .reduce((s, t) => s + t.amount, 0);
   const netBalance = totalIncome - totalExpenses;
 
@@ -145,7 +150,7 @@ export default function FinanceContent() {
     const payload = {
       date: buildDateStr(formDay, formMonth, formYear),
       type: formType,
-      category: formCategory,
+      category: formType === "withdrawal" ? "withdrawal" : formCategory,
       description: formDescription,
       amount: parseFloat(formAmount),
       paid_by: formType === "expense" && formPaidBy ? formPaidBy : null,
@@ -229,7 +234,7 @@ export default function FinanceContent() {
       render: (t) => (
         <span
           style={{
-            color: t.type === "income" ? "var(--success)" : "var(--error, #ef4444)",
+            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-muted)" : "var(--error, #ef4444)",
             fontFamily: "var(--font-mono)",
             fontWeight: 500,
           }}
@@ -334,6 +339,11 @@ export default function FinanceContent() {
           title="Expenses"
           value={isLoading ? "..." : `€${totalExpenses.toFixed(2)}`}
           icon={<TrendingDown size={20} style={{ color: "var(--accent)" }} />}
+        />
+        <StatCard
+          title="Withdrawals"
+          value={isLoading ? "..." : `€${totalWithdrawals.toFixed(2)}`}
+          icon={<Banknote size={20} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
           title="Net Balance"
@@ -452,13 +462,19 @@ export default function FinanceContent() {
                   className="flex-1 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-colors"
                   style={{
                     background: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error-light, rgba(239,68,68,0.1))" : "var(--success-light, rgba(34,197,94,0.1))"
+                      ? opt.value === "expense" ? "var(--error-light, rgba(239,68,68,0.1))"
+                        : opt.value === "withdrawal" ? "rgba(251,191,36,0.1)"
+                        : "var(--success-light, rgba(34,197,94,0.1))"
                       : "var(--bg-card)",
                     borderColor: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error, #ef4444)" : "var(--success)"
+                      ? opt.value === "expense" ? "var(--error, #ef4444)"
+                        : opt.value === "withdrawal" ? "#fbbf24"
+                        : "var(--success)"
                       : "var(--border)",
                     color: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error, #ef4444)" : "var(--success)"
+                      ? opt.value === "expense" ? "var(--error, #ef4444)"
+                        : opt.value === "withdrawal" ? "#fbbf24"
+                        : "var(--success)"
                       : "var(--text-secondary)",
                   }}
                 >
@@ -468,16 +484,18 @@ export default function FinanceContent() {
             </div>
           </div>
 
-          {/* Category */}
-          <div>
-            <label className={labelClass} style={{ color: "var(--text-muted)" }}>Category</label>
-            <Select
-              value={formCategory}
-              onChange={setFormCategory}
-              options={CATEGORIES}
-              className="w-full"
-            />
-          </div>
+          {/* Category (not for withdrawals) */}
+          {formType !== "withdrawal" && (
+            <div>
+              <label className={labelClass} style={{ color: "var(--text-muted)" }}>Category</label>
+              <Select
+                value={formCategory}
+                onChange={setFormCategory}
+                options={CATEGORIES}
+                className="w-full"
+              />
+            </div>
+          )}
 
           {/* Description */}
           <div>
