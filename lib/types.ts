@@ -69,6 +69,9 @@ export interface CmOrder {
   status: string;
   counterparty: string;
   country: string;
+  countryFlagPos?: string;
+  lastName?: string;
+  trustee?: boolean;
   itemCount: number;
   totalPrice: number;
   orderDate: string;
@@ -96,6 +99,8 @@ export interface CmOrderItem {
   qty: number;
   rarity?: string;
   productId?: string;
+  expansionPos?: string;
+  langPos?: string;
 }
 
 export interface CmOrderDetail {
@@ -123,9 +128,7 @@ export interface CmStockListing {
   foil: boolean;
   set: string;
   dedupKey: string;
-  source: "stock_page" | "order_item" | "import";
-  sold?: boolean;
-  orderId?: string;
+  source: "stock_page" | "import";
   firstSeenAt?: string;
   lastSeenAt?: string;
   submittedBy?: string;

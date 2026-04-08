@@ -164,39 +164,51 @@ async function processOrders(
   const orders = data.orders as CmOrder[];
   const direction = (data.direction as string) || "sale";
   const status = data.status as string;
-  let added = 0, updated = 0, skipped = 0;
+  const now = new Date().toISOString();
+  const newIdx = STATUS_ORDER.indexOf(status);
 
-  for (const order of orders) {
-    const existing = await col.findOne({ orderId: order.orderId });
+  // Batch-read existing orders to check status progression
+  const orderIds = orders.map(o => o.orderId);
+  const existingDocs = await col.find({ orderId: { $in: orderIds } }).toArray();
+  const existingMap = new Map(existingDocs.map(d => [d.orderId as string, d]));
+
+  const ops = orders.map(order => {
+    const existing = existingMap.get(order.orderId);
     if (existing) {
-      // Only update if status moves forward
-      const existingIdx = STATUS_ORDER.indexOf(existing.status);
-      const newIdx = STATUS_ORDER.indexOf(status);
-      const updates: Record<string, unknown> = { lastSeenAt: new Date().toISOString(), submittedBy };
-      if (newIdx > existingIdx) {
-        updates.status = status;
-      }
-      await col.updateOne({ orderId: order.orderId }, { $set: updates });
-      updated++;
-    } else {
-      await col.insertOne({
-        orderId: order.orderId,
-        direction,
-        status,
-        counterparty: order.counterparty || "",
-        country: order.country || "",
-        itemCount: order.itemCount || 0,
-        totalPrice: order.totalPrice || 0,
-        orderDate: order.orderDate || "",
-        orderTime: order.orderTime || "",
-        lastSeenAt: new Date().toISOString(),
-        submittedBy,
-      });
-      added++;
+      const existingIdx = STATUS_ORDER.indexOf(existing.status as string);
+      const updates: Record<string, unknown> = { lastSeenAt: now, submittedBy };
+      if (newIdx > existingIdx) updates.status = status;
+      if (order.lastName) updates.lastName = order.lastName;
+      if (order.trustee != null) updates.trustee = order.trustee;
+      if (order.countryFlagPos) updates.countryFlagPos = order.countryFlagPos;
+      return { updateOne: { filter: { orderId: order.orderId }, update: { $set: updates } } };
     }
-  }
+    return {
+      updateOne: {
+        filter: { orderId: order.orderId },
+        update: {
+          $set: { lastSeenAt: now, submittedBy },
+          $setOnInsert: {
+            orderId: order.orderId, direction, status,
+            counterparty: order.counterparty || "", country: order.country || "",
+            countryFlagPos: order.countryFlagPos || "", lastName: order.lastName || "",
+            trustee: order.trustee || false, itemCount: order.itemCount || 0,
+            totalPrice: order.totalPrice || 0, orderDate: order.orderDate || "",
+            orderTime: order.orderTime || "",
+          },
+        },
+        upsert: true,
+      },
+    };
+  });
 
-  return { added, updated, skipped };
+  if (!ops.length) return { added: 0, updated: 0, skipped: 0 };
+  const result = await col.bulkWrite(ops, { ordered: false });
+  return {
+    added: result.upsertedCount || 0,
+    updated: result.modifiedCount || 0,
+    skipped: 0,
+  };
 }
 
 // ── Order Detail (enrich order + save items) ────────────────────────
@@ -232,42 +244,34 @@ async function processOrderDetail(
   );
   updated++;
 
-  // Save order items
+  // Save order items (separate collection, not mixed into stock)
   if (detail.items?.length) {
-    const itemCol = db.collection(COL.orderItems);
-    const stockCol = db.collection(COL.stock);
+    const itemOps = detail.items.map(item => ({
+      updateOne: {
+        filter: { orderId, articleId: item.articleId },
+        update: { $set: { ...item, orderId, submittedBy } },
+        upsert: true,
+      },
+    }));
+    await db.collection(COL.orderItems).bulkWrite(itemOps, { ordered: false });
 
-    for (const item of detail.items) {
-      await itemCol.updateOne(
-        { orderId, articleId: item.articleId },
-        { $set: { ...item, orderId, submittedBy } },
-        { upsert: true }
-      );
-
-      // Also add to stock as order_item source
-      const dedupKey = `${item.name}|${item.qty}|${item.price}|${item.condition}|${item.foil}|${item.set}`;
-      const now = new Date().toISOString();
-      await stockCol.updateOne(
-        { dedupKey },
-        {
-          $set: { lastSeenAt: now, sold: true, orderId, submittedBy },
-          $setOnInsert: {
+    // Remove sold items from stock — match by name+condition+foil+set (ignore qty/price
+    // since a listing's qty/price may differ from the order line)
+    if (detail.status === "paid" || detail.status === "sent" || detail.status === "arrived") {
+      const removeOps = detail.items.map(item => ({
+        deleteOne: {
+          filter: {
             name: item.name,
-            qty: item.qty,
-            price: item.price,
             condition: item.condition,
-            language: item.language,
             foil: item.foil,
             set: item.set,
-            dedupKey,
-            source: "order_item" as const,
-            firstSeenAt: now,
+            source: "stock_page",
           },
         },
-        { upsert: true }
-      );
-      added++;
+      }));
+      await db.collection(COL.stock).bulkWrite(removeOps, { ordered: false });
     }
+    added += detail.items.length;
   }
 
   return { added, updated, skipped: 0 };
@@ -282,40 +286,35 @@ async function processStock(
   const db = await getDb();
   const col = db.collection(COL.stock);
   const listings = data.listings as CmStockListing[];
-  let added = 0, updated = 0, skipped = 0;
   const now = new Date().toISOString();
 
-  for (const listing of listings) {
+  const ops = listings.map(listing => {
     const dedupKey = listing.dedupKey ||
       `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}`;
-
-    const result = await col.updateOne(
-      { dedupKey },
-      {
-        $set: { lastSeenAt: now, submittedBy },
-        $setOnInsert: {
-          name: listing.name,
-          qty: listing.qty,
-          price: listing.price,
-          condition: listing.condition,
-          language: listing.language || "English",
-          foil: listing.foil || false,
-          set: listing.set,
-          dedupKey,
-          source: "stock_page" as const,
-          sold: false,
-          firstSeenAt: now,
+    return {
+      updateOne: {
+        filter: { dedupKey },
+        update: {
+          $set: { lastSeenAt: now, submittedBy },
+          $setOnInsert: {
+            name: listing.name, qty: listing.qty, price: listing.price,
+            condition: listing.condition, language: listing.language || "English",
+            foil: listing.foil || false, set: listing.set, dedupKey,
+            source: "stock_page" as const, firstSeenAt: now,
+          },
         },
+        upsert: true,
       },
-      { upsert: true }
-    );
+    };
+  });
 
-    if (result.upsertedId) added++;
-    else if (result.modifiedCount) updated++;
-    else skipped++;
-  }
-
-  return { added, updated, skipped };
+  if (!ops.length) return { added: 0, updated: 0, skipped: 0 };
+  const result = await col.bulkWrite(ops, { ordered: false });
+  return {
+    added: result.upsertedCount || 0,
+    updated: result.modifiedCount || 0,
+    skipped: listings.length - (result.upsertedCount || 0) - (result.modifiedCount || 0),
+  };
 }
 
 // ── Stock Overview (total count, time-series compressed) ────────────
@@ -418,11 +417,28 @@ export async function getOrders(filters: {
   const skip = ((filters.page || 1) - 1) * limit;
 
   const [docs, total] = await Promise.all([
-    col.find(query).sort({ orderDate: -1, orderTime: -1 }).skip(skip).limit(limit).toArray(),
+    col.find(query).sort({ orderDate: 1, orderTime: 1 }).skip(skip).limit(limit).toArray(),
     col.countDocuments(query),
   ]);
 
   return { orders: docs as unknown as CmOrder[], total };
+}
+
+export async function getOrderCounts(): Promise<Record<string, { sale: number; purchase: number }>> {
+  const db = await getDb();
+  const pipeline = [
+    { $group: { _id: { status: "$status", direction: "$direction" }, count: { $sum: 1 } } },
+  ];
+  const results = await db.collection(COL.orders).aggregate(pipeline).toArray();
+
+  const counts: Record<string, { sale: number; purchase: number }> = {};
+  for (const r of results) {
+    const status = r._id.status as string;
+    const direction = r._id.direction as string;
+    if (!counts[status]) counts[status] = { sale: 0, purchase: 0 };
+    counts[status][direction === "purchase" ? "purchase" : "sale"] = r.count;
+  }
+  return counts;
 }
 
 export async function getOrderDetail(orderId: string): Promise<{
@@ -536,35 +552,36 @@ export async function migrateFromHuntinggrounds(
   const col = db.collection(COL.stock);
   await ensureIndexes();
 
-  let imported = 0, skipped = 0;
   const now = new Date().toISOString();
 
-  for (const doc of sourceDocs) {
-    const dedupKey = `${doc.name}|${doc.qty}|${doc.price}|${doc.condition}|${doc.foil}|${doc.set}`;
-    const result = await col.updateOne(
-      { dedupKey },
-      {
-        $setOnInsert: {
-          name: doc.name,
-          qty: doc.qty,
-          price: doc.price,
-          condition: doc.condition,
-          language: "English",
-          foil: doc.foil || false,
-          set: doc.set,
-          dedupKey,
-          source: "import" as const,
-          sold: false,
-          firstSeenAt: doc.importedAt?.toISOString?.() || now,
-          lastSeenAt: now,
-          submittedBy: "migration",
+  const ops = sourceDocs.map(doc => {
+    const dedupKey = doc.dedupKey ||
+      `${doc.name}|${doc.qty}|${doc.price}|${doc.condition}|${doc.foil}|${doc.set}`;
+    return {
+      updateOne: {
+        filter: { dedupKey },
+        update: {
+          $setOnInsert: {
+            name: doc.name, qty: doc.qty, price: doc.price,
+            condition: doc.condition, language: "English",
+            foil: doc.foil || false, set: doc.set, dedupKey,
+            source: "import" as const,
+            firstSeenAt: doc.importedAt?.toISOString?.() || now,
+            lastSeenAt: now, submittedBy: "migration",
+          },
         },
+        upsert: true,
       },
-      { upsert: true }
-    );
+    };
+  });
 
-    if (result.upsertedId) imported++;
-    else skipped++;
+  // Process in batches of 500 to avoid memory issues
+  let imported = 0, skipped = 0;
+  for (let i = 0; i < ops.length; i += 500) {
+    const batch = ops.slice(i, i + 500);
+    const result = await col.bulkWrite(batch, { ordered: false });
+    imported += result.upsertedCount || 0;
+    skipped += batch.length - (result.upsertedCount || 0);
   }
 
   return { imported, skipped };

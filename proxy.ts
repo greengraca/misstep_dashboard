@@ -9,6 +9,6 @@ export const config = {
      * - /_next (static assets)
      * - /favicon.ico, /icon.*, /apple-icon.* (icons)
      */
-    "/((?!login|api/auth|_next|favicon\\.ico|icon|apple-icon).*)",
+    "/((?!login|api/auth|api/ext|_next|favicon\\.ico|icon|apple-icon).*)",
   ],
 };

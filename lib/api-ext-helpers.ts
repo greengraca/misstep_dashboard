@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireExtAuth } from "./ext-auth";
+import { requireAuth } from "./api-auth";
 import { logApiError } from "./error-log";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,8 +36,8 @@ export function withExtAuth(
 }
 
 /**
- * Wraps an API route handler with extension Bearer-token auth and error handling.
- * Use for read-only routes that don't need the member name.
+ * Wraps an API route handler that accepts EITHER NextAuth session (dashboard)
+ * OR extension Bearer token. Use for read-only ext routes that the frontend also calls.
  */
 export function withExtAuthRead(
   handler: (req: NextRequest) => Promise<HandlerReturn>,
@@ -44,8 +45,16 @@ export function withExtAuthRead(
 ) {
   return async (request: NextRequest) => {
     try {
+      // Try NextAuth session first (dashboard)
+      const sessionResult = await requireAuth(request);
+      if (!sessionResult.error) {
+        return toResponse(await handler(request));
+      }
+
+      // Fall back to Bearer token (extension)
       const { error } = await requireExtAuth(request);
       if (error) return error;
+
       return toResponse(await handler(request));
     } catch (err) {
       console.error(`${routeName} error:`, err);
