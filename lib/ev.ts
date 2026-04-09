@@ -993,9 +993,6 @@ export function simulateJumpstartBox(
 
 export async function generateSnapshot(setCode: string): Promise<EvSnapshot | null> {
   await ensureIndexes();
-  const config = await getConfig(setCode);
-  if (!config) return null;
-
   const { cards } = await getCardsForSet(setCode, { boosterOnly: false, limit: 10000 });
   const today = new Date().toISOString().slice(0, 10);
 
@@ -1004,26 +1001,48 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
   let collectorEvGross: number | null = null;
   let collectorEvNet: number | null = null;
 
-  if (config.play_booster) {
-    const result = calculateEv(cards, config.play_booster, {
-      siftFloor: config.sift_floor,
-      feeRate: config.fee_rate,
+  // Check if this is a Jumpstart set with theme data
+  const jumpstartThemes = await getJumpstartThemes(setCode);
+  if (jumpstartThemes) {
+    const config = await getConfig(setCode);
+    const feeRate = config?.fee_rate ?? 0.05;
+    const siftFloor = config?.sift_floor ?? 0.25;
+    const packsPerBox = config?.play_booster?.packs_per_box ?? 24;
+
+    const result = calculateJumpstartEv(cards, jumpstartThemes, {
+      siftFloor,
+      feeRate,
       setCode,
-      boosterType: "play",
+      packsPerBox,
     });
     playEvGross = result.box_ev_gross;
     playEvNet = result.box_ev_net;
-  }
+  } else {
+    // Standard slot-based calculation
+    const config = await getConfig(setCode);
+    if (!config) return null;
 
-  if (config.collector_booster) {
-    const result = calculateEv(cards, config.collector_booster, {
-      siftFloor: config.sift_floor,
-      feeRate: config.fee_rate,
-      setCode,
-      boosterType: "collector",
-    });
-    collectorEvGross = result.box_ev_gross;
-    collectorEvNet = result.box_ev_net;
+    if (config.play_booster) {
+      const result = calculateEv(cards, config.play_booster, {
+        siftFloor: config.sift_floor,
+        feeRate: config.fee_rate,
+        setCode,
+        boosterType: "play",
+      });
+      playEvGross = result.box_ev_gross;
+      playEvNet = result.box_ev_net;
+    }
+
+    if (config.collector_booster) {
+      const result = calculateEv(cards, config.collector_booster, {
+        siftFloor: config.sift_floor,
+        feeRate: config.fee_rate,
+        setCode,
+        boosterType: "collector",
+      });
+      collectorEvGross = result.box_ev_gross;
+      collectorEvNet = result.box_ev_net;
+    }
   }
 
   const db = await getDb();
@@ -1036,7 +1055,7 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     collector_ev_net: collectorEvNet,
     card_count_total: cards.length,
     card_count_priced: cards.filter((c) => c.price_eur !== null || c.price_eur_foil !== null).length,
-    sift_floor: config.sift_floor,
+    sift_floor: (await getConfig(setCode))?.sift_floor ?? 0.25,
     created_at: new Date().toISOString(),
   };
 
@@ -1052,16 +1071,27 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
 export async function generateAllSnapshots(): Promise<{ generated: number; errors: string[] }> {
   await ensureIndexes();
   const db = await getDb();
-  const configs = await db.collection(COL_CONFIG).find().toArray();
+
+  // Collect all set codes that should get snapshots: saved configs + jumpstart themes
+  const configCodes = await db.collection(COL_CONFIG).find({}, { projection: { set_code: 1 } }).toArray();
+  const jumpstartCodes = await db.collection(COL_JUMPSTART_THEMES).aggregate([
+    { $group: { _id: "$set_code" } },
+  ]).toArray();
+
+  const allCodes = new Set([
+    ...configCodes.map((c) => c.set_code as string),
+    ...jumpstartCodes.map((c) => c._id as string),
+  ]);
+
   let generated = 0;
   const errors: string[] = [];
 
-  for (const cfg of configs) {
+  for (const code of allCodes) {
     try {
-      const result = await generateSnapshot(cfg.set_code);
+      const result = await generateSnapshot(code);
       if (result) generated++;
     } catch (err) {
-      errors.push(`${cfg.set_code}: ${String(err)}`);
+      errors.push(`${code}: ${String(err)}`);
     }
   }
 

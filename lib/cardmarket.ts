@@ -447,7 +447,7 @@ export async function getOrders(filters: {
   const skip = ((filters.page || 1) - 1) * limit;
 
   const [docs, total, valueResult] = await Promise.all([
-    col.find(query).sort({ orderDate: 1, orderTime: 1 }).skip(skip).limit(limit).toArray(),
+    col.find(query).sort({ orderDate: 1, orderTime: 1, _id: 1 }).skip(skip).limit(limit).toArray(),
     col.countDocuments(query),
     col.aggregate([
       { $match: query },

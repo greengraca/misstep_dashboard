@@ -8,6 +8,7 @@ interface EvSetCardProps {
 }
 
 export default function EvSetCard({ set, onClick }: EvSetCardProps) {
+  const isJumpstart = set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart");
   const hasEv = set.play_ev_net != null || set.collector_ev_net != null;
 
   return (
@@ -62,7 +63,7 @@ export default function EvSetCard({ set, onClick }: EvSetCardProps) {
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  Play: &euro;{set.play_ev_net.toFixed(2)}
+                  {isJumpstart ? "Jumpstart" : "Play"}: &euro;{set.play_ev_net.toFixed(2)}
                 </span>
               )}
               {set.collector_ev_net != null && (

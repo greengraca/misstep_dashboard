@@ -181,6 +181,17 @@ export default function CardmarketContent() {
     mutateOrders();
   }, [mutateOrders]);
 
+  const toggleAllPrinted = useCallback(async (printed: boolean, ordersList: CmOrder[]) => {
+    const ids = ordersList.map((o) => o.orderId);
+    if (!ids.length) return;
+    await fetch("/api/ext/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderIds: ids, printed }),
+    });
+    mutateOrders();
+  }, [mutateOrders]);
+
   const printEnvelopes = useCallback((ordersToprint: CmOrder[]) => {
     // Filter to orders that have shipping address data
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -432,7 +443,31 @@ export default function CardmarketContent() {
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
                     <th className="text-center py-2 px-1 font-medium w-6">#</th>
-                    {activeTab === "paid" && <th className="text-center py-2 px-1 font-medium w-6"></th>}
+                    {activeTab === "paid" && (
+                      <th className="text-center py-2 px-1 font-medium w-6">
+                        {(() => {
+                          const allPrinted = orders.orders.length > 0 && orders.orders.every((o: CmOrder) => o.printed);
+                          return (
+                            <button
+                              onClick={() => toggleAllPrinted(!allPrinted, orders.orders)}
+                              title={allPrinted ? "Unmark all as printed" : "Mark all as printed"}
+                              className="w-4 h-4 rounded border-2 flex items-center justify-center transition-colors"
+                              style={{
+                                borderColor: "#eab308",
+                                background: allPrinted ? "#eab308" : "transparent",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {allPrinted && (
+                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                  <path d="M2 6l3 3 5-6" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </button>
+                          );
+                        })()}
+                      </th>
+                    )}
                     <th className="text-left py-2 px-2 font-medium">ID</th>
                     <th className="text-left py-2 px-2 font-medium">{direction === "sale" ? "Buyer" : "Seller"}</th>
                     <th className="text-left py-2 px-2 font-medium">Last Name</th>
@@ -450,7 +485,7 @@ export default function CardmarketContent() {
                       <OrderRow
                         key={order.orderId}
                         order={order}
-                        rowNum={(orderPage - 1) * 15 + idx + 1}
+                        rowNum={(orderPage - 1) * 20 + idx + 1}
                         isExpanded={isExpanded}
                         detail={detail}
                         formatEur={formatEur}

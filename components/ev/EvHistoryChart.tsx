@@ -6,9 +6,10 @@ import type { EvSnapshot } from "@/lib/types";
 interface EvHistoryChartProps {
   snapshots: EvSnapshot[];
   isLoading: boolean;
+  isJumpstart?: boolean;
 }
 
-export default function EvHistoryChart({ snapshots, isLoading }: EvHistoryChartProps) {
+export default function EvHistoryChart({ snapshots, isLoading, isJumpstart }: EvHistoryChartProps) {
   if (isLoading) {
     return <div className="skeleton" style={{ height: "200px" }} />;
   }
@@ -76,7 +77,7 @@ export default function EvHistoryChart({ snapshots, isLoading }: EvHistoryChartP
                 }}
                 formatter={(value, name) => [
                   typeof value === "number" ? `€${value.toFixed(2)}` : "—",
-                  name === "play" ? "Play Booster" : "Collector Booster",
+                  name,
                 ]}
               />
               {(hasPlay && hasCollector) && <Legend />}
@@ -87,7 +88,7 @@ export default function EvHistoryChart({ snapshots, isLoading }: EvHistoryChartP
                   stroke="var(--accent)"
                   strokeWidth={2}
                   dot={false}
-                  name="Play Booster"
+                  name={isJumpstart ? "Jumpstart Booster" : "Play Booster"}
                   connectNulls
                 />
               )}
