@@ -2,7 +2,7 @@
 
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { CmStockListing } from "@/lib/types";
-import type { StockSortField } from "@/lib/stock";
+import type { StockSortField } from "@/lib/stock-types";
 import CardHoverPreview from "./CardHoverPreview";
 
 interface Column {

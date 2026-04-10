@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Package, Coins, ListOrdered } from "lucide-react";
 import type { CmStockListing } from "@/lib/types";
-import type { StockSortField } from "@/lib/stock";
+import type { StockSortField } from "@/lib/stock-types";
 import StockFilters, {
   emptyStockFilters,
   type StockFilterState,

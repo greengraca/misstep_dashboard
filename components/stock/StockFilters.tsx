@@ -1,6 +1,6 @@
 "use client";
 
-import { STOCK_CONDITIONS, type StockCondition } from "@/lib/stock";
+import { STOCK_CONDITIONS, type StockCondition } from "@/lib/stock-types";
 
 export interface StockFilterState {
   name: string;

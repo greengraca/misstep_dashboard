@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import type { StockHistoryPoint, HistoryRange } from "@/lib/stock";
+import type { StockHistoryPoint, HistoryRange } from "@/lib/stock-types";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 

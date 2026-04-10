@@ -1,48 +1,21 @@
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 import type { CmStockListing, CmStockSnapshot } from "@/lib/types";
+import type {
+  StockSortField,
+  StockSearchParams,
+  StockSearchResult,
+  StockCounts,
+  HistoryRange,
+  StockHistoryPoint,
+} from "./stock-types";
+
+// Re-export client-safe types/constants so server-side callers can
+// keep importing from a single module if they want.
+export * from "./stock-types";
 
 const COL_STOCK = `${COLLECTION_PREFIX}cm_stock`;
 const COL_SNAPSHOTS = `${COLLECTION_PREFIX}cm_stock_snapshots`;
-
-export type StockSortField =
-  | "name"
-  | "qty"
-  | "price"
-  | "condition"
-  | "foil"
-  | "set"
-  | "language"
-  | "lastSeenAt";
-
-export const STOCK_SORT_FIELDS: StockSortField[] = [
-  "name", "qty", "price", "condition", "foil", "set", "language", "lastSeenAt",
-];
-
-export const STOCK_CONDITIONS = ["MT", "NM", "EX", "GD", "LP", "PL", "PO"] as const;
-export type StockCondition = (typeof STOCK_CONDITIONS)[number];
-
-export interface StockSearchParams {
-  name?: string;
-  set?: string;
-  condition?: StockCondition;
-  foil?: boolean;
-  language?: string;
-  minPrice?: number;
-  maxPrice?: number;
-  minQty?: number;
-  sort: StockSortField;
-  dir: "asc" | "desc";
-  page: number;
-  pageSize: number;
-}
-
-export interface StockSearchResult {
-  rows: CmStockListing[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -100,22 +73,6 @@ export async function searchStock(params: StockSearchParams): Promise<StockSearc
   };
 }
 
-export interface StockCounts {
-  totalListings: number;
-  totalQty: number;
-  totalValue: number;
-  distinctNameSet: number;
-}
-
-/**
- * Computes all four snapshot-level counts in a single $facet aggregation.
- * - totalListings: number of documents in the stock collection
- * - totalQty: sum of qty across all listings
- * - totalValue: sum of (qty * price) where price > 0.25
- * - distinctNameSet: count of unique (name, set) pairs
- *
- * Used by the summary API, the history backfill, and processStockOverview.
- */
 export async function computeStockCounts(): Promise<StockCounts> {
   const db = await getDb();
   const col = db.collection(COL_STOCK);
@@ -162,10 +119,6 @@ export async function computeStockCounts(): Promise<StockCounts> {
   };
 }
 
-/**
- * Returns the three headline metrics shown in the stat cards.
- * Thin wrapper over computeStockCounts that drops totalListings.
- */
 export async function getStockTotals(): Promise<{
   totalQty: number;
   totalValue: number;
@@ -177,16 +130,6 @@ export async function getStockTotals(): Promise<{
     totalValue: counts.totalValue,
     distinctListings: counts.distinctNameSet,
   };
-}
-
-export type HistoryRange = "7d" | "30d" | "90d" | "all";
-
-export interface StockHistoryPoint {
-  extractedAt: string;
-  totalListings: number;
-  totalQty: number | null;
-  totalValue: number | null;
-  distinctNameSet: number | null;
 }
 
 function rangeStartISO(range: HistoryRange): string | null {
