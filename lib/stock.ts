@@ -178,3 +178,39 @@ export async function getStockTotals(): Promise<{
     distinctListings: counts.distinctNameSet,
   };
 }
+
+export type HistoryRange = "7d" | "30d" | "90d" | "all";
+
+export interface StockHistoryPoint {
+  extractedAt: string;
+  totalListings: number;
+  totalQty: number | null;
+  totalValue: number | null;
+  distinctNameSet: number | null;
+}
+
+function rangeStartISO(range: HistoryRange): string | null {
+  if (range === "all") return null;
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString();
+}
+
+export async function getStockHistory(range: HistoryRange): Promise<StockHistoryPoint[]> {
+  const db = await getDb();
+  const col = db.collection<CmStockSnapshot>(COL_SNAPSHOTS);
+  const filter: Record<string, unknown> = {};
+  const start = rangeStartISO(range);
+  if (start) filter.extractedAt = { $gte: start };
+
+  const docs = await col.find(filter).sort({ extractedAt: 1 }).toArray();
+
+  return docs.map((d) => ({
+    extractedAt: d.extractedAt,
+    totalListings: d.totalListings,
+    totalQty: typeof d.totalQty === "number" ? d.totalQty : null,
+    totalValue: typeof d.totalValue === "number" ? d.totalValue : null,
+    distinctNameSet: typeof d.distinctNameSet === "number" ? d.distinctNameSet : null,
+  }));
+}
