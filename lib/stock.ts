@@ -74,3 +74,28 @@ export function buildStockFilter(params: StockSearchParams): Record<string, unkn
   }
   return filter;
 }
+
+export async function searchStock(params: StockSearchParams): Promise<StockSearchResult> {
+  const db = await getDb();
+  const col = db.collection<CmStockListing>(COL_STOCK);
+  const filter = buildStockFilter(params);
+  const sortDir = params.dir === "asc" ? 1 : -1;
+  const skip = (params.page - 1) * params.pageSize;
+
+  const [rows, total] = await Promise.all([
+    col
+      .find(filter)
+      .sort({ [params.sort]: sortDir })
+      .skip(skip)
+      .limit(params.pageSize)
+      .toArray(),
+    col.countDocuments(filter),
+  ]);
+
+  return {
+    rows: rows as unknown as CmStockListing[],
+    total,
+    page: params.page,
+    pageSize: params.pageSize,
+  };
+}
