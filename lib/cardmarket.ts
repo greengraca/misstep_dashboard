@@ -385,17 +385,34 @@ async function processStockOverview(
   const totalListings = data.totalListings as number;
   const now = new Date().toISOString();
 
-  // Time-series compression: keep at most 2 with same value
+  // Compute enriched snapshot counts from the current stock collection.
+  // Imported dynamically to avoid a circular-ish module dependency.
+  const { computeStockCounts } = await import("@/lib/stock");
+  const counts = await computeStockCounts();
+
+  // Time-series compression: delete the middle of three consecutive
+  // identical snapshots. Equality is compared on the full counter tuple
+  // (totalValue rounded to 2dp to avoid float drift).
   const recent = await col.find().sort({ extractedAt: -1 }).limit(2).toArray();
-  if (
-    recent.length === 2 &&
-    recent[0].totalListings === totalListings &&
-    recent[1].totalListings === totalListings
-  ) {
+  const sameTuple = (a: Record<string, unknown>) =>
+    a.totalListings === totalListings &&
+    a.totalQty === counts.totalQty &&
+    a.distinctNameSet === counts.distinctNameSet &&
+    Math.round(((a.totalValue as number) || 0) * 100) ===
+      Math.round(counts.totalValue * 100);
+
+  if (recent.length === 2 && sameTuple(recent[0]) && sameTuple(recent[1])) {
     await col.deleteOne({ _id: recent[0]._id });
   }
 
-  await col.insertOne({ totalListings, extractedAt: now, submittedBy });
+  await col.insertOne({
+    totalListings,
+    totalQty: counts.totalQty,
+    totalValue: counts.totalValue,
+    distinctNameSet: counts.distinctNameSet,
+    extractedAt: now,
+    submittedBy,
+  });
   return { added: 1, updated: 0, skipped: 0 };
 }
 
