@@ -18,6 +18,7 @@
 # misc
 .DS_Store
 *.pem
+.superpowers/
 
 # debug
 npm-debug.log*
@@ -37,3 +38,6 @@ CLAUDE.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+automatizationOfPackages/
+
