@@ -426,7 +426,7 @@ export default function CardmarketContent() {
         {activeTab === "paid" && direction === "sale" && orders?.orders?.length > 0 && (
           <div className="flex items-center justify-end gap-2 px-4 pt-2">
             <button
-              onClick={() => printEnvelopes(orders.orders)}
+              onClick={() => printEnvelopes(orders.orders.filter((o: CmOrder) => !o.printed))}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
               style={{ background: "var(--accent)", color: "var(--bg-primary)" }}
             >
