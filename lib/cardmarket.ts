@@ -207,8 +207,11 @@ async function processOrders(
     };
   });
 
-  if (!ops.length) return { added: 0, updated: 0, skipped: 0 };
-  const result = await col.bulkWrite(ops, { ordered: false });
+  let result = { upsertedCount: 0, modifiedCount: 0 };
+  if (ops.length) {
+    const bulkResult = await col.bulkWrite(ops, { ordered: false });
+    result = { upsertedCount: bulkResult.upsertedCount || 0, modifiedCount: bulkResult.modifiedCount || 0 };
+  }
 
   // If this is a single-page view of shopping cart, orders that disappeared
   // were removed by buyers — delete them. Other statuses don't need cleanup;
@@ -227,8 +230,8 @@ async function processOrders(
   }
 
   return {
-    added: result.upsertedCount || 0,
-    updated: result.modifiedCount || 0,
+    added: result.upsertedCount,
+    updated: result.modifiedCount,
     skipped: 0,
   };
 }
@@ -243,6 +246,13 @@ async function processOrderDetail(
   const detail = data as unknown as CmOrderDetail;
   const orderId = detail.orderId;
   let added = 0, updated = 0;
+
+  // Check status progression — only advance, never regress (same guard as processOrders)
+  const PAID_INDEX = STATUS_ORDER.indexOf("paid");
+  const existing = await db.collection(COL.orders).findOne({ orderId }, { projection: { status: 1 } });
+  const existingIdx = existing ? STATUS_ORDER.indexOf(existing.status as string) : -1;
+  const newIdx = detail.status ? STATUS_ORDER.indexOf(detail.status) : -1;
+  const statusAdvanced = detail.status ? newIdx > existingIdx : false;
 
   // Enrich the parent order
   const orderUpdates: Record<string, unknown> = {
@@ -263,7 +273,8 @@ async function processOrderDetail(
       if (parts[1]) orderUpdates.orderTime = parts[1];
     }
   }
-  if (detail.status) orderUpdates.status = detail.status;
+  if (statusAdvanced) orderUpdates.status = detail.status;
+  else if (!existing && detail.status) orderUpdates.status = detail.status; // new order, set initial status
   if (detail.counterparty) orderUpdates.counterparty = detail.counterparty;
   if (detail.country) orderUpdates.country = detail.country;
 
@@ -285,9 +296,9 @@ async function processOrderDetail(
     }));
     await db.collection(COL.orderItems).bulkWrite(itemOps, { ordered: false });
 
-    // Remove sold items from stock — match by name+condition+foil+set (ignore qty/price
-    // since a listing's qty/price may differ from the order line)
-    if (detail.status === "paid" || detail.status === "sent" || detail.status === "arrived") {
+    // Remove sold items from stock only on FIRST transition to paid/sent/arrived.
+    // This prevents re-deleting restocked items on subsequent re-syncs.
+    if (statusAdvanced && existingIdx < PAID_INDEX && newIdx >= PAID_INDEX) {
       const removeOps = detail.items.map(item => ({
         deleteOne: {
           filter: {

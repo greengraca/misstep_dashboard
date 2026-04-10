@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 
 const EXT_TOKEN_SALT = "misstep-ext-v1";
 
@@ -35,7 +35,9 @@ export async function requireExtAuth(
   }
 
   const expected = computeExtToken(pin);
-  if (token !== expected) {
+  const tokenBuf = Buffer.from(token, "hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  if (tokenBuf.length !== expectedBuf.length || !timingSafeEqual(tokenBuf, expectedBuf)) {
     return {
       error: NextResponse.json({ error: "Invalid token" }, { status: 401 }),
     };

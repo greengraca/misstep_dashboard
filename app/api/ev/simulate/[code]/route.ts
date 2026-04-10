@@ -4,7 +4,7 @@ import { getConfig, getSetByCode, getCardsForSet, simulateBoxOpening, getDefault
 export const POST = withAuthParams<{ code: string }>(async (req, _session, params) => {
   const body = await req.json();
   const boosterType = (body.booster || "play") as "play" | "collector";
-  const iterations = Math.min(body.iterations || 10000, 50000);
+  const iterations = Math.max(1, Math.min(body.iterations || 10000, 50000));
   const floor = body.floor ?? 0.25;
   const boxCost = body.boxCost ?? undefined;
   const quantity = body.quantity ?? 1;

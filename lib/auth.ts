@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { timingSafeEqual } from "crypto";
 
 const pinProvider = Credentials({
   id: "pin",
@@ -10,7 +11,9 @@ const pinProvider = Credentials({
   async authorize(credentials) {
     const correctPin = process.env.APP_PIN;
     if (!correctPin || !credentials?.pin) return null;
-    if ((credentials.pin as string) !== correctPin) return null;
+    const pinBuf = Buffer.from(credentials.pin as string);
+    const correctBuf = Buffer.from(correctPin);
+    if (pinBuf.length !== correctBuf.length || !timingSafeEqual(pinBuf, correctBuf)) return null;
     return { id: "pin-user", name: "Team Member" };
   },
 });

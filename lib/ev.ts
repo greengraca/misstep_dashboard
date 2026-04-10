@@ -898,15 +898,20 @@ export function simulateJumpstartBox(
   const byTier: Record<string, number[]> = { common: [], rare: [], mythic: [] };
   themeEvs.forEach((t, i) => byTier[t.tier]?.push(i));
 
-  // Build cumulative tier weights for fast selection
-  const tiers = [
+  // Build cumulative tier weights for fast selection — skip tiers with no themes
+  const allTiers = [
     { name: "common", weight: JUMPSTART_TIER_WEIGHTS.common, indices: byTier.common },
     { name: "rare", weight: JUMPSTART_TIER_WEIGHTS.rare, indices: byTier.rare },
     { name: "mythic", weight: JUMPSTART_TIER_WEIGHTS.mythic, indices: byTier.mythic },
   ];
+  const tiers = allTiers.filter(t => t.indices.length > 0);
   const cumWeights: number[] = [];
   let cumW = 0;
   for (const t of tiers) { cumW += t.weight; cumWeights.push(cumW); }
+  // Normalize so cumulative weights sum to 1.0 (in case tiers were filtered out)
+  if (cumW > 0 && cumW !== 1) {
+    for (let i = 0; i < cumWeights.length; i++) cumWeights[i] /= cumW;
+  }
 
   // Simulate
   const boxValues: number[] = new Array(iterations);
@@ -1003,8 +1008,8 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
 
   // Check if this is a Jumpstart set with theme data
   const jumpstartThemes = await getJumpstartThemes(setCode);
+  const config = await getConfig(setCode);
   if (jumpstartThemes) {
-    const config = await getConfig(setCode);
     const feeRate = config?.fee_rate ?? 0.05;
     const siftFloor = config?.sift_floor ?? 0.25;
     const packsPerBox = config?.play_booster?.packs_per_box ?? 24;
@@ -1019,7 +1024,6 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     playEvNet = result.box_ev_net;
   } else {
     // Standard slot-based calculation
-    const config = await getConfig(setCode);
     if (!config) return null;
 
     if (config.play_booster) {
@@ -1055,7 +1059,7 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     collector_ev_net: collectorEvNet,
     card_count_total: cards.length,
     card_count_priced: cards.filter((c) => c.price_eur !== null || c.price_eur_foil !== null).length,
-    sift_floor: (await getConfig(setCode))?.sift_floor ?? 0.25,
+    sift_floor: config?.sift_floor ?? 0.25,
     created_at: new Date().toISOString(),
   };
 

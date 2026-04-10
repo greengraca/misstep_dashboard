@@ -23,7 +23,7 @@ export const GET = withExtAuthRead(async (req) => {
 
 export const PATCH = withAuth(async (req) => {
   const { orderIds, printed } = await req.json();
-  if (!orderIds?.length) return { error: "orderIds required" };
+  if (!orderIds?.length) return Response.json({ error: "orderIds required" }, { status: 400 });
   await markOrdersPrinted(orderIds, printed ?? true);
   return { data: { success: true } };
 }, "ext-orders-patch");
