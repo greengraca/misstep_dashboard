@@ -119,8 +119,8 @@ export default function CardmarketContent() {
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
-  const { data: statusData, mutate: mutateStatus } = useSWR("/api/ext/status", fetcher, { refreshInterval: 30000 });
-  const { data: balanceData } = useSWR("/api/ext/balance?days=30", fetcher, { refreshInterval: 60000 });
+  const { data: statusData, mutate: mutateStatus } = useSWR("/api/ext/status", fetcher, { refreshInterval: 15000 });
+  const { data: balanceData, mutate: mutateBalance } = useSWR("/api/ext/balance?days=30", fetcher, { refreshInterval: 60000 });
 
   const orderParams = new URLSearchParams({
     status: activeTab,
@@ -128,7 +128,7 @@ export default function CardmarketContent() {
     page: String(orderPage),
     limit: "20",
   });
-  const { data: ordersData, mutate: mutateOrders } = useSWR(`/api/ext/orders?${orderParams}`, fetcher, { refreshInterval: 60000 });
+  const { data: ordersData, mutate: mutateOrders } = useSWR(`/api/ext/orders?${orderParams}`, fetcher, { refreshInterval: 30000 });
 
   // Fetch detail when an order is expanded
   const { data: detailData } = useSWR(
@@ -285,7 +285,7 @@ export default function CardmarketContent() {
           </p>
         </div>
         <button
-          onClick={() => mutateStatus()}
+          onClick={() => { mutateStatus(); mutateOrders(); mutateBalance(); }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
           style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
         >

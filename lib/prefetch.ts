@@ -14,7 +14,7 @@ const ROUTE_PREFETCH_MAP: Record<string, string[]> = {
 };
 
 const recentlyPrefetched = new Map<string, number>();
-const DEBOUNCE_MS = 60_000;
+const DEBOUNCE_MS = 15_000;
 
 export function prefetchRouteData(href: string) {
   const keys = ROUTE_PREFETCH_MAP[href];

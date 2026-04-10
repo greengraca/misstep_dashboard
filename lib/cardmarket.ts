@@ -213,19 +213,31 @@ async function processOrders(
     result = { upsertedCount: bulkResult.upsertedCount || 0, modifiedCount: bulkResult.modifiedCount || 0 };
   }
 
-  // If this is a single-page view of shopping cart, orders that disappeared
-  // were removed by buyers — delete them. Other statuses don't need cleanup;
-  // orders that moved forward will get updated when we browse their new page.
+  // Single-page cleanup: when we see the complete list for a status, handle
+  // DB orders that are no longer on that page.
+  // - shopping_cart / arrived: delete (removed by buyer / completed)
+  // - unpaid / paid / sent: advance to next status (they moved forward)
   const totalPages = (data.totalPages as number) || 1;
   const currentPage = (data.currentPage as number) || 1;
-  if (status === "shopping_cart" && totalPages === 1 && currentPage === 1) {
+  if (totalPages === 1 && currentPage === 1) {
     const syncedIds = orders.map(o => o.orderId);
     const staleFilter = { status, direction, orderId: { $nin: syncedIds } };
     const staleIds = await col.find(staleFilter).project({ orderId: 1 }).toArray();
     if (staleIds.length) {
       const ids = staleIds.map(d => d.orderId as string);
-      await col.deleteMany(staleFilter);
-      await db.collection(COL.orderItems).deleteMany({ orderId: { $in: ids } });
+      const statusIdx = STATUS_ORDER.indexOf(status);
+      const nextStatus = STATUS_ORDER[statusIdx + 1];
+
+      if (status === "shopping_cart" || status === "arrived" || !nextStatus) {
+        // Terminal: delete stale orders and their items
+        await col.deleteMany(staleFilter);
+        await db.collection(COL.orderItems).deleteMany({ orderId: { $in: ids } });
+      } else {
+        // Non-terminal: advance stale orders to the next status
+        await col.updateMany(staleFilter, {
+          $set: { status: nextStatus, lastSeenAt: now },
+        });
+      }
     }
   }
 
