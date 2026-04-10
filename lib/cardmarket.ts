@@ -85,9 +85,16 @@ export async function processSync(
   batch: ExtSyncBatchItem[]
 ): Promise<Record<string, { added: number; updated: number; skipped: number }>> {
   await ensureIndexes();
+  // Stable sort: ensure "stock" items run before "stock_overview" so the
+  // overview snapshot reflects the freshly-synced stock state (see T6).
+  const orderedBatch = [...batch].sort((a, b) => {
+    const priority = (t: string) =>
+      t === "stock" ? 0 : t === "stock_overview" ? 1 : 2;
+    return priority(a.type) - priority(b.type);
+  });
   const results: Record<string, { added: number; updated: number; skipped: number }> = {};
 
-  for (const item of batch) {
+  for (const item of orderedBatch) {
     switch (item.type) {
       case "balance":
         results.balance = await processBalance(submittedBy, item.data);
