@@ -99,3 +99,82 @@ export async function searchStock(params: StockSearchParams): Promise<StockSearc
     pageSize: params.pageSize,
   };
 }
+
+export interface StockCounts {
+  totalListings: number;
+  totalQty: number;
+  totalValue: number;
+  distinctNameSet: number;
+}
+
+/**
+ * Computes all four snapshot-level counts in a single $facet aggregation.
+ * - totalListings: number of documents in the stock collection
+ * - totalQty: sum of qty across all listings
+ * - totalValue: sum of (qty * price) where price > 0.25
+ * - distinctNameSet: count of unique (name, set) pairs
+ *
+ * Used by the summary API, the history backfill, and processStockOverview.
+ */
+export async function computeStockCounts(): Promise<StockCounts> {
+  const db = await getDb();
+  const col = db.collection(COL_STOCK);
+
+  const result = await col
+    .aggregate([
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalListings: { $sum: 1 },
+                totalQty: { $sum: "$qty" },
+                totalValue: {
+                  $sum: {
+                    $cond: [
+                      { $gt: ["$price", 0.25] },
+                      { $multiply: ["$qty", "$price"] },
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+          distinct: [
+            { $group: { _id: { name: "$name", set: "$set" } } },
+            { $count: "count" },
+          ],
+        },
+      },
+    ])
+    .toArray();
+
+  const totals = result[0]?.totals?.[0] || {};
+  const distinct = result[0]?.distinct?.[0]?.count || 0;
+
+  return {
+    totalListings: totals.totalListings || 0,
+    totalQty: totals.totalQty || 0,
+    totalValue: Math.round((totals.totalValue || 0) * 100) / 100,
+    distinctNameSet: distinct,
+  };
+}
+
+/**
+ * Returns the three headline metrics shown in the stat cards.
+ * Thin wrapper over computeStockCounts that drops totalListings.
+ */
+export async function getStockTotals(): Promise<{
+  totalQty: number;
+  totalValue: number;
+  distinctListings: number;
+}> {
+  const counts = await computeStockCounts();
+  return {
+    totalQty: counts.totalQty,
+    totalValue: counts.totalValue,
+    distinctListings: counts.distinctNameSet,
+  };
+}
