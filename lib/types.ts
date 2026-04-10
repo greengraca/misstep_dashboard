@@ -138,6 +138,9 @@ export interface CmStockListing {
 export interface CmStockSnapshot {
   _id?: string;
   totalListings: number;
+  totalQty?: number;
+  totalValue?: number;
+  distinctNameSet?: number;
   extractedAt: string;
   submittedBy: string;
 }
