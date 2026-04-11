@@ -99,3 +99,18 @@ export function parseScryfallCardToDoc(card: any, nowIso: string): EvCardDoc {
     synced_at: nowIso,
   };
 }
+
+const SCRYFALL_BASE = "https://api.scryfall.com";
+const SCRYFALL_UA = "MISSTEP/1.0";
+
+export async function fetchBulkDataIndex(
+  fetchFn: typeof fetch = fetch
+): Promise<ScryfallBulkIndex> {
+  const res = await fetchFn(`${SCRYFALL_BASE}/bulk-data`, {
+    headers: { "User-Agent": SCRYFALL_UA, Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Scryfall bulk-data index fetch failed: ${res.status}`);
+  }
+  return (await res.json()) as ScryfallBulkIndex;
+}

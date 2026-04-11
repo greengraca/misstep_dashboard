@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fixture from "./fixtures/scryfall-cards-sample.json";
 import bulkIndexFixture from "./fixtures/scryfall-bulk-index.json";
-import { parseScryfallCardToDoc, findDefaultCardsEntry } from "../scryfall-bulk";
+import { parseScryfallCardToDoc, findDefaultCardsEntry, fetchBulkDataIndex, ScryfallBulkIndex } from "../scryfall-bulk";
 
 describe("parseScryfallCardToDoc", () => {
   it("maps a standard single-face card with prices", () => {
@@ -89,7 +89,7 @@ describe("parseScryfallCardToDoc", () => {
 
 describe("findDefaultCardsEntry", () => {
   it("returns the default_cards entry from a bulk-data index", () => {
-    const entry = findDefaultCardsEntry(bulkIndexFixture);
+    const entry = findDefaultCardsEntry(bulkIndexFixture as unknown as ScryfallBulkIndex);
     expect(entry.type).toBe("default_cards");
     expect(entry.download_uri).toBe("https://data.scryfall.io/default-cards/default-cards.json");
   });
@@ -99,6 +99,25 @@ describe("findDefaultCardsEntry", () => {
       ...bulkIndexFixture,
       data: bulkIndexFixture.data.filter((e: { type: string }) => e.type !== "default_cards"),
     };
-    expect(() => findDefaultCardsEntry(noDefault)).toThrow(/default_cards/);
+    expect(() => findDefaultCardsEntry(noDefault as unknown as ScryfallBulkIndex)).toThrow(/default_cards/);
+  });
+});
+
+describe("fetchBulkDataIndex", () => {
+  it("fetches the /bulk-data endpoint and returns parsed JSON", async () => {
+    const mockFetch = async (url: string, init?: RequestInit) => {
+      expect(url).toBe("https://api.scryfall.com/bulk-data");
+      expect(init?.headers).toMatchObject({ "User-Agent": expect.any(String) });
+      return new Response(JSON.stringify(bulkIndexFixture), { status: 200 });
+    };
+    const index = await fetchBulkDataIndex(mockFetch as unknown as typeof fetch);
+    expect(index.data).toHaveLength(3);
+  });
+
+  it("throws on non-2xx response", async () => {
+    const mockFetch = async () => new Response("nope", { status: 503 });
+    await expect(
+      fetchBulkDataIndex(mockFetch as unknown as typeof fetch)
+    ).rejects.toThrow(/503/);
   });
 });
