@@ -189,6 +189,8 @@ export interface EvSet {
   set_type: string;
   scryfall_id: string;
   synced_at: string;
+  parent_set_code?: string;
+  digital?: boolean;
   play_ev_net?: number | null;
   collector_ev_net?: number | null;
   cards_priced?: number;
