@@ -3,12 +3,11 @@
 "use client";
 
 import { useState } from "react";
-import { Html } from "@react-three/drei";
+import { Text } from "@react-three/drei";
 import {
   BOX_DIMENSIONS,
   BOX_WALL_THICKNESS,
   CARD_FILL_HEIGHT_RATIO,
-  DIVIDER_HEIGHT_RATIO,
   ROW_CAPACITY_SLOTS,
 } from "./physical-config";
 import { BOX_ROWS, type BoxType } from "@/lib/storage";
@@ -43,12 +42,23 @@ interface Box3DProps {
 const BOX_COLOR = "#eae0c4";
 const BOX_HOVER_COLOR = "#f6ecd0";
 const BOX_SELECTED_COLOR = "#d4a24b";
-const DIVIDER_COLOR = "#d7ccac";
+const CHANNEL_DIVIDER_COLOR = "#d7ccac"; // internal row walls (cardboard)
+const SET_DIVIDER_COLOR = "#ffffff"; // white separator card
+const SET_DIVIDER_LABEL_COLOR = "#111111"; // label text
+const CARD_FILL_COLOR = "#9099a8"; // generic gray card back
+
+// Divider and label geometry
+const SET_DIVIDER_THICKNESS = 0.002; // 2mm separator card thickness
+const SET_DIVIDER_HEIGHT_ABOVE_WALL = 0.015; // separator sticks 1.5cm above box walls
+const SET_LABEL_FONT_SIZE = 0.009; // ~9mm text — readable when zoomed in on a box
 
 /**
  * Deterministic color for a set code. Hashes the code into an HSL hue so
- * every set gets a stable, distinct color band inside its row.
+ * every set gets a stable, distinct color block inside its row.
+ * (Currently unused — card fills are flat gray and sets are distinguished
+ * by their white separators. Kept for future use if we want colored fills.)
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function setColor(setCode: string): string {
   let hash = 0;
   for (let i = 0; i < setCode.length; i++) {
@@ -80,22 +90,23 @@ export default function Box3D({
       ? BOX_HOVER_COLOR
       : BOX_COLOR;
 
-  // Internal row slot width: (box width - 2 outer walls - (numRows-1) dividers) / numRows
+  // Internal row slot width: (box width - 2 outer walls - (numRows-1) channel dividers) / numRows
   const rowWidth = (W - 2 * T - (numRows - 1) * T) / numRows;
   // Internal row depth: box depth - 2 outer walls
   const rowDepth = D - 2 * T;
   // Card fill physical height (sits on the box floor)
   const fillHeight = H * CARD_FILL_HEIGHT_RATIO;
-  // Divider physical height (walls are slightly taller than dividers so the
-  // dividers look like internal cardboard flaps)
-  const dividerHeight = H * DIVIDER_HEIGHT_RATIO;
+  // Channel divider height — slightly taller than the card fill to separate rows
+  const channelDividerHeight = H * 0.92;
+  // Set divider total height — sticks above the box walls so the label is visible
+  const setDividerHeight = H + SET_DIVIDER_HEIGHT_ABOVE_WALL;
 
-  // X position of each internal row's left edge (including the outer wall offset)
+  // X position of each internal row's left edge (just inside the outer wall)
   const rowLeftX = (rowIndex: number): number =>
     T + rowIndex * (rowWidth + T);
 
-  // X position of each internal divider's center
-  const dividerX = (dividerIndex: number): number =>
+  // X position of each internal channel divider's center
+  const channelDividerX = (dividerIndex: number): number =>
     T + (dividerIndex + 1) * rowWidth + dividerIndex * T + T / 2;
 
   const handlePointerEnter = (e: { stopPropagation: () => void }) => {
@@ -146,74 +157,85 @@ export default function Box3D({
         <meshStandardMaterial color={wallColor} />
       </mesh>
 
-      {/* Internal dividers — numRows - 1 of them, running front-to-back */}
+      {/* Internal channel dividers — numRows - 1 of them, running front-to-back */}
       {Array.from({ length: numRows - 1 }).map((_, i) => (
         <mesh
-          key={`divider-${i}`}
-          position={[dividerX(i), dividerHeight / 2 + T, D / 2]}
+          key={`channel-${i}`}
+          position={[channelDividerX(i), channelDividerHeight / 2 + T, D / 2]}
         >
-          <boxGeometry args={[T, dividerHeight, rowDepth]} />
-          <meshStandardMaterial color={DIVIDER_COLOR} />
+          <boxGeometry args={[T, channelDividerHeight, rowDepth]} />
+          <meshStandardMaterial color={CHANNEL_DIVIDER_COLOR} />
         </mesh>
       ))}
 
-      {/* Card fills + set separators per row */}
+      {/* Per-row card fills + set dividers */}
       {data?.rows.map((row) => {
         if (row.rowIndex >= numRows) return null;
         const leftX = rowLeftX(row.rowIndex);
-        // Walk the set runs and place each as a block along Z inside the row.
-        // Z starts at the front wall inset (T) and grows toward the back.
-        let zCursor = T;
-        // Usable Z depth per slot (at full row capacity).
-        const zPerSlot = rowDepth / ROW_CAPACITY_SLOTS;
+        const rowCenterX = leftX + rowWidth / 2;
+
+        // Reserve Z space for the set dividers so total (dividers + card fill)
+        // never exceeds rowDepth.
+        const runCount = row.setRuns.length;
+        const dividerTotalZ = runCount * SET_DIVIDER_THICKNESS;
+        const cardZAvailable = Math.max(rowDepth - dividerTotalZ, 0);
+        const zPerSlot = cardZAvailable / ROW_CAPACITY_SLOTS;
+
+        let zCursor = T; // starts inside the front wall
 
         return row.setRuns.map((run, runIdx) => {
+          // 1. Set divider (vertical white card) at the start of this run
+          const dividerCenterZ = zCursor + SET_DIVIDER_THICKNESS / 2;
+          const dividerCenterY = setDividerHeight / 2;
+          // 2. Card fill after the divider
           const runZLength = run.slotCount * zPerSlot;
-          const fillCenterZ = zCursor + runZLength / 2;
-          const fillCenterX = leftX + rowWidth / 2;
-          const fillCenterY = T + fillHeight / 2;
+          const fillCenterZ =
+            zCursor + SET_DIVIDER_THICKNESS + Math.max(runZLength, 0) / 2;
+
           const node = (
             <group key={`r${row.rowIndex}-${runIdx}`}>
-              <mesh position={[fillCenterX, fillCenterY, fillCenterZ]}>
+              {/* Set separator card */}
+              <mesh position={[rowCenterX, dividerCenterY, dividerCenterZ]}>
                 <boxGeometry
-                  args={[rowWidth * 0.92, fillHeight, Math.max(runZLength, 0.001)]}
+                  args={[rowWidth * 0.96, setDividerHeight, SET_DIVIDER_THICKNESS]}
                 />
-                <meshStandardMaterial color={setColor(run.set)} />
+                <meshStandardMaterial color={SET_DIVIDER_COLOR} />
               </mesh>
-              {/* Set label above the middle of the run, only for runs
-                  meaningful enough to bother labeling. */}
-              {run.slotCount >= 3 && (
-                <Html
-                  position={[
-                    fillCenterX,
-                    T + fillHeight + 0.005,
-                    fillCenterZ,
-                  ]}
-                  center
-                  distanceFactor={2.5}
-                  style={{ pointerEvents: "none", userSelect: "none" }}
+
+              {/* Label on top of the separator card, reading across the row
+                  width (X axis). Rotate so the text lies flat on the top
+                  surface and faces upward. */}
+              <Text
+                position={[
+                  rowCenterX,
+                  setDividerHeight + 0.0005,
+                  dividerCenterZ,
+                ]}
+                rotation={[-Math.PI / 2, 0, 0]}
+                fontSize={SET_LABEL_FONT_SIZE}
+                color={SET_DIVIDER_LABEL_COLOR}
+                anchorX="center"
+                anchorY="middle"
+                maxWidth={rowWidth * 0.92}
+                textAlign="center"
+              >
+                {`${run.setName} - ${run.set.toUpperCase()}`}
+              </Text>
+
+              {/* Card fill behind the divider */}
+              {runZLength > 0 && (
+                <mesh
+                  position={[rowCenterX, T + fillHeight / 2, fillCenterZ]}
                 >
-                  <div
-                    style={{
-                      background: "rgba(255,255,255,0.95)",
-                      color: "#222",
-                      fontSize: 9,
-                      lineHeight: 1.1,
-                      padding: "1px 3px",
-                      borderRadius: 2,
-                      whiteSpace: "nowrap",
-                      fontFamily: "system-ui, sans-serif",
-                      fontWeight: 600,
-                      border: "1px solid rgba(0,0,0,0.15)",
-                    }}
-                  >
-                    {run.set.toUpperCase()}
-                  </div>
-                </Html>
+                  <boxGeometry
+                    args={[rowWidth * 0.92, fillHeight, runZLength]}
+                  />
+                  <meshStandardMaterial color={CARD_FILL_COLOR} />
+                </mesh>
               )}
             </group>
           );
-          zCursor += runZLength;
+          zCursor += SET_DIVIDER_THICKNESS + runZLength;
           return node;
         });
       })}
