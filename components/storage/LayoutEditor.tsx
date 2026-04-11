@@ -12,6 +12,32 @@ interface LayoutEditorProps {
 
 const BOX_TYPES: BoxType[] = ["1k", "2k", "4k"];
 
+/** Card capacity per box type. */
+const BOX_CARD_CAPACITY: Record<BoxType, number> = {
+  "1k": 1000,
+  "2k": 2000,
+  "4k": 4000,
+};
+
+/** Max cards one shelf row (physical shelf level) can hold. */
+const ROW_MAX_CARDS = 23000;
+
+function rowCardCount(row: ShelfRowConfig): number {
+  return row.boxes.reduce((sum, b) => sum + BOX_CARD_CAPACITY[b.type], 0);
+}
+
+function remainingCapacity(row: ShelfRowConfig): number {
+  return ROW_MAX_CARDS - rowCardCount(row);
+}
+
+/** Largest box type that still fits in the remaining capacity, or null. */
+function largestBoxThatFits(remaining: number): BoxType | null {
+  if (remaining >= 4000) return "4k";
+  if (remaining >= 2000) return "2k";
+  if (remaining >= 1000) return "1k";
+  return null;
+}
+
 export default function LayoutEditor({ layout, onSave }: LayoutEditorProps) {
   const [local, setLocal] = useState<ShelfLayout>(layout);
   const [saving, setSaving] = useState(false);
@@ -50,9 +76,12 @@ export default function LayoutEditor({ layout, onSave }: LayoutEditorProps) {
 
   const addBox = (rowIdx: number) => {
     const next = [...local.shelfRows];
+    const remaining = remainingCapacity(next[rowIdx]);
+    const type = largestBoxThatFits(remaining);
+    if (!type) return;
     next[rowIdx] = {
       ...next[rowIdx],
-      boxes: [...next[rowIdx].boxes, { id: "", type: "4k" as BoxType }],
+      boxes: [...next[rowIdx].boxes, { id: "", type }],
     };
     setLocal({ shelfRows: next });
   };
@@ -69,6 +98,12 @@ export default function LayoutEditor({ layout, onSave }: LayoutEditorProps) {
   const updateBoxType = (rowIdx: number, boxIdx: number, type: BoxType) => {
     const next = [...local.shelfRows];
     const boxes = [...next[rowIdx].boxes];
+    // Check if the new type would overflow the row.
+    const otherCards = next[rowIdx].boxes.reduce(
+      (sum, b, i) => (i === boxIdx ? sum : sum + BOX_CARD_CAPACITY[b.type]),
+      0
+    );
+    if (otherCards + BOX_CARD_CAPACITY[type] > ROW_MAX_CARDS) return;
     boxes[boxIdx] = { ...boxes[boxIdx], type };
     next[rowIdx] = { ...next[rowIdx], boxes };
     setLocal({ shelfRows: next });
@@ -159,7 +194,23 @@ interface ShelfRowEditorProps {
 }
 
 function ShelfRowEditor(props: ShelfRowEditorProps) {
-  const { row, onLabelChange, onRemove, onMoveUp, onMoveDown, onAddBox, onRemoveBox, onBoxTypeChange, onMoveBoxUp, onMoveBoxDown } = props;
+  const {
+    row,
+    onLabelChange,
+    onRemove,
+    onMoveUp,
+    onMoveDown,
+    onAddBox,
+    onRemoveBox,
+    onBoxTypeChange,
+    onMoveBoxUp,
+    onMoveBoxDown,
+  } = props;
+
+  const cards = rowCardCount(row);
+  const remaining = ROW_MAX_CARDS - cards;
+  const canAddBox = remaining >= 1000;
+  const atMax = cards >= ROW_MAX_CARDS;
 
   return (
     <div className="rounded-[var(--radius)] border border-[var(--border)] p-3">
@@ -170,13 +221,33 @@ function ShelfRowEditor(props: ShelfRowEditorProps) {
           onChange={(e) => onLabelChange(e.target.value)}
           className="flex-1 bg-transparent text-sm font-medium text-[var(--text-primary)] border-b border-transparent focus:border-[var(--accent)] outline-none"
         />
-        <button onClick={onMoveUp} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+        <span
+          className={`text-xs tabular-nums ${
+            atMax ? "text-[var(--accent)]" : "text-[var(--text-muted)]"
+          }`}
+          title="Cards used / shelf-row max"
+        >
+          {cards.toLocaleString()} / {ROW_MAX_CARDS.toLocaleString()}
+        </span>
+        <button
+          onClick={onMoveUp}
+          className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          aria-label="Move row up"
+        >
           <ArrowUp size={14} />
         </button>
-        <button onClick={onMoveDown} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+        <button
+          onClick={onMoveDown}
+          className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          aria-label="Move row down"
+        >
           <ArrowDown size={14} />
         </button>
-        <button onClick={onRemove} className="p-1 text-[var(--text-muted)] hover:text-red-500">
+        <button
+          onClick={onRemove}
+          className="p-1 text-[var(--text-muted)] hover:text-red-500"
+          aria-label="Remove row"
+        >
           <Trash2 size={14} />
         </button>
       </div>
@@ -186,18 +257,22 @@ function ShelfRowEditor(props: ShelfRowEditorProps) {
           <BoxEditor
             key={boxIdx}
             box={box}
+            row={row}
+            boxIdx={boxIdx}
             onTypeChange={(type) => onBoxTypeChange(boxIdx, type)}
             onRemove={() => onRemoveBox(boxIdx)}
             onMoveUp={() => onMoveBoxUp(boxIdx)}
             onMoveDown={() => onMoveBoxDown(boxIdx)}
           />
         ))}
-        <button
-          onClick={onAddBox}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-[var(--radius)] border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]"
-        >
-          <Plus size={12} /> box
-        </button>
+        {canAddBox && (
+          <button
+            onClick={onAddBox}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-[var(--radius)] border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]"
+          >
+            <Plus size={12} /> box
+          </button>
+        )}
       </div>
     </div>
   );
@@ -205,31 +280,66 @@ function ShelfRowEditor(props: ShelfRowEditorProps) {
 
 interface BoxEditorProps {
   box: BoxConfig;
+  row: ShelfRowConfig;
+  boxIdx: number;
   onTypeChange: (type: BoxType) => void;
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
 }
 
-function BoxEditor({ box, onTypeChange, onRemove, onMoveUp, onMoveDown }: BoxEditorProps) {
+function BoxEditor({ box, row, boxIdx, onTypeChange, onRemove, onMoveUp, onMoveDown }: BoxEditorProps) {
+  // Determine which box types are valid choices given the row's capacity
+  // budget with THIS box excluded.
+  const otherCards = row.boxes.reduce(
+    (sum, b, i) => (i === boxIdx ? sum : sum + BOX_CARD_CAPACITY[b.type]),
+    0
+  );
+  const budget = ROW_MAX_CARDS - otherCards;
+
   return (
     <div className="inline-flex items-center gap-1 px-2 py-1 rounded-[var(--radius)] bg-[var(--bg)] border border-[var(--border)] text-xs">
       <select
         value={box.type}
         onChange={(e) => onTypeChange(e.target.value as BoxType)}
-        className="bg-transparent text-[var(--text-primary)] outline-none"
+        className="appearance-none bg-[var(--card-bg)] border border-[var(--border)] text-[var(--text-primary)] text-xs px-1.5 py-0.5 pr-4 rounded-[var(--radius)] outline-none focus:border-[var(--accent)] cursor-pointer"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4l3 3 3-3' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "right 2px center",
+          backgroundSize: "12px",
+        }}
       >
-        {BOX_TYPES.map((t) => (
-          <option key={t} value={t}>{t}</option>
-        ))}
+        {BOX_TYPES.map((t) => {
+          const fits = BOX_CARD_CAPACITY[t] <= budget;
+          return (
+            <option key={t} value={t} disabled={!fits}>
+              {t}
+              {!fits ? " —" : ""}
+            </option>
+          );
+        })}
       </select>
-      <button onClick={onMoveUp} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+      <button
+        onClick={onMoveUp}
+        className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        aria-label="Move box left"
+      >
         <ArrowUp size={10} />
       </button>
-      <button onClick={onMoveDown} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+      <button
+        onClick={onMoveDown}
+        className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        aria-label="Move box right"
+      >
         <ArrowDown size={10} />
       </button>
-      <button onClick={onRemove} className="text-[var(--text-muted)] hover:text-red-500">
+      <button
+        onClick={onRemove}
+        className="text-[var(--text-muted)] hover:text-red-500"
+        aria-label="Remove box"
+      >
         <Trash2 size={10} />
       </button>
     </div>

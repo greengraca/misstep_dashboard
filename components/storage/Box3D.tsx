@@ -59,14 +59,33 @@ function hueFor(setCode: string): number {
   return Math.abs(hash) % 360;
 }
 
+/**
+ * Convert HSL to #rrggbb hex. Three.js's Color.setStyle() regex for `hsl()`
+ * requires comma-separated args (modern space-separated syntax is silently
+ * rejected, leaving the material white), so we hand three.js plain hex.
+ */
+function hslToHex(h: number, s: number, l: number): string {
+  const sN = s / 100;
+  const lN = l / 100;
+  const a = sN * Math.min(lN, 1 - lN);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = lN - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
 /** Card fill color for a set — mid-lightness, mid-saturation. */
 function setFillColor(setCode: string): string {
-  return `hsl(${hueFor(setCode)} 55% 58%)`;
+  return hslToHex(hueFor(setCode), 55, 58);
 }
 
 /** Darker shade of the same hue used for the set's front divider card. */
 function setDividerColor(setCode: string): string {
-  return `hsl(${hueFor(setCode)} 60% 32%)`;
+  return hslToHex(hueFor(setCode), 60, 32);
 }
 
 export default function Box3D({
