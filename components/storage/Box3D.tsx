@@ -3,7 +3,6 @@
 "use client";
 
 import { useState } from "react";
-import { Text } from "@react-three/drei";
 import {
   BOX_DIMENSIONS,
   BOX_WALL_THICKNESS,
@@ -43,37 +42,31 @@ const BOX_COLOR = "#eae0c4";
 const BOX_HOVER_COLOR = "#f6ecd0";
 const BOX_SELECTED_COLOR = "#d4a24b";
 const CHANNEL_DIVIDER_COLOR = "#d7ccac"; // internal row walls (cardboard)
-const SET_DIVIDER_COLOR = "#ffffff"; // white separator card
-const SET_DIVIDER_LABEL_COLOR = "#111111"; // label text
-const CARD_FILL_COLOR = "#9099a8"; // generic gray card back
 
 // Divider and label geometry
 const SET_DIVIDER_THICKNESS = 0.002; // 2mm separator card thickness
 const SET_DIVIDER_HEIGHT_ABOVE_WALL = 0.015; // separator sticks 1.5cm above box walls
-const SET_LABEL_FONT_SIZE = 0.009; // ~9mm text — readable when zoomed in on a box
 
 /**
- * Minimum slot count for a set run to get a Text label. Each drei <Text>
- * instance loads an SDF font and is relatively expensive; rendering one per
- * set run (≈1000+ instances) blows the WebGL context. Gating on visible
- * runs keeps the label count in the low hundreds.
+ * Deterministic hash-based hue for a set code. Same code always produces
+ * the same hue so color stays stable across rebuilds.
  */
-const LABEL_MIN_SLOTS = 10;
-
-/**
- * Deterministic color for a set code. Hashes the code into an HSL hue so
- * every set gets a stable, distinct color block inside its row.
- * (Currently unused — card fills are flat gray and sets are distinguished
- * by their white separators. Kept for future use if we want colored fills.)
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function setColor(setCode: string): string {
+function hueFor(setCode: string): number {
   let hash = 0;
   for (let i = 0; i < setCode.length; i++) {
     hash = (hash * 31 + setCode.charCodeAt(i)) | 0;
   }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue} 45% 55%)`;
+  return Math.abs(hash) % 360;
+}
+
+/** Card fill color for a set — mid-lightness, mid-saturation. */
+function setFillColor(setCode: string): string {
+  return `hsl(${hueFor(setCode)} 55% 58%)`;
+}
+
+/** Darker shade of the same hue used for the set's front divider card. */
+function setDividerColor(setCode: string): string {
+  return `hsl(${hueFor(setCode)} 60% 32%)`;
 }
 
 export default function Box3D({
@@ -202,38 +195,15 @@ export default function Box3D({
 
           const node = (
             <group key={`r${row.rowIndex}-${runIdx}`}>
-              {/* Set separator card */}
+              {/* Set separator card — darker shade of the set's color */}
               <mesh position={[rowCenterX, dividerCenterY, dividerCenterZ]}>
                 <boxGeometry
                   args={[rowWidth * 0.96, setDividerHeight, SET_DIVIDER_THICKNESS]}
                 />
-                <meshStandardMaterial color={SET_DIVIDER_COLOR} />
+                <meshStandardMaterial color={setDividerColor(run.set)} />
               </mesh>
 
-              {/* Label on top of the separator card, but only for runs big
-                  enough to be visually meaningful — each drei <Text> instance
-                  is expensive and rendering one per set run overwhelms the
-                  WebGL context. */}
-              {run.slotCount >= LABEL_MIN_SLOTS && (
-                <Text
-                  position={[
-                    rowCenterX,
-                    setDividerHeight + 0.0005,
-                    dividerCenterZ,
-                  ]}
-                  rotation={[-Math.PI / 2, 0, 0]}
-                  fontSize={SET_LABEL_FONT_SIZE}
-                  color={SET_DIVIDER_LABEL_COLOR}
-                  anchorX="center"
-                  anchorY="middle"
-                  maxWidth={rowWidth * 0.92}
-                  textAlign="center"
-                >
-                  {`${run.setName} - ${run.set.toUpperCase()}`}
-                </Text>
-              )}
-
-              {/* Card fill behind the divider */}
+              {/* Card fill — mid shade of the set's color */}
               {runZLength > 0 && (
                 <mesh
                   position={[rowCenterX, T + fillHeight / 2, fillCenterZ]}
@@ -241,7 +211,7 @@ export default function Box3D({
                   <boxGeometry
                     args={[rowWidth * 0.92, fillHeight, runZLength]}
                   />
-                  <meshStandardMaterial color={CARD_FILL_COLOR} />
+                  <meshStandardMaterial color={setFillColor(run.set)} />
                 </mesh>
               )}
             </group>
