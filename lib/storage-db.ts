@@ -62,9 +62,14 @@ export function projectSetMeta(ev: EvSet): SetMeta {
 // "Commander: Modern Horizons 3", "Revised"). Both need to be normalized
 // before joining stock rows against the Scryfall-shaped ev_cards collection.
 
-/** Strip Cardmarket variant suffixes like " (V.1)" from a card name. */
+/**
+ * Strip Cardmarket parenthetical suffixes from a card name:
+ *   "Ornithopter of Paradise (V.1)"       → "Ornithopter of Paradise"
+ *   "Faerie Rogue Token (Black 1/1)"      → "Faerie Rogue Token"
+ *   "Elemental Token (Blue and Red 4/4)"  → "Elemental Token"
+ */
 export function cleanCardName(name: string): string {
-  return name.replace(/\s*\(V\.\d+\)\s*$/, "").trim();
+  return name.replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
 
 /**
@@ -96,12 +101,15 @@ export function resolveSetCode(
   const alias = SET_NAME_ALIASES[lower];
   if (alias) return alias;
 
-  // 3. Strip ": Extras" suffix — Cardmarket tag for collector booster / showcase
-  //    / borderless subsets that Scryfall keeps inside the base set.
-  if (lower.endsWith(": extras")) {
-    const stripped = lower.slice(0, -": extras".length);
-    const match = lookup.get(stripped);
-    if (match) return match;
+  // 3. Strip ": Extras" or ": Promos" suffix — Cardmarket tags for collector
+  //    booster / showcase / borderless subsets and promo variants that Scryfall
+  //    keeps inside the base set.
+  for (const suffix of [": extras", ": promos"]) {
+    if (lower.endsWith(suffix)) {
+      const stripped = lower.slice(0, -suffix.length);
+      const match = lookup.get(stripped);
+      if (match) return match;
+    }
   }
 
   // 4. "Core N" → "Core Set N" (Cardmarket drops "Set" in the name).
@@ -197,15 +205,42 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
     .map((row) => {
       const code = resolveSetCode(row.set, setCodeLookup);
       const cleanedName = cleanCardName(row.name);
-      if (code && cleanedName === row.name) return { ...row, set: code };
-      if (code) return { ...row, name: cleanedName, set: code };
-      if (cleanedName !== row.name) return { ...row, name: cleanedName };
-      return row;
+      return {
+        ...row,
+        name: cleanedName,
+        set: code ?? row.set,
+      };
     });
 
+  // Build two metadata lookups: the primary (name|set) and a fallback keyed
+  // on name alone. The fallback is used when Cardmarket's stock references a
+  // printing that Scryfall's default-cards bulk dump doesn't include (e.g.
+  // Mystery Booster reprints, Commander product reprints, tokens stored in
+  // separate Scryfall token sets). Oracle-level fields (colors, rarity, cmc,
+  // type_line, layout) are printing-invariant, so using any printing's
+  // metadata gives the correct sort fields.
   const cardMetaByKey = new Map<string, CardMeta>();
+  const cardMetaByName = new Map<string, CardMeta>();
   for (const c of cardDocs) {
-    cardMetaByKey.set(`${c.name}|${c.set}`, projectCardMeta(c));
+    const meta = projectCardMeta(c);
+    cardMetaByKey.set(`${c.name}|${c.set}`, meta);
+    if (!cardMetaByName.has(c.name)) cardMetaByName.set(c.name, meta);
+  }
+
+  // For every stock row that doesn't have a direct (name|set) match, try a
+  // name-only lookup. If found, inject a pseudo-entry into cardMetaByKey so
+  // the pure core's join succeeds with the user's set preserved. For tokens,
+  // also try stripping a trailing " Token" from the name since Scryfall
+  // sometimes names tokens without the suffix.
+  for (const row of stock) {
+    const primaryKey = `${row.name}|${row.set}`;
+    if (cardMetaByKey.has(primaryKey)) continue;
+
+    let fallback = cardMetaByName.get(row.name);
+    if (!fallback && row.name.endsWith(" Token")) {
+      fallback = cardMetaByName.get(row.name.slice(0, -" Token".length));
+    }
+    if (fallback) cardMetaByKey.set(primaryKey, fallback);
   }
 
   // 3. Run pure core.
