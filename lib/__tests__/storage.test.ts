@@ -5,8 +5,10 @@ import {
   ROW_CAPACITY_SLOTS,
   BOX_ROWS,
   deriveSortFields,
+  aggregateStock,
   type CardMeta,
   type SetMeta,
+  type StockRow,
 } from "../storage";
 
 describe("storage constants", () => {
@@ -209,5 +211,60 @@ describe("deriveSortFields — name lowercase", () => {
     const f = deriveSortFields(card({ name: "Zzyzx's Wrath", set: "dmu" }), new Map());
     expect(f.nameLower).toBe("zzyzx's wrath");
     expect(f.name).toBe("Zzyzx's Wrath");
+  });
+});
+
+describe("aggregateStock", () => {
+  it("returns an empty array for empty input", () => {
+    expect(aggregateStock([])).toEqual([]);
+  });
+
+  it("passes through a single row", () => {
+    const rows: StockRow[] = [{ name: "Sol Ring", set: "cmr", qty: 1 }];
+    expect(aggregateStock(rows)).toEqual([
+      { name: "Sol Ring", set: "cmr", effectiveSet: "cmr", qty: 1 },
+    ]);
+  });
+
+  it("sums qty across duplicate (name, set) rows", () => {
+    const rows: StockRow[] = [
+      { name: "Sol Ring", set: "cmr", qty: 3 },
+      { name: "Sol Ring", set: "cmr", qty: 2 },
+      { name: "Sol Ring", set: "cmr", qty: 1 },
+    ];
+    const result = aggregateStock(rows);
+    expect(result).toHaveLength(1);
+    expect(result[0].qty).toBe(6);
+  });
+
+  it("does not merge same name in different sets", () => {
+    const rows: StockRow[] = [
+      { name: "Sol Ring", set: "cmr", qty: 2 },
+      { name: "Sol Ring", set: "cmm", qty: 1 },
+    ];
+    const result = aggregateStock(rows);
+    expect(result).toHaveLength(2);
+    expect(result.find((v) => v.set === "cmr")?.qty).toBe(2);
+    expect(result.find((v) => v.set === "cmm")?.qty).toBe(1);
+  });
+
+  it("drops rows with qty <= 0", () => {
+    const rows: StockRow[] = [
+      { name: "Sol Ring", set: "cmr", qty: 0 },
+      { name: "Mana Vault", set: "cmr", qty: -1 },
+      { name: "Basalt Monolith", set: "cmr", qty: 2 },
+    ];
+    const result = aggregateStock(rows);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("Basalt Monolith");
+  });
+
+  it("treats a group that sums to 0 as dropped", () => {
+    // Defensive: if the sum zeroes out (e.g. refund rows), skip the variant.
+    const rows: StockRow[] = [
+      { name: "Sol Ring", set: "cmr", qty: 3 },
+      { name: "Sol Ring", set: "cmr", qty: -3 },
+    ];
+    expect(aggregateStock(rows)).toEqual([]);
   });
 });

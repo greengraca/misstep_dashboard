@@ -246,6 +246,27 @@ export function deriveSortFields(
   };
 }
 
+export function aggregateStock(rows: StockRow[]): Variant[] {
+  const grouped = new Map<string, Variant>();
+  for (const row of rows) {
+    if (row.qty === 0) continue;
+    const key = `${row.name}|${row.set}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.qty += row.qty;
+    } else {
+      grouped.set(key, {
+        name: row.name,
+        set: row.set,
+        effectiveSet: row.set,  // filled in properly by computeCanonicalSort after deriveSortFields runs
+        qty: row.qty,
+      });
+    }
+  }
+  // Drop any variant whose final qty is not positive.
+  return Array.from(grouped.values()).filter((v) => v.qty > 0);
+}
+
 // ── Main functions (implemented in later tasks) ────────────────
 
 // Task 4 — computeCanonicalSort
