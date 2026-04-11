@@ -1117,3 +1117,64 @@ export async function getSnapshots(setCode: string, days: number = 90): Promise<
 
   return docs.map((d) => ({ ...d, _id: d._id.toString() }) as EvSnapshot);
 }
+
+// ── Scryfall Sync: Full Catalog (bulk data) ────────────────────
+
+import {
+  fetchBulkDataIndex,
+  findDefaultCardsEntry,
+  streamBulkCards,
+} from "@/lib/scryfall-bulk";
+
+export async function refreshAllScryfall(): Promise<{
+  setsUpserted: number;
+  cardsUpserted: number;
+  durationMs: number;
+}> {
+  const started = Date.now();
+  await ensureIndexes();
+
+  // 1. Refresh sets (full catalog — filter dropped in Task 9)
+  const setResult = await syncSets();
+  const setsUpserted = setResult.added + setResult.updated;
+
+  // 2. Fetch bulk-data index and locate default_cards
+  const index = await fetchBulkDataIndex();
+  const entry = findDefaultCardsEntry(index);
+
+  // 3. Download the bulk file (Scryfall ships the default_cards JSON
+  // ungzipped at the CDN, so we use the body directly)
+  const fileRes = await fetch(entry.download_uri, {
+    headers: { "User-Agent": SCRYFALL_UA },
+  });
+  if (!fileRes.ok || !fileRes.body) {
+    throw new Error(`Scryfall bulk-data download failed: ${fileRes.status}`);
+  }
+  const body = fileRes.body;
+
+  // 4. Stream-parse and bulk-upsert
+  const db = await getDb();
+  const col = db.collection(COL_CARDS);
+  let cardsUpserted = 0;
+
+  await streamBulkCards(body, {
+    batchSize: 1000,
+    onBatch: async (batch) => {
+      const ops = batch.map((doc) => ({
+        updateOne: {
+          filter: { scryfall_id: doc.scryfall_id },
+          update: { $set: doc },
+          upsert: true,
+        },
+      }));
+      const result = await col.bulkWrite(ops, { ordered: false });
+      cardsUpserted += (result.upsertedCount ?? 0) + (result.modifiedCount ?? 0);
+    },
+  });
+
+  return {
+    setsUpserted,
+    cardsUpserted,
+    durationMs: Date.now() - started,
+  };
+}
