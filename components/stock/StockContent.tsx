@@ -9,7 +9,7 @@ import StockFilters, {
   emptyStockFilters,
   type StockFilterState,
 } from "./StockFilters";
-import StockTable from "./StockTable";
+import StockTable, { type SetMap } from "./StockTable";
 import StockChart from "./StockChart";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -82,6 +82,12 @@ export default function StockContent() {
   const { data: summary } = useSWR<SummaryResponse>("/api/stock/summary", fetcher, {
     dedupingInterval: 60_000,
   });
+
+  const { data: setsData } = useSWR<{ sets: SetMap }>(
+    "/api/stock/sets",
+    fetcher,
+    { dedupingInterval: 60 * 60 * 1000 }
+  );
 
   const { data: search, isLoading } = useSWR<SearchResponse>(
     `/api/stock?${query}`,
@@ -188,6 +194,7 @@ export default function StockContent() {
         total={search?.total || 0}
         page={page}
         pageSize={pageSize}
+        setMap={setsData?.sets}
         onPageChange={setPage}
         onPageSizeChange={(n) => {
           setPageSize(n);

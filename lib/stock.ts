@@ -157,3 +157,12 @@ export async function getStockHistory(range: HistoryRange): Promise<StockHistory
     distinctNameSet: typeof d.distinctNameSet === "number" ? d.distinctNameSet : null,
   }));
 }
+
+export async function getDistinctStockSets(): Promise<string[]> {
+  const db = await getDb();
+  const col = db.collection(COL_STOCK);
+  const sets = await col.distinct("set");
+  return (sets as unknown[])
+    .filter((s): s is string => typeof s === "string" && s.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+}

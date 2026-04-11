@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
+import { getSetByCardmarketName } from "@/lib/scryfall-sets";
 
 const COL_CARDS = `${COLLECTION_PREFIX}cards`;
 
@@ -17,24 +18,26 @@ interface CachedCardDoc {
   synced_at?: string;
 }
 
-// The stock collection stores Cardmarket's long set name (e.g. "Commander 2014"),
-// but Scryfall's API and the local dashboard_cards cache both key by the short
-// set code (e.g. "c14"). Matching on set would always miss, so we look up by
-// name only and accept the default printing — fine for a hover preview.
-export async function getCardImage(name: string): Promise<CardImageResult> {
-  if (!name) return { image: null, source: "notfound" };
-  const db = await getDb();
-  const col = db.collection<CachedCardDoc>(COL_CARDS);
+interface ScryfallCardResult {
+  id: string;
+  name: string;
+  set: string;
+  image: string;
+  collector_number?: string;
+}
 
-  const cached = await col.findOne({ name, image_uri: { $ne: null } });
-  if (cached?.image_uri) {
-    return { image: cached.image_uri, source: "cache" };
-  }
-
+async function fetchFromScryfall(
+  name: string,
+  setCode?: string
+): Promise<ScryfallCardResult | null> {
   try {
-    const url = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`;
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) return { image: null, source: "notfound" };
+    const params = new URLSearchParams({ exact: name });
+    if (setCode) params.set("set", setCode);
+    const res = await fetch(
+      `https://api.scryfall.com/cards/named?${params.toString()}`,
+      { headers: { Accept: "application/json" } }
+    );
+    if (!res.ok) return null;
     const card = (await res.json()) as {
       id?: string;
       name?: string;
@@ -47,27 +50,59 @@ export async function getCardImage(name: string): Promise<CardImageResult> {
       card.image_uris?.small ||
       card.card_faces?.[0]?.image_uris?.small ||
       null;
-    if (!image) return { image: null, source: "notfound" };
-
-    if (card.id && card.set) {
-      await col.updateOne(
-        { scryfall_id: card.id },
-        {
-          $set: {
-            scryfall_id: card.id,
-            name: card.name || name,
-            set: card.set,
-            collector_number: card.collector_number,
-            image_uri: image,
-            synced_at: new Date().toISOString(),
-          },
-        },
-        { upsert: true }
-      );
-    }
-
-    return { image, source: "scryfall" };
+    if (!image || !card.id || !card.set) return null;
+    return {
+      id: card.id,
+      name: card.name || name,
+      set: card.set,
+      image,
+      collector_number: card.collector_number,
+    };
   } catch {
-    return { image: null, source: "notfound" };
+    return null;
   }
+}
+
+// Stock listings carry the Cardmarket long set name ("Commander 2014"),
+// while Scryfall and the local dashboard_cards cache key by the short code
+// ("c14"). Resolve the code first, fall back to name-only lookup when the
+// Cardmarket name doesn't match any Scryfall set.
+export async function getCardImage(
+  name: string,
+  set?: string
+): Promise<CardImageResult> {
+  if (!name) return { image: null, source: "notfound" };
+  const db = await getDb();
+  const col = db.collection<CachedCardDoc>(COL_CARDS);
+
+  const setMeta = set ? await getSetByCardmarketName(set) : null;
+  const setCode = setMeta?.code;
+
+  const cached = setCode
+    ? await col.findOne({ name, set: setCode, image_uri: { $ne: null } })
+    : await col.findOne({ name, image_uri: { $ne: null } });
+  if (cached?.image_uri) {
+    return { image: cached.image_uri, source: "cache" };
+  }
+
+  let card = setCode ? await fetchFromScryfall(name, setCode) : null;
+  if (!card) card = await fetchFromScryfall(name);
+  if (!card) return { image: null, source: "notfound" };
+
+  await col.updateOne(
+    { scryfall_id: card.id },
+    {
+      $set: {
+        scryfall_id: card.id,
+        name: card.name,
+        set: card.set,
+        collector_number: card.collector_number,
+        image_uri: card.image,
+        synced_at: new Date().toISOString(),
+      },
+    },
+    { upsert: true }
+  );
+
+  return { image: card.image, source: "scryfall" };
 }

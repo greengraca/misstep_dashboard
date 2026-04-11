@@ -5,16 +5,61 @@ import type { CmStockListing } from "@/lib/types";
 import type { StockSortField } from "@/lib/stock-types";
 import CardHoverPreview from "./CardHoverPreview";
 
+export interface SetMeta {
+  code: string;
+  name: string;
+  iconSvgUri: string;
+}
+
+export type SetMap = Record<string, SetMeta>;
+
+function SetCell({ setName, meta }: { setName: string; meta?: SetMeta }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      {meta?.iconSvgUri && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={meta.iconSvgUri}
+          alt={meta.name}
+          width={14}
+          height={14}
+          style={{ filter: "invert(1)", flexShrink: 0 }}
+        />
+      )}
+      <span>{setName}</span>
+    </span>
+  );
+}
+
+interface StockTableProps {
+  rows: CmStockListing[];
+  sort: StockSortField;
+  dir: "asc" | "desc";
+  onSortChange: (sort: StockSortField, dir: "asc" | "desc") => void;
+  loading: boolean;
+  error: string | null;
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  setMap?: SetMap;
+}
+
 interface Column {
   key: StockSortField;
   label: string;
   align?: "left" | "right";
-  render: (row: CmStockListing) => React.ReactNode;
+  render: (row: CmStockListing, setMap?: SetMap) => React.ReactNode;
 }
 
 const columns: Column[] = [
   { key: "name", label: "Name", render: (r) => r.name },
-  { key: "set", label: "Set", render: (r) => r.set },
+  {
+    key: "set",
+    label: "Set",
+    render: (r, setMap) => <SetCell setName={r.set} meta={setMap?.[r.set]} />,
+  },
   { key: "condition", label: "Cond", render: (r) => r.condition },
   { key: "foil", label: "Foil", render: (r) => (r.foil ? "Yes" : "No") },
   { key: "language", label: "Lang", render: (r) => r.language },
@@ -31,20 +76,6 @@ const columns: Column[] = [
     render: (r) => (r.lastSeenAt ? new Date(r.lastSeenAt).toLocaleDateString() : "—"),
   },
 ];
-
-interface StockTableProps {
-  rows: CmStockListing[];
-  sort: StockSortField;
-  dir: "asc" | "desc";
-  onSortChange: (sort: StockSortField, dir: "asc" | "desc") => void;
-  loading: boolean;
-  error: string | null;
-  total: number;
-  page: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (pageSize: number) => void;
-}
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
@@ -79,6 +110,7 @@ export default function StockTable({
   pageSize,
   onPageChange,
   onPageSizeChange,
+  setMap,
 }: StockTableProps) {
   const toggleSort = (key: StockSortField) => {
     if (sort === key) {
@@ -153,14 +185,14 @@ export default function StockTable({
             {rows.map((row) => (
               <tr key={row.dedupKey}>
                 <td style={{ ...tdStyle, width: 40 }}>
-                  <CardHoverPreview name={row.name} />
+                  <CardHoverPreview name={row.name} set={row.set} />
                 </td>
                 {columns.map((col) => (
                   <td
                     key={col.key}
                     style={{ ...tdStyle, textAlign: col.align || "left" }}
                   >
-                    {col.render(row)}
+                    {col.render(row, setMap)}
                   </td>
                 ))}
               </tr>
