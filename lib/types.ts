@@ -217,6 +217,11 @@ export interface EvCard {
   treatment: string;
   prices_updated_at: string;
   synced_at: string;
+  colors: string[];
+  color_identity: string[];
+  cmc: number;
+  released_at: string;
+  layout: string;
   pull_rate_per_box?: number;
   ev_contribution?: number;
 }
