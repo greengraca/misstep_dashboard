@@ -63,13 +63,20 @@ export function projectSetMeta(ev: EvSet): SetMeta {
 // before joining stock rows against the Scryfall-shaped ev_cards collection.
 
 /**
- * Strip Cardmarket parenthetical suffixes from a card name:
- *   "Ornithopter of Paradise (V.1)"       → "Ornithopter of Paradise"
- *   "Faerie Rogue Token (Black 1/1)"      → "Faerie Rogue Token"
- *   "Elemental Token (Blue and Red 4/4)"  → "Elemental Token"
+ * Normalize Cardmarket card names for matching against Scryfall:
+ *   - Strip trailing parenthetical suffixes: "(V.1)", "(Black 1/1)", etc.
+ *   - Convert single-slash DFC separators to Scryfall's double-slash:
+ *       "Thaumatic Compass / Spires of Orazca"
+ *       → "Thaumatic Compass // Spires of Orazca"
+ *     (Cardmarket uses " / ", Scryfall uses " // " for transform and split
+ *     layouts. We rewrite a lone " / " to " // " but leave already-doubled
+ *     separators alone.)
  */
 export function cleanCardName(name: string): string {
-  return name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  let clean = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  // " / " (not followed by another /) → " // "
+  clean = clean.replace(/ \/ (?!\/)/g, " // ");
+  return clean;
 }
 
 /**
