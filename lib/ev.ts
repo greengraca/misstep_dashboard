@@ -250,6 +250,12 @@ export async function syncCards(
         promo_types: card.promo_types || [],
         border_color: card.border_color || "black",
         treatment,
+        // Canonical-sort fields
+        colors: card.colors ?? [],
+        color_identity: card.color_identity ?? [],
+        cmc: typeof card.cmc === "number" ? card.cmc : 0,
+        released_at: card.released_at ?? "9999-12-31",
+        layout: card.layout ?? "normal",
         prices_updated_at: now,
         synced_at: now,
       };
