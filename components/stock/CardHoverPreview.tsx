@@ -119,7 +119,7 @@ export default function CardHoverPreview({ name, set }: CardHoverPreviewProps) {
             <img
               src={image}
               alt={name}
-              style={{ width: 160, height: "auto", borderRadius: 6, display: "block" }}
+              style={{ width: 160, height: "auto", borderRadius: 10, display: "block" }}
             />
           )}
           {!loading && image === null && (
