@@ -186,7 +186,13 @@ export default function StockContent() {
               {c.value}
             </div>
             {c.subtitle && (
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  marginTop: -6,
+                }}
+              >
                 {c.subtitle}
               </div>
             )}
