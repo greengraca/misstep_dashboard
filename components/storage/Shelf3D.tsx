@@ -1,0 +1,83 @@
+// components/storage/Shelf3D.tsx
+/// <reference types="@react-three/fiber" />
+"use client";
+
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import ShelfFrame from "./ShelfFrame";
+import Box3D from "./Box3D";
+import {
+  SHELF_BOARD_Y,
+  BOX_DIMENSIONS,
+  BOX_GAP,
+  CAMERA_DEFAULTS,
+} from "./physical-config";
+import type { ShelfLayout } from "./types";
+
+interface Shelf3DProps {
+  layout: ShelfLayout;
+  selectedBoxId: string | null;
+  onBoxClick: (boxId: string) => void;
+}
+
+export default function Shelf3D({ layout, selectedBoxId, onBoxClick }: Shelf3DProps) {
+  return (
+    <div className="w-full rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] overflow-hidden" style={{ height: 600 }}>
+      <Canvas
+        camera={{ position: CAMERA_DEFAULTS.position, fov: CAMERA_DEFAULTS.fov }}
+        shadows
+      >
+        <color attach="background" args={["#13151a"]} />
+
+        {/* Key light */}
+        <directionalLight
+          position={[3, 4, 2]}
+          intensity={1.2}
+          castShadow
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+        />
+        {/* Fill light */}
+        <ambientLight intensity={0.5} />
+        {/* Subtle rim */}
+        <directionalLight position={[-2, 2, -2]} intensity={0.3} />
+
+        <ShelfFrame />
+
+        {/* Boxes */}
+        {layout.shelfRows.map((row, shelfIdx) => {
+          const shelfY = SHELF_BOARD_Y[shelfIdx];
+          if (shelfY === undefined) {
+            console.warn(`Layout has more shelf rows than physical shelves; ignoring row ${shelfIdx}`);
+            return null;
+          }
+          let x = 0;
+          return row.boxes.map((box, boxIdx) => {
+            const boxDim = BOX_DIMENSIONS[box.type];
+            const position: [number, number, number] = [x, shelfY, 0];
+            x += boxDim.width + BOX_GAP;
+            return (
+              <Box3D
+                key={box.id || `shelf-${shelfIdx}-box-${boxIdx}`}
+                position={position}
+                type={box.type}
+                boxId={box.id}
+                isSelected={selectedBoxId === box.id}
+                onClick={onBoxClick}
+              />
+            );
+          });
+        })}
+
+        <OrbitControls
+          target={CAMERA_DEFAULTS.target}
+          enableDamping
+          dampingFactor={0.08}
+          minDistance={1.5}
+          maxDistance={8}
+          maxPolarAngle={Math.PI / 2}
+        />
+      </Canvas>
+    </div>
+  );
+}
