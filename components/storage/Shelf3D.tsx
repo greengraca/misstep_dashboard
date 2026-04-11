@@ -5,7 +5,7 @@
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import ShelfFrame from "./ShelfFrame";
-import Box3D from "./Box3D";
+import Box3D, { type BoxData } from "./Box3D";
 import {
   SHELF_BOARD_Y,
   BOX_DIMENSIONS,
@@ -18,11 +18,20 @@ interface Shelf3DProps {
   layout: ShelfLayout;
   selectedBoxId: string | null;
   onBoxClick: (boxId: string) => void;
+  boxData: Map<string, BoxData>;
 }
 
-export default function Shelf3D({ layout, selectedBoxId, onBoxClick }: Shelf3DProps) {
+export default function Shelf3D({
+  layout,
+  selectedBoxId,
+  onBoxClick,
+  boxData,
+}: Shelf3DProps) {
   return (
-    <div className="w-full rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] overflow-hidden" style={{ height: 600 }}>
+    <div
+      className="w-full rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] overflow-hidden"
+      style={{ height: 600 }}
+    >
       <Canvas
         camera={{ position: CAMERA_DEFAULTS.position, fov: CAMERA_DEFAULTS.fov }}
         shadows
@@ -38,7 +47,7 @@ export default function Shelf3D({ layout, selectedBoxId, onBoxClick }: Shelf3DPr
           shadow-mapSize-height={1024}
         />
         {/* Fill light */}
-        <ambientLight intensity={0.5} />
+        <ambientLight intensity={0.55} />
         {/* Subtle rim */}
         <directionalLight position={[-2, 2, -2]} intensity={0.3} />
 
@@ -48,7 +57,9 @@ export default function Shelf3D({ layout, selectedBoxId, onBoxClick }: Shelf3DPr
         {layout.shelfRows.map((row, shelfIdx) => {
           const shelfY = SHELF_BOARD_Y[shelfIdx];
           if (shelfY === undefined) {
-            console.warn(`Layout has more shelf rows than physical shelves; ignoring row ${shelfIdx}`);
+            console.warn(
+              `Layout has more shelf rows than physical shelves; ignoring row ${shelfIdx}`
+            );
             return null;
           }
           let x = 0;
@@ -63,6 +74,7 @@ export default function Shelf3D({ layout, selectedBoxId, onBoxClick }: Shelf3DPr
                 type={box.type}
                 boxId={box.id}
                 isSelected={selectedBoxId === box.id}
+                data={boxData.get(box.id)}
                 onClick={onBoxClick}
               />
             );

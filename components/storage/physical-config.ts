@@ -38,6 +38,18 @@ export const BOX_DIMENSIONS: Record<BoxType, { width: number; height: number; de
 /** Small gap between adjacent boxes in the same shelf row, in meters. */
 export const BOX_GAP = 0.002;
 
+/** Thickness of box cardboard walls and internal dividers, in meters. */
+export const BOX_WALL_THICKNESS = 0.003;
+
+/** How tall the card fill inside a row is, as a fraction of box height. */
+export const CARD_FILL_HEIGHT_RATIO = 0.82;
+
+/** How tall the internal dividers are, as a fraction of box height. */
+export const DIVIDER_HEIGHT_RATIO = 0.92;
+
+/** Max slots per internal box row. Mirrors lib/storage.ts ROW_CAPACITY_SLOTS. */
+export const ROW_CAPACITY_SLOTS = 125;
+
 /**
  * Scene camera defaults. The camera is positioned at a front-3/4 angle so
  * the user can see the box fronts without the shelf frame occluding them.

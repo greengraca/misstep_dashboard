@@ -8,6 +8,7 @@ import StorageDrawer from "./StorageDrawer";
 import LayoutEditor from "./LayoutEditor";
 import Shelf3D from "./Shelf3D";
 import BoxContentsPanel from "./BoxContentsPanel";
+import type { BoxData, BoxRowData, BoxSetRun } from "./Box3D";
 import {
   fetcher,
   type StatsResponse,
@@ -80,6 +81,51 @@ export default function StorageContent() {
     return map;
   }, [slots]);
 
+  // Derive per-box row + set-run data for the 3D scene. Each box row becomes
+  // a list of (set, slotCount) runs in reading order, which Box3D renders as
+  // color-coded blocks inside the internal channel.
+  const boxData = useMemo(() => {
+    const result = new Map<string, BoxData>();
+    for (const [boxId, boxSlots] of slotsByBoxId) {
+      // Bucket by rowIndex first.
+      const byRow = new Map<number, PlacedCell[]>();
+      for (const cell of boxSlots) {
+        if (cell.kind === "empty-reserved") continue;
+        if (!("boxRowIndex" in cell)) continue;
+        const list = byRow.get(cell.boxRowIndex) ?? [];
+        list.push(cell);
+        byRow.set(cell.boxRowIndex, list);
+      }
+      // Convert each row to ordered set runs.
+      const rows: BoxRowData[] = [];
+      for (const [rowIndex, rowCells] of byRow) {
+        const sorted = [...rowCells].sort((a, b) => {
+          const pa = "positionInBoxRow" in a ? a.positionInBoxRow : 0;
+          const pb = "positionInBoxRow" in b ? b.positionInBoxRow : 0;
+          return pa - pb;
+        });
+        const setRuns: BoxSetRun[] = [];
+        for (const cell of sorted) {
+          if (cell.kind === "empty-reserved") continue;
+          const last = setRuns[setRuns.length - 1];
+          if (last && last.set === cell.set) {
+            last.slotCount += 1;
+          } else {
+            setRuns.push({
+              set: cell.set,
+              setName: cell.setName,
+              slotCount: 1,
+            });
+          }
+        }
+        rows.push({ rowIndex, setRuns });
+      }
+      rows.sort((a, b) => a.rowIndex - b.rowIndex);
+      result.set(boxId, { rows });
+    }
+    return result;
+  }, [slotsByBoxId]);
+
   const selectedBoxSlots = selectedBoxId ? slotsByBoxId.get(selectedBoxId) ?? [] : [];
   const selectedBoxLabel = selectedBoxId
     ? (() => {
@@ -122,6 +168,7 @@ export default function StorageContent() {
         layout={layout}
         selectedBoxId={selectedBoxId}
         onBoxClick={setSelectedBoxId}
+        boxData={boxData}
       />
 
       <BoxContentsPanel
