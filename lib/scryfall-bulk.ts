@@ -1,0 +1,82 @@
+// lib/scryfall-bulk.ts
+//
+// Pure helpers for Scryfall bulk-data ingestion. The functions in this file do
+// not touch MongoDB — they accept a `fetch`-like callable and return plain
+// data, which keeps them unit-testable without network or DB.
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export interface EvCardDoc {
+  scryfall_id: string;
+  set: string;
+  name: string;
+  collector_number: string;
+  rarity: string;
+  price_eur: number | null;
+  price_eur_foil: number | null;
+  finishes: string[];
+  booster: boolean;
+  image_uri: string | null;
+  cardmarket_id: number | null;
+  type_line: string;
+  frame_effects: string[];
+  promo_types: string[];
+  border_color: string;
+  treatment: string;
+  colors: string[];
+  color_identity: string[];
+  cmc: number;
+  released_at: string;
+  layout: string;
+  prices_updated_at: string;
+  synced_at: string;
+}
+
+function deriveCardTreatment(card: any): string {
+  if (card.border_color === "borderless") return "borderless";
+  const fe: string[] = card.frame_effects || [];
+  if (fe.includes("showcase")) return "showcase";
+  if (fe.includes("extendedart")) return "extended_art";
+  const pt: string[] = card.promo_types || [];
+  if (pt.includes("textured")) return "textured";
+  if (pt.includes("serialized")) return "serialized";
+  if (pt.includes("galaxyfoil")) return "galaxy_foil";
+  if (pt.includes("surgefoil")) return "surge_foil";
+  return "normal";
+}
+
+export function parseScryfallCardToDoc(card: any, nowIso: string): EvCardDoc {
+  const imageUri =
+    card.image_uris?.small ??
+    card.card_faces?.[0]?.image_uris?.small ??
+    null;
+
+  const priceEur = card.prices?.eur ? parseFloat(card.prices.eur) : null;
+  const priceEurFoil = card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null;
+
+  return {
+    scryfall_id: card.id,
+    set: card.set,
+    name: card.name,
+    collector_number: card.collector_number,
+    rarity: card.rarity,
+    price_eur: priceEur,
+    price_eur_foil: priceEurFoil,
+    finishes: card.finishes ?? [],
+    booster: card.booster ?? false,
+    image_uri: imageUri,
+    cardmarket_id: card.cardmarket_id ?? null,
+    type_line: card.type_line ?? "",
+    frame_effects: card.frame_effects ?? [],
+    promo_types: card.promo_types ?? [],
+    border_color: card.border_color ?? "black",
+    treatment: deriveCardTreatment(card),
+    colors: card.colors ?? [],
+    color_identity: card.color_identity ?? [],
+    cmc: typeof card.cmc === "number" ? card.cmc : 0,
+    released_at: card.released_at ?? "9999-12-31",
+    layout: card.layout ?? "normal",
+    prices_updated_at: nowIso,
+    synced_at: nowIso,
+  };
+}
