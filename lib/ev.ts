@@ -139,7 +139,19 @@ export async function syncSets(): Promise<{ added: number; updated: number }> {
 export async function getSets(): Promise<EvSet[]> {
   await ensureIndexes();
   const db = await getDb();
-  const sets = await db.collection(COL_SETS).find().sort({ released_at: -1 }).toArray();
+
+  // Read-time filter: EV calculator UI only wants booster sets released in 2020+,
+  // excluding digital-only. The underlying collection may contain every Scryfall set
+  // (since refreshAllScryfall populates the full catalog for canonical sort).
+  const sets = await db
+    .collection(COL_SETS)
+    .find({
+      set_type: { $in: Array.from(BOOSTER_SET_TYPES) },
+      released_at: { $gte: `${MIN_RELEASE_YEAR}-01-01` },
+      $or: [{ digital: { $ne: true } }, { digital: { $exists: false } }],
+    })
+    .sort({ released_at: -1 })
+    .toArray();
 
   // Enrich with latest snapshot EV and config existence
   const configCodes = await db
@@ -177,6 +189,21 @@ export async function getSets(): Promise<EvSet[]> {
       collector_ev_net: snap?.collector_ev_net ?? null,
     } as EvSet;
   });
+}
+
+/**
+ * Unfiltered set list — used by canonical-sort in sub-plan 2.
+ * Returns every set in the collection, sorted chronologically (oldest first).
+ */
+export async function getAllSets(): Promise<EvSet[]> {
+  await ensureIndexes();
+  const db = await getDb();
+  const sets = await db
+    .collection(COL_SETS)
+    .find()
+    .sort({ released_at: 1 })
+    .toArray();
+  return sets.map((s) => ({ ...s, _id: s._id.toString() }) as EvSet);
 }
 
 export async function getSetByCode(code: string): Promise<EvSet | null> {
