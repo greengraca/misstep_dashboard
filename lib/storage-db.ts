@@ -55,6 +55,72 @@ export function projectSetMeta(ev: EvSet): SetMeta {
   };
 }
 
+// ── Name / set cleanup for Cardmarket → Scryfall join ──────────
+//
+// Cardmarket adds variant suffixes to card names ("Ornithopter of Paradise (V.1)")
+// and uses set-name conventions that differ from Scryfall ("Core 2019",
+// "Commander: Modern Horizons 3", "Revised"). Both need to be normalized
+// before joining stock rows against the Scryfall-shaped ev_cards collection.
+
+/** Strip Cardmarket variant suffixes like " (V.1)" from a card name. */
+export function cleanCardName(name: string): string {
+  return name.replace(/\s*\(V\.\d+\)\s*$/, "").trim();
+}
+
+/**
+ * Manual alias map for sets whose Cardmarket name can't be resolved via
+ * transformation rules. Keys are lowercased Cardmarket set names; values are
+ * Scryfall set codes.
+ */
+const SET_NAME_ALIASES: Record<string, string> = {
+  "revised": "3ed",
+  "magic: the gathering foundations": "fdn",
+  "mystery booster": "mb1",
+};
+
+/**
+ * Resolve a raw Cardmarket set label to a Scryfall set code, using a series of
+ * fallback strategies. Returns null if nothing matches.
+ */
+export function resolveSetCode(
+  rawSet: string,
+  lookup: Map<string, string>
+): string | null {
+  const lower = rawSet.toLowerCase();
+
+  // 1. Direct lookup (covers codes passing through and exact-match names).
+  const direct = lookup.get(lower);
+  if (direct) return direct;
+
+  // 2. Manual alias table.
+  const alias = SET_NAME_ALIASES[lower];
+  if (alias) return alias;
+
+  // 3. Strip ": Extras" suffix — Cardmarket tag for collector booster / showcase
+  //    / borderless subsets that Scryfall keeps inside the base set.
+  if (lower.endsWith(": extras")) {
+    const stripped = lower.slice(0, -": extras".length);
+    const match = lookup.get(stripped);
+    if (match) return match;
+  }
+
+  // 4. "Core N" → "Core Set N" (Cardmarket drops "Set" in the name).
+  const coreMatch = lower.match(/^core (\d{4})$/);
+  if (coreMatch) {
+    const match = lookup.get(`core set ${coreMatch[1]}`);
+    if (match) return match;
+  }
+
+  // 5. "Commander: X" → "X Commander" (Cardmarket prefixes, Scryfall suffixes).
+  if (lower.startsWith("commander: ")) {
+    const rest = lower.slice("commander: ".length);
+    const match = lookup.get(`${rest} commander`);
+    if (match) return match;
+  }
+
+  return null;
+}
+
 // ── Rebuild orchestrator ───────────────────────────────────────
 
 import { getDb } from "@/lib/mongodb";
@@ -115,19 +181,27 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
 
   // Cardmarket's stock collection stores set names ("Commander 2014", "Ikoria:
   // Lair of Behemoths"), but Scryfall's ev_cards stores set codes ("c14", "iko").
-  // Build a case-insensitive lookup from set.name → set.code, then rewrite each
-  // stock row's set field to the code so the downstream join works.
-  // Codes pass through unchanged (in case some stock rows already have codes).
+  // Build a case-insensitive lookup from set.name → set.code plus code → code
+  // (so rows that already have a code pass through). `resolveSetCode` handles
+  // a few common Cardmarket-vs-Scryfall divergences beyond exact name match.
   const setCodeLookup = new Map<string, string>();
   for (const s of sets) {
     setCodeLookup.set(s.code.toLowerCase(), s.code);
-    setCodeLookup.set(s.name.toLowerCase(), s.code);
+    if (!setCodeLookup.has(s.name.toLowerCase())) {
+      setCodeLookup.set(s.name.toLowerCase(), s.code);
+    }
   }
 
-  const stock = stockDocs.map(projectStockRow).map((row) => {
-    const code = setCodeLookup.get(row.set.toLowerCase());
-    return code ? { ...row, set: code } : row;
-  });
+  const stock = stockDocs
+    .map(projectStockRow)
+    .map((row) => {
+      const code = resolveSetCode(row.set, setCodeLookup);
+      const cleanedName = cleanCardName(row.name);
+      if (code && cleanedName === row.name) return { ...row, set: code };
+      if (code) return { ...row, name: cleanedName, set: code };
+      if (cleanedName !== row.name) return { ...row, name: cleanedName };
+      return row;
+    });
 
   const cardMetaByKey = new Map<string, CardMeta>();
   for (const c of cardDocs) {
