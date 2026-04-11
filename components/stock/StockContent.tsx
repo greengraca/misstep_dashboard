@@ -18,6 +18,11 @@ interface SummaryResponse {
   totalQty: number;
   totalValue: number;
   distinctListings: number;
+  coverage: {
+    tracked: number;
+    total: number | null;
+    percentage: number | null;
+  };
 }
 
 interface SearchResponse {
@@ -94,20 +99,31 @@ export default function StockContent() {
     fetcher
   );
 
+  const coverageSubtitle = (() => {
+    const c = summary?.coverage;
+    if (!c) return undefined;
+    if (c.total == null) return `${c.tracked.toLocaleString()} tracked`;
+    const pct = c.percentage != null ? `${c.percentage}%` : "—";
+    return `${c.tracked.toLocaleString()} of ${c.total.toLocaleString()} tracked (${pct})`;
+  })();
+
   const statCards = [
     {
       label: "Total Stock",
       value: summary ? summary.totalQty.toLocaleString() : "—",
+      subtitle: coverageSubtitle,
       icon: <Package size={18} />,
     },
     {
       label: "Value",
       value: summary ? `€${summary.totalValue.toFixed(2)}` : "—",
+      subtitle: undefined as string | undefined,
       icon: <Coins size={18} />,
     },
     {
       label: "Listings",
       value: summary ? summary.distinctListings.toLocaleString() : "—",
+      subtitle: undefined as string | undefined,
       icon: <ListOrdered size={18} />,
     },
   ];
@@ -169,6 +185,11 @@ export default function StockContent() {
             >
               {c.value}
             </div>
+            {c.subtitle && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                {c.subtitle}
+              </div>
+            )}
           </div>
         ))}
       </div>
