@@ -3,11 +3,9 @@ import { withAuthRead } from "@/lib/api-helpers";
 import { getCardImage } from "@/lib/card-images";
 
 export const GET = withAuthRead(async (req) => {
-  const sp = req.nextUrl.searchParams;
-  const name = sp.get("name") || "";
-  const set = sp.get("set") || "";
-  if (!name || !set) {
-    return NextResponse.json({ error: "name and set are required" }, { status: 400 });
+  const name = req.nextUrl.searchParams.get("name") || "";
+  if (!name) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
-  return await getCardImage(name, set);
+  return await getCardImage(name);
 }, "stock-card-image");

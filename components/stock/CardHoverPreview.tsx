@@ -4,22 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon } from "lucide-react";
 
 // Module-level cache shared across all CardHoverPreview instances on the
-// page. Keyed by `${name}|${set}` → image URL or null (not found).
+// page. Keyed by card name → image URL or null (not found).
 const imageCache = new Map<string, string | null>();
 
 interface CardHoverPreviewProps {
   name: string;
-  set: string;
 }
 
-export default function CardHoverPreview({ name, set }: CardHoverPreviewProps) {
+export default function CardHoverPreview({ name }: CardHoverPreviewProps) {
   const [open, setOpen] = useState(false);
   const [image, setImage] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const cacheKey = `${name}|${set}`;
+  const cacheKey = name;
 
   const startHover = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -33,7 +32,7 @@ export default function CardHoverPreview({ name, set }: CardHoverPreviewProps) {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       fetch(
-        `/api/stock/card-image?name=${encodeURIComponent(name)}&set=${encodeURIComponent(set)}`,
+        `/api/stock/card-image?name=${encodeURIComponent(name)}`,
         { signal: ctrl.signal }
       )
         .then((r) => r.json())

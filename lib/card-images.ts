@@ -17,22 +17,22 @@ interface CachedCardDoc {
   synced_at?: string;
 }
 
-/**
- * Look up a card image for the stock tab hover preview.
- * Tries the local dashboard_cards cache first, falls back to Scryfall.
- */
-export async function getCardImage(name: string, set: string): Promise<CardImageResult> {
-  if (!name || !set) return { image: null, source: "notfound" };
+// The stock collection stores Cardmarket's long set name (e.g. "Commander 2014"),
+// but Scryfall's API and the local dashboard_cards cache both key by the short
+// set code (e.g. "c14"). Matching on set would always miss, so we look up by
+// name only and accept the default printing — fine for a hover preview.
+export async function getCardImage(name: string): Promise<CardImageResult> {
+  if (!name) return { image: null, source: "notfound" };
   const db = await getDb();
   const col = db.collection<CachedCardDoc>(COL_CARDS);
 
-  const cached = await col.findOne({ name, set });
+  const cached = await col.findOne({ name, image_uri: { $ne: null } });
   if (cached?.image_uri) {
     return { image: cached.image_uri, source: "cache" };
   }
 
   try {
-    const url = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&set=${encodeURIComponent(set)}`;
+    const url = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`;
     const res = await fetch(url, { headers: { Accept: "application/json" } });
     if (!res.ok) return { image: null, source: "notfound" };
     const card = (await res.json()) as {
@@ -49,20 +49,22 @@ export async function getCardImage(name: string, set: string): Promise<CardImage
       null;
     if (!image) return { image: null, source: "notfound" };
 
-    await col.updateOne(
-      { name, set },
-      {
-        $set: {
-          scryfall_id: card.id,
-          name: card.name || name,
-          set: card.set || set,
-          collector_number: card.collector_number,
-          image_uri: image,
-          synced_at: new Date().toISOString(),
+    if (card.id && card.set) {
+      await col.updateOne(
+        { scryfall_id: card.id },
+        {
+          $set: {
+            scryfall_id: card.id,
+            name: card.name || name,
+            set: card.set,
+            collector_number: card.collector_number,
+            image_uri: image,
+            synced_at: new Date().toISOString(),
+          },
         },
-      },
-      { upsert: true }
-    );
+        { upsert: true }
+      );
+    }
 
     return { image, source: "scryfall" };
   } catch {

@@ -153,7 +153,7 @@ export default function StockTable({
             {rows.map((row) => (
               <tr key={row.dedupKey}>
                 <td style={{ ...tdStyle, width: 40 }}>
-                  <CardHoverPreview name={row.name} set={row.set} />
+                  <CardHoverPreview name={row.name} />
                 </td>
                 {columns.map((col) => (
                   <td
