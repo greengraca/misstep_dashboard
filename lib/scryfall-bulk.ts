@@ -114,3 +114,47 @@ export async function fetchBulkDataIndex(
   }
   return (await res.json()) as ScryfallBulkIndex;
 }
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const StreamArray = require("stream-json/streamers/StreamArray");
+import { Readable } from "node:stream";
+
+export interface StreamBulkCardsOptions {
+  batchSize: number;
+  onBatch: (batch: EvCardDoc[]) => Promise<void>;
+  now?: string;
+}
+
+export async function streamBulkCards(
+  body: ReadableStream<Uint8Array>,
+  opts: StreamBulkCardsOptions
+): Promise<{ processed: number }> {
+  const nowIso = opts.now ?? new Date().toISOString();
+  // Adapt the Web ReadableStream (from fetch().body) to a Node Readable.
+  // Node 18+ provides Readable.fromWeb. The cast silences a variance error
+  // between lib.dom and node stream types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nodeStream = Readable.fromWeb(body as any);
+
+  // StreamArray.withParser() returns a single transform that includes the
+  // JSON tokenizer AND the array-element streamer — do NOT chain a separate
+  // parser() before it or each element will be double-parsed.
+  const pipeline = nodeStream.pipe(StreamArray.withParser());
+
+  let batch: EvCardDoc[] = [];
+  let processed = 0;
+
+  for await (const chunk of pipeline as AsyncIterable<{ key: number; value: unknown }>) {
+    const doc = parseScryfallCardToDoc(chunk.value, nowIso);
+    batch.push(doc);
+    processed++;
+    if (batch.length >= opts.batchSize) {
+      await opts.onBatch(batch);
+      batch = [];
+    }
+  }
+  if (batch.length > 0) {
+    await opts.onBatch(batch);
+  }
+  return { processed };
+}

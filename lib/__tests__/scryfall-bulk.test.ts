@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fixture from "./fixtures/scryfall-cards-sample.json";
 import bulkIndexFixture from "./fixtures/scryfall-bulk-index.json";
-import { parseScryfallCardToDoc, findDefaultCardsEntry, fetchBulkDataIndex, ScryfallBulkIndex } from "../scryfall-bulk";
+import { parseScryfallCardToDoc, findDefaultCardsEntry, fetchBulkDataIndex, ScryfallBulkIndex, streamBulkCards } from "../scryfall-bulk";
 
 describe("parseScryfallCardToDoc", () => {
   it("maps a standard single-face card with prices", () => {
@@ -119,5 +119,49 @@ describe("fetchBulkDataIndex", () => {
     await expect(
       fetchBulkDataIndex(mockFetch as unknown as typeof fetch)
     ).rejects.toThrow(/503/);
+  });
+});
+
+function jsonArrayStream(items: unknown[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const body = encoder.encode(JSON.stringify(items));
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(body);
+      controller.close();
+    },
+  });
+}
+
+describe("streamBulkCards", () => {
+  it("parses the JSON array and delivers cards in batches", async () => {
+    const stream = jsonArrayStream(fixture);
+    const batches: unknown[][] = [];
+    await streamBulkCards(stream, {
+      batchSize: 2,
+      onBatch: async (batch) => {
+        batches.push(batch);
+      },
+    });
+
+    // 5 fixture cards with batchSize 2 → batches of 2, 2, 1
+    expect(batches).toHaveLength(3);
+    expect(batches[0]).toHaveLength(2);
+    expect(batches[1]).toHaveLength(2);
+    expect(batches[2]).toHaveLength(1);
+
+    const allCards = batches.flat() as Array<{ scryfall_id: string }>;
+    expect(allCards).toHaveLength(5);
+    expect(allCards[0].scryfall_id).toBe("aaaaaaaa-0000-0000-0000-000000000001");
+    expect(allCards[4].scryfall_id).toBe("aaaaaaaa-0000-0000-0000-000000000005");
+  });
+
+  it("returns total processed count", async () => {
+    const stream = jsonArrayStream(fixture);
+    const result = await streamBulkCards(stream, {
+      batchSize: 10,
+      onBatch: async () => {},
+    });
+    expect(result.processed).toBe(5);
   });
 });
