@@ -7,10 +7,17 @@ import {
   deriveSortFields,
   aggregateStock,
   computeCanonicalSort,
+  flowIntoLayout,
+  applyOverrides,
   type CardMeta,
   type SetMeta,
   type StockRow,
   type CanonicalSortResult,
+  type ShelfLayout,
+  type Slot,
+  type PlacedSlot,
+  type EmptyReservedCell,
+  type CutOverride,
 } from "../storage";
 
 describe("storage constants", () => {
@@ -484,5 +491,295 @@ describe("computeCanonicalSort — determinism", () => {
     const r1 = computeCanonicalSort(stock, cards, sets);
     const r2 = computeCanonicalSort(stock, cards, sets);
     expect(r1).toEqual(r2);
+  });
+});
+
+// ── Task 5 & 6 helpers ────────────────────────────────────────────
+
+// Test helper: build a slot with defaults.
+function slot(overrides: Partial<Slot> & Pick<Slot, "position" | "set" | "name">): Slot {
+  return {
+    slotKey: `${overrides.name}|${overrides.set}|0`,
+    variantKey: `${overrides.name}|${overrides.set}`,
+    setName: overrides.set.toUpperCase(),
+    setReleaseDate: "2022-01-01",
+    colorGroup: "W",
+    landTier: 0,
+    cmc: 1,
+    cmcBucket: 1,
+    rarity: "common",
+    qtyInSlot: 1,
+    slotIndexInVariant: 0,
+    imageUri: null,
+    ...overrides,
+  };
+}
+
+// Test helper: build a simple layout.
+function layout(shelfRows: { id: string; label: string; boxes: { id: string; type: "1k" | "2k" | "4k" }[] }[]): ShelfLayout {
+  return { shelfRows };
+}
+
+// ── Task 5: flowIntoLayout ────────────────────────────────────────
+
+describe("flowIntoLayout — basic placement", () => {
+  it("places a single slot into box-row 0 position 1", () => {
+    const slots = [slot({ position: 1, set: "a", name: "alpha" })];
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] },
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    expect(result.cells).toHaveLength(1);
+    const placed = result.cells[0];
+    if (placed.kind === "empty-reserved") throw new Error("expected PlacedSlot");
+    expect(placed.shelfRowId).toBe("sr1");
+    expect(placed.boxId).toBe("b1");
+    expect(placed.boxRowIndex).toBe(0);
+    expect(placed.positionInBoxRow).toBe(1);
+    expect(placed.readingDirection).toBe("far-to-near");
+  });
+
+  it("fills box-row 0, then moves to box-row 1 with snake direction flip", () => {
+    const slots: Slot[] = [];
+    for (let i = 0; i < ROW_CAPACITY_SLOTS + 1; i++) {
+      slots.push(slot({ position: i + 1, set: "a", name: `card${i}` }));
+    }
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "2k" }] },
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    const placed = result.cells.filter((c): c is Extract<typeof c, { kind?: undefined }> => c.kind !== "empty-reserved");
+    expect(placed).toHaveLength(ROW_CAPACITY_SLOTS + 1);
+    // First slot in box-row 0 (far→near)
+    const first = placed[0];
+    if ("kind" in first) throw new Error("");
+    expect(first.boxRowIndex).toBe(0);
+    expect(first.readingDirection).toBe("far-to-near");
+    expect(first.positionInBoxRow).toBe(1);
+    // Slot 126 (index 125) starts box-row 1 (near→far)
+    const overflowed = placed[ROW_CAPACITY_SLOTS];
+    if ("kind" in overflowed) throw new Error("");
+    expect(overflowed.boxRowIndex).toBe(1);
+    expect(overflowed.readingDirection).toBe("near-to-far");
+    expect(overflowed.positionInBoxRow).toBe(1);
+  });
+
+  it("spans box boundaries within a single shelf row", () => {
+    const slots: Slot[] = [];
+    for (let i = 0; i < ROW_CAPACITY_SLOTS + 5; i++) {
+      slots.push(slot({ position: i + 1, set: "a", name: `card${i}` }));
+    }
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }, { id: "b2", type: "1k" }] },
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    const cells = result.cells.filter((c): c is Extract<typeof c, PlacedSlot> => c.kind !== "empty-reserved") as PlacedSlot[];
+    expect(cells[ROW_CAPACITY_SLOTS - 1].boxId).toBe("b1");
+    expect(cells[ROW_CAPACITY_SLOTS].boxId).toBe("b2");
+    expect(cells[ROW_CAPACITY_SLOTS].positionInBoxRow).toBe(1);
+  });
+});
+
+describe("flowIntoLayout — shelf row atomicity", () => {
+  it("a set block that doesn't fit in the remaining shelf row jumps to the next shelf row", () => {
+    // Layout: 2 shelf rows, each one 1k box (125 slots).
+    // Stock: 100 slots of set A, then 50 slots of set B.
+    // Expected: set A fills positions 1-100 in shelf row 1. Set B would not fit
+    // in the remaining 25 slots, so it jumps to shelf row 2 and starts at position 1.
+    const slots: Slot[] = [];
+    for (let i = 0; i < 100; i++) slots.push(slot({ position: i + 1, set: "a", name: `a${i}` }));
+    for (let i = 0; i < 50; i++) slots.push(slot({ position: 100 + i + 1, set: "b", name: `b${i}` }));
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] },
+      { id: "sr2", label: "middle", boxes: [{ id: "b2", type: "1k" }] },
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    // First 100 cards in sr1
+    expect(placed[0].shelfRowId).toBe("sr1");
+    expect(placed[99].shelfRowId).toBe("sr1");
+    // Card 101 (first B) should be in sr2
+    expect(placed[100].shelfRowId).toBe("sr2");
+    expect(placed[100].positionInBoxRow).toBe(1);
+  });
+
+  it("a set block bigger than any shelf row is flagged spansShelfRow and still placed", () => {
+    // Layout: one shelf row with 1k box (125 slots). Stock: 150 slots of set A.
+    const slots: Slot[] = [];
+    for (let i = 0; i < 150; i++) slots.push(slot({ position: i + 1, set: "a", name: `a${i}` }));
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] },
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    // Every slot of set A should be flagged spansShelfRow.
+    for (const p of placed) {
+      expect(p.spansShelfRow).toBe(true);
+    }
+    // First 125 in shelf row 1 box 1; remaining 25 spill. With `spansShelfRow`
+    // the placement is best-effort, not constrained — just mark the slots.
+    expect(placed).toHaveLength(150);
+  });
+
+  it("slots beyond total layout capacity are marked unplaced", () => {
+    const slots: Slot[] = [];
+    for (let i = 0; i < 130; i++) slots.push(slot({ position: i + 1, set: "a", name: `a${i}` }));
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] },  // 125 slots total
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    const unplaced = placed.filter((p) => p.unplaced);
+    expect(unplaced.length).toBeGreaterThanOrEqual(5);  // at least 5 overflow
+  });
+});
+
+describe("flowIntoLayout — box-row snake pattern", () => {
+  it("4k box has rows 0, 1, 2, 3 alternating directions", () => {
+    const slots: Slot[] = [];
+    const slotsPer4kBox = BOX_ROWS["4k"] * ROW_CAPACITY_SLOTS;  // 500
+    for (let i = 0; i < slotsPer4kBox; i++) {
+      slots.push(slot({ position: i + 1, set: "a", name: `card${i}` }));
+    }
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "4k" }] },
+    ]);
+    const result = flowIntoLayout(slots, lay);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    expect(placed[0].readingDirection).toBe("far-to-near");         // row 0
+    expect(placed[ROW_CAPACITY_SLOTS].readingDirection).toBe("near-to-far"); // row 1
+    expect(placed[ROW_CAPACITY_SLOTS * 2].readingDirection).toBe("far-to-near"); // row 2
+    expect(placed[ROW_CAPACITY_SLOTS * 3].readingDirection).toBe("near-to-far"); // row 3
+  });
+});
+
+describe("flowIntoLayout — empty layout", () => {
+  it("no shelf rows → everything marked unplaced", () => {
+    const slots = [slot({ position: 1, set: "a", name: "x" })];
+    const lay = layout([]);
+    const result = flowIntoLayout(slots, lay);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    expect(placed[0].unplaced).toBe(true);
+  });
+});
+
+// ── Task 6: applyOverrides ────────────────────────────────────────
+
+describe("applyOverrides — basic application", () => {
+  it("with empty overrides list, produces identical output to flowIntoLayout", () => {
+    const slots: Slot[] = [];
+    for (let i = 0; i < 10; i++) slots.push(slot({ position: i + 1, set: "a", name: `c${i}` }));
+    const lay = layout([{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] }]);
+    const flowResult = flowIntoLayout(slots, lay);
+    const applyResult = applyOverrides(slots, lay, []);
+    expect(applyResult.cells).toEqual(flowResult.cells);
+    expect(applyResult.staleOverrides).toEqual([]);
+  });
+
+  it("override on slot 5 → cursor jumps to target row, empty-reserved fills the gap", () => {
+    // 10 slots, 1k box (125 slot capacity). Override says slot 5 should start box-row 0
+    // at position 50 (jumping past positions 5-49). NOTE: 1k has only 1 box-row (0),
+    // so this test uses a 2k box. Override says slot 5 should start box-row 1 pos 1.
+    const slots: Slot[] = [];
+    for (let i = 0; i < 10; i++) slots.push(slot({ position: i + 1, set: "a", name: `c${i}` }));
+    const lay = layout([{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "2k" }] }]);
+    const overrides: CutOverride[] = [
+      { id: "o1", anchorSlotKey: "c4|a|0", targetBoxId: "b1", targetBoxRowIndex: 1 },
+    ];
+    const result = applyOverrides(slots, lay, overrides);
+    expect(result.staleOverrides).toEqual([]);
+
+    // The first 4 slots are in box-row 0 positions 1-4.
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    expect(placed[0].boxRowIndex).toBe(0);
+    expect(placed[3].boxRowIndex).toBe(0);
+    expect(placed[3].positionInBoxRow).toBe(4);
+
+    // Between slot 4 and the resumption at box-row 1, empty-reserved cells fill
+    // the remainder of box-row 0 (positions 5..125 = 121 cells).
+    const emptyReserved = result.cells.filter((c): c is EmptyReservedCell => c.kind === "empty-reserved");
+    expect(emptyReserved.length).toBe(ROW_CAPACITY_SLOTS - 4);
+
+    // Slot 5 (c4) lands at box-row 1 position 1.
+    const slot5 = placed[4];
+    expect(slot5.name).toBe("c4");
+    expect(slot5.boxRowIndex).toBe(1);
+    expect(slot5.positionInBoxRow).toBe(1);
+  });
+});
+
+describe("applyOverrides — staleness detection", () => {
+  it("stale-missing-slot: override anchor not in input slots", () => {
+    const slots = [slot({ position: 1, set: "a", name: "only" })];
+    const lay = layout([{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] }]);
+    const overrides: CutOverride[] = [
+      { id: "o1", anchorSlotKey: "ghost|a|0", targetBoxId: "b1", targetBoxRowIndex: 0 },
+    ];
+    const result = applyOverrides(slots, lay, overrides);
+    expect(result.staleOverrides).toHaveLength(1);
+    expect(result.staleOverrides[0].status).toBe("stale-missing-slot");
+    expect(result.staleOverrides[0].override.id).toBe("o1");
+  });
+
+  it("stale-missing-target: target box doesn't exist in layout", () => {
+    const slots = [slot({ position: 1, set: "a", name: "only" })];
+    const lay = layout([{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] }]);
+    const overrides: CutOverride[] = [
+      { id: "o1", anchorSlotKey: "only|a|0", targetBoxId: "deleted-box", targetBoxRowIndex: 0 },
+    ];
+    const result = applyOverrides(slots, lay, overrides);
+    expect(result.staleOverrides).toHaveLength(1);
+    expect(result.staleOverrides[0].status).toBe("stale-missing-target");
+  });
+
+  it("stale-regression: override would place slot earlier than natural flow", () => {
+    // Slots 1-10 naturally place in box-row 0 pos 1-10 of b1. Override says
+    // slot 8 should start box-row 0 pos 1 of b1 — but natural flow already
+    // put slot 8 at position 8, and jumping backward would place earlier slots
+    // after it. Flag as regression.
+    const slots: Slot[] = [];
+    for (let i = 0; i < 10; i++) slots.push(slot({ position: i + 1, set: "a", name: `c${i}` }));
+    const lay = layout([{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "2k" }] }]);
+    // Override: slot index 7 (c7) should start box-row 0 pos 1.
+    // Natural flow puts c7 at box-row 0 pos 8, so the override's target (0,0,1)
+    // is EARLIER in the stream — that's a regression.
+    const overrides: CutOverride[] = [
+      { id: "o1", anchorSlotKey: "c7|a|0", targetBoxId: "b1", targetBoxRowIndex: 0 },
+    ];
+    const result = applyOverrides(slots, lay, overrides);
+    // The override anchor is at (box-row 0, pos 8) naturally, but targetBoxRowIndex=0
+    // and we're already past position 1 there — should be flagged.
+    // Actually the spec says "move slot earlier than natural flow" — that's the regression case.
+    // Since targeting box-row 0 when we're already past it (cursor is at row 0 pos 8 when we hit c7),
+    // jumping backward to (row 0, pos 0) is a regression.
+    expect(result.staleOverrides).toHaveLength(1);
+    expect(result.staleOverrides[0].status).toBe("stale-regression");
+  });
+});
+
+describe("applyOverrides — multiple overrides", () => {
+  it("applies two overrides in sort order", () => {
+    const slots: Slot[] = [];
+    for (let i = 0; i < 10; i++) slots.push(slot({ position: i + 1, set: "a", name: `c${i}` }));
+    const lay = layout([
+      { id: "sr1", label: "top", boxes: [{ id: "b1", type: "4k" }] },
+    ]);
+    // 4k has 4 box-rows. Override 1 says c3 starts row 1. Override 2 says c6 starts row 2.
+    const overrides: CutOverride[] = [
+      { id: "o1", anchorSlotKey: "c3|a|0", targetBoxId: "b1", targetBoxRowIndex: 1 },
+      { id: "o2", anchorSlotKey: "c6|a|0", targetBoxId: "b1", targetBoxRowIndex: 2 },
+    ];
+    const result = applyOverrides(slots, lay, overrides);
+    expect(result.staleOverrides).toEqual([]);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    // c0,c1,c2 in row 0
+    expect(placed[0].boxRowIndex).toBe(0);
+    expect(placed[2].boxRowIndex).toBe(0);
+    // c3 starts row 1
+    expect(placed[3].boxRowIndex).toBe(1);
+    expect(placed[3].positionInBoxRow).toBe(1);
+    // c6 starts row 2
+    expect(placed[6].boxRowIndex).toBe(2);
+    expect(placed[6].positionInBoxRow).toBe(1);
   });
 });
