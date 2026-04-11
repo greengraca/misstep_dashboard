@@ -54,3 +54,170 @@ export function projectSetMeta(ev: EvSet): SetMeta {
     parent_set_code: ev.parent_set_code ?? null,
   };
 }
+
+// ── Rebuild orchestrator ───────────────────────────────────────
+
+import { getDb } from "@/lib/mongodb";
+import {
+  computeCanonicalSort,
+  applyOverrides,
+  type ShelfLayout,
+  type CutOverride,
+  type PlacedCell,
+  type StaleOverrideReport,
+  type UnmatchedVariant,
+} from "@/lib/storage";
+
+export interface RebuildCounts {
+  stockRows: number;
+  variantsMatched: number;
+  variantsUnmatched: number;
+  slots: number;
+  placedSlots: number;
+  unplacedSlots: number;
+  spansShelfRowCount: number;
+}
+
+export interface RebuildResult {
+  durationMs: number;
+  counts: RebuildCounts;
+  overrides: {
+    applied: number;
+    staleMissingSlot: StaleOverrideReport[];
+    staleMissingTarget: StaleOverrideReport[];
+    staleRegression: StaleOverrideReport[];
+  };
+  unmatchedVariants: UnmatchedVariant[];  // first 50
+}
+
+export async function rebuildStorageSlots(): Promise<RebuildResult> {
+  const started = Date.now();
+  const db = await getDb();
+
+  // 1. Load inputs.
+  const [stockDocs, cardDocs, setDocs, layoutDoc, overrideDocs] = await Promise.all([
+    db.collection<CmStockListing>(COL_CM_STOCK).find({}).toArray(),
+    db.collection<EvCard>(COL_EV_CARDS)
+      .find({}, {
+        projection: {
+          name: 1, set: 1, collector_number: 1, rarity: 1, type_line: 1,
+          colors: 1, color_identity: 1, cmc: 1, layout: 1, image_uri: 1, released_at: 1,
+        },
+      })
+      .toArray(),
+    db.collection<EvSet>(COL_EV_SETS).find({}).toArray(),
+    db.collection<ShelfLayout & { _id: string }>(COL_STORAGE_LAYOUT).findOne({ _id: "current" }),
+    db.collection<CutOverride>(COL_STORAGE_OVERRIDES).find({}).toArray(),
+  ]);
+
+  // 2. Project to pure core inputs.
+  const stock = stockDocs.map(projectStockRow);
+  const cardMetaByKey = new Map<string, CardMeta>();
+  for (const c of cardDocs) {
+    cardMetaByKey.set(`${c.name}|${c.set}`, projectCardMeta(c));
+  }
+  const sets = setDocs.map(projectSetMeta);
+
+  // 3. Run pure core.
+  const sortResult = computeCanonicalSort(stock, cardMetaByKey, sets);
+  const layout: ShelfLayout = layoutDoc ? { shelfRows: layoutDoc.shelfRows } : { shelfRows: [] };
+  const placedResult = applyOverrides(sortResult.slots, layout, overrideDocs);
+
+  // 4. Count stats.
+  const placedSlots = placedResult.cells.filter(
+    (c) => c.kind !== "empty-reserved" && !("unplaced" in c && c.unplaced)
+  ).length;
+  const unplacedSlots = placedResult.cells.filter(
+    (c) => c.kind !== "empty-reserved" && "unplaced" in c && c.unplaced === true
+  ).length;
+  const spansShelfRowCount = placedResult.cells.filter(
+    (c) => c.kind !== "empty-reserved" && "spansShelfRow" in c && c.spansShelfRow === true
+  ).length;
+
+  // 5. Transactional write: scratch collection → drop live → rename.
+  const slotsCol = db.collection(COL_STORAGE_SLOTS);
+  const scratchCol = db.collection(COL_STORAGE_SLOTS_NEXT);
+
+  // Wipe scratch if a previous rebuild left debris.
+  try {
+    await scratchCol.drop();
+  } catch {
+    // Didn't exist — fine.
+  }
+
+  if (placedResult.cells.length > 0) {
+    // Batch inserts. Each cell already has all fields we want.
+    const batchSize = 1000;
+    for (let i = 0; i < placedResult.cells.length; i += batchSize) {
+      const batch = placedResult.cells.slice(i, i + batchSize);
+      await scratchCol.insertMany(batch as PlacedCell[], { ordered: false });
+    }
+  }
+
+  // Drop live, rename scratch to live.
+  try {
+    await slotsCol.drop();
+  } catch {
+    // Collection didn't exist — first rebuild.
+  }
+  if (placedResult.cells.length > 0) {
+    await scratchCol.rename(COL_STORAGE_SLOTS);
+  }
+
+  // 6. Update override lastStatus for all overrides (applied/stale tracking).
+  const appliedIds = new Set(overrideDocs.map((o) => o.id));
+  for (const stale of placedResult.staleOverrides) appliedIds.delete(stale.override.id);
+  const overridesCol = db.collection<CutOverride>(COL_STORAGE_OVERRIDES);
+  await Promise.all([
+    ...Array.from(appliedIds).map((id) =>
+      overridesCol.updateOne(
+        { id },
+        { $set: { lastStatus: "applied", lastCheckedAt: new Date() } }
+      )
+    ),
+    ...placedResult.staleOverrides.map((s) =>
+      overridesCol.updateOne(
+        { id: s.override.id },
+        { $set: { lastStatus: s.status, lastCheckedAt: new Date() } }
+      )
+    ),
+  ]);
+
+  // 7. Write rebuild log entry.
+  const counts: RebuildCounts = {
+    stockRows: stockDocs.length,
+    variantsMatched: sortResult.slots.length > 0 ? new Set(sortResult.slots.map((s) => s.variantKey)).size : 0,
+    variantsUnmatched: sortResult.unmatched.length,
+    slots: sortResult.slots.length,
+    placedSlots,
+    unplacedSlots,
+    spansShelfRowCount,
+  };
+
+  const durationMs = Date.now() - started;
+
+  await db.collection(COL_STORAGE_REBUILD_LOG).insertOne({
+    startedAt: new Date(started),
+    durationMs,
+    counts,
+    overridesApplied: appliedIds.size,
+    staleOverrideCount: placedResult.staleOverrides.length,
+  });
+
+  // 8. Build response.
+  const byStatus = {
+    staleMissingSlot: placedResult.staleOverrides.filter((s) => s.status === "stale-missing-slot"),
+    staleMissingTarget: placedResult.staleOverrides.filter((s) => s.status === "stale-missing-target"),
+    staleRegression: placedResult.staleOverrides.filter((s) => s.status === "stale-regression"),
+  };
+
+  return {
+    durationMs,
+    counts,
+    overrides: {
+      applied: appliedIds.size,
+      ...byStatus,
+    },
+    unmatchedVariants: sortResult.unmatched.slice(0, 50),
+  };
+}
