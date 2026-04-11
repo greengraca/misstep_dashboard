@@ -279,3 +279,92 @@ export async function queryStorageSlots(
     pageSize: params.pageSize,
   };
 }
+
+export interface StorageStats {
+  totalVariants: number;
+  totalCards: number;
+  totalSlots: number;
+  placedSlots: number;
+  unplacedSlots: number;
+  perSet: { set: string; setName: string; slots: number; variants: number }[];
+  perColor: { colorGroup: string; slots: number }[];
+  lastRebuildAt: string | null;
+  lastRebuildDurationMs: number | null;
+}
+
+export async function getStorageStats(): Promise<StorageStats> {
+  const db = await getDb();
+  const slots = db.collection(COL_STORAGE_SLOTS);
+
+  const [totals, perSet, perColor, lastRebuild] = await Promise.all([
+    slots
+      .aggregate([
+        { $match: { kind: { $ne: "empty-reserved" } } },
+        {
+          $group: {
+            _id: null,
+            totalSlots: { $sum: 1 },
+            totalCards: { $sum: "$qtyInSlot" },
+            distinctVariants: { $addToSet: "$variantKey" },
+            placedSlots: {
+              $sum: { $cond: [{ $eq: ["$unplaced", true] }, 0, 1] },
+            },
+            unplacedSlots: {
+              $sum: { $cond: [{ $eq: ["$unplaced", true] }, 1, 0] },
+            },
+          },
+        },
+      ])
+      .toArray(),
+    slots
+      .aggregate([
+        { $match: { kind: { $ne: "empty-reserved" } } },
+        {
+          $group: {
+            _id: { set: "$set", setName: "$setName" },
+            slots: { $sum: 1 },
+            variants: { $addToSet: "$variantKey" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            set: "$_id.set",
+            setName: "$_id.setName",
+            slots: 1,
+            variants: { $size: "$variants" },
+          },
+        },
+        { $sort: { set: 1 } },
+      ])
+      .toArray(),
+    slots
+      .aggregate([
+        { $match: { kind: { $ne: "empty-reserved" } } },
+        { $group: { _id: "$colorGroup", slots: { $sum: 1 } } },
+        { $project: { _id: 0, colorGroup: "$_id", slots: 1 } },
+      ])
+      .toArray(),
+    db
+      .collection(COL_STORAGE_REBUILD_LOG)
+      .find({})
+      .sort({ startedAt: -1 })
+      .limit(1)
+      .toArray(),
+  ]);
+
+  const t = totals[0] || {};
+  const last = lastRebuild[0];
+
+  return {
+    totalVariants: Array.isArray(t.distinctVariants) ? t.distinctVariants.length : 0,
+    totalCards: t.totalCards ?? 0,
+    totalSlots: t.totalSlots ?? 0,
+    placedSlots: t.placedSlots ?? 0,
+    unplacedSlots: t.unplacedSlots ?? 0,
+    perSet: perSet as StorageStats["perSet"],
+    perColor: perColor as StorageStats["perColor"],
+    lastRebuildAt: last ? new Date(last.startedAt).toISOString() : null,
+    lastRebuildDurationMs: last?.durationMs ?? null,
+  };
+}
