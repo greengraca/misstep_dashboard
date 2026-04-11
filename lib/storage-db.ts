@@ -207,7 +207,15 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
     }
   }
 
-  const stock = stockDocs
+  // First pass: clean names and try to resolve set strings to Scryfall codes.
+  // `setWasResolved` tracks whether the user declared a real Scryfall set
+  // (whose code we trust to represent physical shelf location) or a
+  // Cardmarket-only label like "Buy a Box Promos" (which we'll rewrite to
+  // the found printing's set if the name-only fallback hits).
+  interface NormalizedStockRow extends StockRow {
+    setWasResolved: boolean;
+  }
+  const stock: NormalizedStockRow[] = stockDocs
     .map(projectStockRow)
     .map((row) => {
       const code = resolveSetCode(row.set, setCodeLookup);
@@ -216,6 +224,7 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
         ...row,
         name: cleanedName,
         set: code ?? row.set,
+        setWasResolved: code !== null,
       };
     });
 
@@ -235,10 +244,15 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
   }
 
   // For every stock row that doesn't have a direct (name|set) match, try a
-  // name-only lookup. If found, inject a pseudo-entry into cardMetaByKey so
-  // the pure core's join succeeds with the user's set preserved. For tokens,
-  // also try stripping a trailing " Token" from the name since Scryfall
-  // sometimes names tokens without the suffix.
+  // name-only lookup. If found:
+  //   - If the user's set was a valid Scryfall code, inject a pseudo-entry
+  //     at the user's set so the card shelves there (preserving their
+  //     physical intent, e.g. "Extras" cards shelved with the base set).
+  //   - If the user's set was an unresolvable Cardmarket label ("Buy a Box
+  //     Promos", "Commander: Ikoria"), rewrite the row's set to the found
+  //     printing's set code so it shelves with its native Scryfall set.
+  // For tokens, also try stripping a trailing " Token" from the name since
+  // Scryfall sometimes names tokens without the suffix.
   for (const row of stock) {
     const primaryKey = `${row.name}|${row.set}`;
     if (cardMetaByKey.has(primaryKey)) continue;
@@ -247,7 +261,21 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
     if (!fallback && row.name.endsWith(" Token")) {
       fallback = cardMetaByName.get(row.name.slice(0, -" Token".length));
     }
-    if (fallback) cardMetaByKey.set(primaryKey, fallback);
+    if (!fallback) continue;
+
+    if (row.setWasResolved) {
+      // User's set is a valid Scryfall code; respect it by injecting a
+      // pseudo-entry at the user's set key.
+      cardMetaByKey.set(primaryKey, fallback);
+    } else {
+      // User's set is a Cardmarket-only label; rewrite the row to the
+      // found card's set code.
+      row.set = fallback.set;
+      const rewrittenKey = `${row.name}|${row.set}`;
+      if (!cardMetaByKey.has(rewrittenKey)) {
+        cardMetaByKey.set(rewrittenKey, fallback);
+      }
+    }
   }
 
   // 3. Run pure core.
