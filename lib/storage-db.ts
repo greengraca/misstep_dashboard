@@ -221,3 +221,61 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
     unmatchedVariants: sortResult.unmatched.slice(0, 50),
   };
 }
+
+// ── Read helpers ───────────────────────────────────────────────
+
+export interface QueryStorageSlotsParams {
+  shelfRowId?: string;
+  boxId?: string;
+  set?: string;
+  colorGroup?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+export interface QueryStorageSlotsResult {
+  slots: PlacedCell[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function queryStorageSlots(
+  params: QueryStorageSlotsParams
+): Promise<QueryStorageSlotsResult> {
+  const db = await getDb();
+  const col = db.collection<PlacedCell>(COL_STORAGE_SLOTS);
+
+  const filter: Record<string, unknown> = {};
+  if (params.shelfRowId) filter.shelfRowId = params.shelfRowId;
+  if (params.boxId) filter.boxId = params.boxId;
+  if (params.set) filter.set = params.set;
+  if (params.colorGroup) filter.colorGroup = params.colorGroup;
+  if (params.search && params.search.trim()) {
+    // Case-insensitive substring match on name. Intentionally NOT using the
+    // text index — substring matches like "bolt" → "Lightning Bolt" don't work
+    // with Mongo's text index word-boundary semantics, and this is a small
+    // collection (~15k docs) so regex is fast enough.
+    const escaped = params.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filter.name = { $regex: escaped, $options: "i" };
+  }
+
+  const skip = (params.page - 1) * params.pageSize;
+  const [slots, total] = await Promise.all([
+    col
+      .find(filter)
+      .sort({ position: 1 })
+      .skip(skip)
+      .limit(params.pageSize)
+      .toArray(),
+    col.countDocuments(filter),
+  ]);
+
+  return {
+    slots: slots as unknown as PlacedCell[],
+    total,
+    page: params.page,
+    pageSize: params.pageSize,
+  };
+}
