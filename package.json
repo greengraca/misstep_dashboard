@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack -p 3025",
     "build": "next build",
     "start": "next start -p 3025",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",
@@ -16,6 +18,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.8.0",
+    "stream-json": "^1.9.1",
     "swr": "^2.4.1",
     "zod": "^4.3.6"
   },
@@ -26,6 +29,7 @@
     "@types/react-dom": "^19.1.6",
     "postcss": "^8.5.5",
     "tailwindcss": "^4.2.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }
