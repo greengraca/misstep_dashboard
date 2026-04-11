@@ -111,12 +111,28 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
   ]);
 
   // 2. Project to pure core inputs.
-  const stock = stockDocs.map(projectStockRow);
+  const sets = setDocs.map(projectSetMeta);
+
+  // Cardmarket's stock collection stores set names ("Commander 2014", "Ikoria:
+  // Lair of Behemoths"), but Scryfall's ev_cards stores set codes ("c14", "iko").
+  // Build a case-insensitive lookup from set.name → set.code, then rewrite each
+  // stock row's set field to the code so the downstream join works.
+  // Codes pass through unchanged (in case some stock rows already have codes).
+  const setCodeLookup = new Map<string, string>();
+  for (const s of sets) {
+    setCodeLookup.set(s.code.toLowerCase(), s.code);
+    setCodeLookup.set(s.name.toLowerCase(), s.code);
+  }
+
+  const stock = stockDocs.map(projectStockRow).map((row) => {
+    const code = setCodeLookup.get(row.set.toLowerCase());
+    return code ? { ...row, set: code } : row;
+  });
+
   const cardMetaByKey = new Map<string, CardMeta>();
   for (const c of cardDocs) {
     cardMetaByKey.set(`${c.name}|${c.set}`, projectCardMeta(c));
   }
-  const sets = setDocs.map(projectSetMeta);
 
   // 3. Run pure core.
   const sortResult = computeCanonicalSort(stock, cardMetaByKey, sets);
