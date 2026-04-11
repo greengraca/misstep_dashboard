@@ -34,22 +34,14 @@ export default function Shelf3D({
     >
       <Canvas
         camera={{ position: CAMERA_DEFAULTS.position, fov: CAMERA_DEFAULTS.fov }}
-        shadows
       >
         <color attach="background" args={["#13151a"]} />
 
-        {/* Key light */}
-        <directionalLight
-          position={[3, 4, 2]}
-          intensity={1.2}
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-        />
-        {/* Fill light */}
-        <ambientLight intensity={0.55} />
-        {/* Subtle rim */}
-        <directionalLight position={[-2, 2, -2]} intensity={0.3} />
+        {/* Key light — no shadows (shadow maps blow the WebGL budget at this
+            object count). Higher ambient to compensate for flat lighting. */}
+        <directionalLight position={[3, 4, 2]} intensity={1.1} />
+        <ambientLight intensity={0.7} />
+        <directionalLight position={[-2, 2, -2]} intensity={0.25} />
 
         <ShelfFrame />
 

@@ -37,7 +37,7 @@ export default function ShelfFrame() {
     <group>
       {/* 4 vertical corner posts sitting outside the internal footprint */}
       {postCorners.map(([x, y, z], i) => (
-        <mesh key={`post-${i}`} position={[x, y, z]} castShadow>
+        <mesh key={`post-${i}`} position={[x, y, z]}>
           <boxGeometry args={[R, H, R]} />
           <meshStandardMaterial color={FRAME_COLOR} />
         </mesh>
@@ -81,7 +81,6 @@ export default function ShelfFrame() {
         <mesh
           key={`board-${i}`}
           position={[cx, y - SHELF_BOARD_THICKNESS / 2, cz]}
-          receiveShadow
         >
           <boxGeometry args={[W, SHELF_BOARD_THICKNESS, D]} />
           <meshStandardMaterial color={BOARD_COLOR} />

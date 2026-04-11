@@ -53,6 +53,14 @@ const SET_DIVIDER_HEIGHT_ABOVE_WALL = 0.015; // separator sticks 1.5cm above box
 const SET_LABEL_FONT_SIZE = 0.009; // ~9mm text — readable when zoomed in on a box
 
 /**
+ * Minimum slot count for a set run to get a Text label. Each drei <Text>
+ * instance loads an SDF font and is relatively expensive; rendering one per
+ * set run (≈1000+ instances) blows the WebGL context. Gating on visible
+ * runs keeps the label count in the low hundreds.
+ */
+const LABEL_MIN_SLOTS = 10;
+
+/**
  * Deterministic color for a set code. Hashes the code into an HSL hue so
  * every set gets a stable, distinct color block inside its row.
  * (Currently unused — card fills are flat gray and sets are distinguished
@@ -131,28 +139,28 @@ export default function Box3D({
       onClick={handleClick}
     >
       {/* Floor of the box */}
-      <mesh position={[W / 2, T / 2, D / 2]} receiveShadow>
+      <mesh position={[W / 2, T / 2, D / 2]}>
         <boxGeometry args={[W, T, D]} />
         <meshStandardMaterial color={wallColor} />
       </mesh>
 
       {/* Left wall */}
-      <mesh position={[T / 2, H / 2, D / 2]} castShadow>
+      <mesh position={[T / 2, H / 2, D / 2]}>
         <boxGeometry args={[T, H, D]} />
         <meshStandardMaterial color={wallColor} />
       </mesh>
       {/* Right wall */}
-      <mesh position={[W - T / 2, H / 2, D / 2]} castShadow>
+      <mesh position={[W - T / 2, H / 2, D / 2]}>
         <boxGeometry args={[T, H, D]} />
         <meshStandardMaterial color={wallColor} />
       </mesh>
       {/* Front wall */}
-      <mesh position={[W / 2, H / 2, T / 2]} castShadow>
+      <mesh position={[W / 2, H / 2, T / 2]}>
         <boxGeometry args={[W - 2 * T, H, T]} />
         <meshStandardMaterial color={wallColor} />
       </mesh>
       {/* Back wall */}
-      <mesh position={[W / 2, H / 2, D - T / 2]} castShadow>
+      <mesh position={[W / 2, H / 2, D - T / 2]}>
         <boxGeometry args={[W - 2 * T, H, T]} />
         <meshStandardMaterial color={wallColor} />
       </mesh>
@@ -202,25 +210,28 @@ export default function Box3D({
                 <meshStandardMaterial color={SET_DIVIDER_COLOR} />
               </mesh>
 
-              {/* Label on top of the separator card, reading across the row
-                  width (X axis). Rotate so the text lies flat on the top
-                  surface and faces upward. */}
-              <Text
-                position={[
-                  rowCenterX,
-                  setDividerHeight + 0.0005,
-                  dividerCenterZ,
-                ]}
-                rotation={[-Math.PI / 2, 0, 0]}
-                fontSize={SET_LABEL_FONT_SIZE}
-                color={SET_DIVIDER_LABEL_COLOR}
-                anchorX="center"
-                anchorY="middle"
-                maxWidth={rowWidth * 0.92}
-                textAlign="center"
-              >
-                {`${run.setName} - ${run.set.toUpperCase()}`}
-              </Text>
+              {/* Label on top of the separator card, but only for runs big
+                  enough to be visually meaningful — each drei <Text> instance
+                  is expensive and rendering one per set run overwhelms the
+                  WebGL context. */}
+              {run.slotCount >= LABEL_MIN_SLOTS && (
+                <Text
+                  position={[
+                    rowCenterX,
+                    setDividerHeight + 0.0005,
+                    dividerCenterZ,
+                  ]}
+                  rotation={[-Math.PI / 2, 0, 0]}
+                  fontSize={SET_LABEL_FONT_SIZE}
+                  color={SET_DIVIDER_LABEL_COLOR}
+                  anchorX="center"
+                  anchorY="middle"
+                  maxWidth={rowWidth * 0.92}
+                  textAlign="center"
+                >
+                  {`${run.setName} - ${run.set.toUpperCase()}`}
+                </Text>
+              )}
 
               {/* Card fill behind the divider */}
               {runZLength > 0 && (
