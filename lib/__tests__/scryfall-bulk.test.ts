@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fixture from "./fixtures/scryfall-cards-sample.json";
-import { parseScryfallCardToDoc } from "../scryfall-bulk";
+import bulkIndexFixture from "./fixtures/scryfall-bulk-index.json";
+import { parseScryfallCardToDoc, findDefaultCardsEntry } from "../scryfall-bulk";
 
 describe("parseScryfallCardToDoc", () => {
   it("maps a standard single-face card with prices", () => {
@@ -83,5 +84,21 @@ describe("parseScryfallCardToDoc", () => {
     const stripped = { ...fixture[0], cmc: undefined };
     const doc = parseScryfallCardToDoc(stripped, "2026-04-11T00:00:00.000Z");
     expect(doc.cmc).toBe(0);
+  });
+});
+
+describe("findDefaultCardsEntry", () => {
+  it("returns the default_cards entry from a bulk-data index", () => {
+    const entry = findDefaultCardsEntry(bulkIndexFixture);
+    expect(entry.type).toBe("default_cards");
+    expect(entry.download_uri).toBe("https://data.scryfall.io/default-cards/default-cards.json");
+  });
+
+  it("throws if no default_cards entry exists", () => {
+    const noDefault = {
+      ...bulkIndexFixture,
+      data: bulkIndexFixture.data.filter((e: { type: string }) => e.type !== "default_cards"),
+    };
+    expect(() => findDefaultCardsEntry(noDefault)).toThrow(/default_cards/);
   });
 });

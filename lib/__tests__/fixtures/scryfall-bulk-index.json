@@ -1,0 +1,30 @@
+{
+  "object": "list",
+  "has_more": false,
+  "data": [
+    {
+      "object": "bulk_data",
+      "id": "bulk-oracle-id",
+      "type": "oracle_cards",
+      "updated_at": "2026-04-11T06:00:00.000+00:00",
+      "size": 111111111,
+      "download_uri": "https://data.scryfall.io/oracle-cards/oracle-cards.json"
+    },
+    {
+      "object": "bulk_data",
+      "id": "bulk-default-id",
+      "type": "default_cards",
+      "updated_at": "2026-04-11T06:00:00.000+00:00",
+      "size": 444444444,
+      "download_uri": "https://data.scryfall.io/default-cards/default-cards.json"
+    },
+    {
+      "object": "bulk_data",
+      "id": "bulk-all-id",
+      "type": "all_cards",
+      "updated_at": "2026-04-11T06:00:00.000+00:00",
+      "size": 888888888,
+      "download_uri": "https://data.scryfall.io/all-cards/all-cards.json"
+    }
+  ]
+}

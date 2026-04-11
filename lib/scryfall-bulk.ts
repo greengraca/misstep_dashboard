@@ -45,6 +45,25 @@ function deriveCardTreatment(card: any): string {
   return "normal";
 }
 
+export interface ScryfallBulkEntry {
+  object: "bulk_data";
+  id: string;
+  type: string;
+  updated_at: string;
+  size: number;
+  download_uri: string;
+}
+
+export interface ScryfallBulkIndex {
+  data: ScryfallBulkEntry[];
+}
+
+export function findDefaultCardsEntry(index: ScryfallBulkIndex): ScryfallBulkEntry {
+  const entry = index.data.find((e) => e.type === "default_cards");
+  if (!entry) throw new Error("Scryfall bulk-data index has no default_cards entry");
+  return entry;
+}
+
 export function parseScryfallCardToDoc(card: any, nowIso: string): EvCardDoc {
   const imageUri =
     card.image_uris?.small ??
