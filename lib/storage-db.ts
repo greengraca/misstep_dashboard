@@ -368,3 +368,43 @@ export async function getStorageStats(): Promise<StorageStats> {
     lastRebuildDurationMs: last?.durationMs ?? null,
   };
 }
+
+// ── Layout CRUD ────────────────────────────────────────────────
+
+import { randomUUID } from "node:crypto";
+
+export async function getLayout(): Promise<ShelfLayout> {
+  const db = await getDb();
+  const doc = await db
+    .collection<ShelfLayout & { _id: string }>(COL_STORAGE_LAYOUT)
+    .findOne({ _id: "current" });
+  if (!doc) return { shelfRows: [] };
+  return { shelfRows: doc.shelfRows };
+}
+
+export async function setLayout(layout: ShelfLayout): Promise<ShelfLayout> {
+  const db = await getDb();
+
+  // Ensure every shelfRow and box has a stable UUID. New rows/boxes from the
+  // client may come in without IDs; we fill them here so the client doesn't
+  // need to. Existing IDs are preserved.
+  const normalized: ShelfLayout = {
+    shelfRows: layout.shelfRows.map((row) => ({
+      id: row.id || randomUUID(),
+      label: row.label,
+      boxes: row.boxes.map((box) => ({
+        id: box.id || randomUUID(),
+        type: box.type,
+        label: box.label,
+      })),
+    })),
+  };
+
+  type LayoutDoc = ShelfLayout & { _id: string; updatedAt?: Date };
+  await db.collection<LayoutDoc>(COL_STORAGE_LAYOUT).updateOne(
+    { _id: "current" },
+    { $set: { shelfRows: normalized.shelfRows, updatedAt: new Date() } },
+    { upsert: true }
+  );
+  return normalized;
+}
