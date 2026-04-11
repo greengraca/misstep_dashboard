@@ -267,8 +267,112 @@ export function aggregateStock(rows: StockRow[]): Variant[] {
   return Array.from(grouped.values()).filter((v) => v.qty > 0);
 }
 
-// ── Main functions (implemented in later tasks) ────────────────
+// ── Main functions ─────────────────────────────────────────────
 
-// Task 4 — computeCanonicalSort
+export function computeCanonicalSort(
+  stockRows: StockRow[],
+  cardMetaByKey: Map<string, CardMeta>,
+  sets: SetMeta[]
+): CanonicalSortResult {
+  // 1. Build parent-set lookup map for token re-homing.
+  const parentSetMap = new Map<string, string>();
+  for (const s of sets) {
+    if (s.parent_set_code) parentSetMap.set(s.code, s.parent_set_code);
+  }
+
+  // 2. Build set metadata lookup + chronological rank.
+  const setsByCode = new Map<string, SetMeta>();
+  for (const s of sets) setsByCode.set(s.code, s);
+  const sortedSets = [...sets].sort((a, b) => {
+    const ar = a.released_at || "9999-12-31";
+    const br = b.released_at || "9999-12-31";
+    return ar.localeCompare(br);
+  });
+  const setOrder = new Map<string, number>();
+  sortedSets.forEach((s, i) => setOrder.set(s.code, i));
+
+  // 3. Aggregate stock into variants.
+  const variants = aggregateStock(stockRows);
+
+  // 4. Derive sort fields for each matched variant; collect unmatched.
+  interface VariantWithFields {
+    variant: Variant;
+    fields: SortFields;
+    setName: string;
+    setReleaseDate: string;
+    collectorNumber?: string;
+    imageUri: string | null;
+  }
+  const withFields: VariantWithFields[] = [];
+  const unmatched: UnmatchedVariant[] = [];
+
+  for (const v of variants) {
+    const card = cardMetaByKey.get(`${v.name}|${v.set}`);
+    if (!card) {
+      unmatched.push({ name: v.name, set: v.set, qty: v.qty });
+      continue;
+    }
+    const fields = deriveSortFields(card, parentSetMap);
+    v.effectiveSet = fields.effectiveSet;
+    const effSet = setsByCode.get(fields.effectiveSet);
+    withFields.push({
+      variant: v,
+      fields,
+      setName: effSet?.name ?? fields.effectiveSet,
+      setReleaseDate: effSet?.released_at ?? "9999-12-31",
+      collectorNumber: card.collector_number,
+      imageUri: card.image_uri,
+    });
+  }
+
+  // 5. Sort by composite key.
+  withFields.sort((a, b) => {
+    const aSetOrder = setOrder.get(a.fields.effectiveSet) ?? Number.MAX_SAFE_INTEGER;
+    const bSetOrder = setOrder.get(b.fields.effectiveSet) ?? Number.MAX_SAFE_INTEGER;
+    if (aSetOrder !== bSetOrder) return aSetOrder - bSetOrder;
+
+    const aCg = COLOR_GROUP_ORDER[a.fields.colorGroup];
+    const bCg = COLOR_GROUP_ORDER[b.fields.colorGroup];
+    if (aCg !== bCg) return aCg - bCg;
+
+    if (a.fields.landTier !== b.fields.landTier) return a.fields.landTier - b.fields.landTier;
+    if (a.fields.rarityOrder !== b.fields.rarityOrder) return a.fields.rarityOrder - b.fields.rarityOrder;
+    if (a.fields.cmcBucket !== b.fields.cmcBucket) return a.fields.cmcBucket - b.fields.cmcBucket;
+    return a.fields.nameLower.localeCompare(b.fields.nameLower);
+  });
+
+  // 6. Split into slots, assign positions.
+  const slots: Slot[] = [];
+  let position = 1;
+  for (const w of withFields) {
+    const slotCount = Math.max(1, Math.ceil(w.variant.qty / SLOT_CAPACITY));
+    let remaining = w.variant.qty;
+    for (let i = 0; i < slotCount; i++) {
+      const qtyInSlot = Math.min(remaining, SLOT_CAPACITY);
+      remaining -= qtyInSlot;
+      slots.push({
+        slotKey: `${w.variant.name}|${w.variant.effectiveSet}|${i}`,
+        variantKey: `${w.variant.name}|${w.variant.effectiveSet}`,
+        position: position++,
+        name: w.variant.name,
+        set: w.variant.effectiveSet,
+        setName: w.setName,
+        setReleaseDate: w.setReleaseDate,
+        collectorNumber: w.collectorNumber,
+        colorGroup: w.fields.colorGroup,
+        landTier: w.fields.landTier,
+        cmc: w.fields.cmc,
+        cmcBucket: w.fields.cmcBucket,
+        rarity: w.fields.rarity,
+        qtyInSlot,
+        slotIndexInVariant: i,
+        imageUri: w.imageUri,
+      });
+    }
+  }
+
+  return { slots, unmatched };
+}
+
 // Task 5 — flowIntoLayout
 // Task 6 — applyOverrides

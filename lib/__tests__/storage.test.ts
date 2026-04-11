@@ -6,9 +6,11 @@ import {
   BOX_ROWS,
   deriveSortFields,
   aggregateStock,
+  computeCanonicalSort,
   type CardMeta,
   type SetMeta,
   type StockRow,
+  type CanonicalSortResult,
 } from "../storage";
 
 describe("storage constants", () => {
@@ -266,5 +268,221 @@ describe("aggregateStock", () => {
       { name: "Sol Ring", set: "cmr", qty: -3 },
     ];
     expect(aggregateStock(rows)).toEqual([]);
+  });
+});
+
+describe("computeCanonicalSort — basic sort order", () => {
+  it("sorts by set release date, oldest first", () => {
+    const stock: StockRow[] = [
+      { name: "Card A", set: "new", qty: 1 },
+      { name: "Card B", set: "old", qty: 1 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["Card A|new", card({ name: "Card A", set: "new", color_identity: ["W"], rarity: "common", cmc: 0 })],
+      ["Card B|old", card({ name: "Card B", set: "old", color_identity: ["W"], rarity: "common", cmc: 0 })],
+    ]);
+    const sets = [set("old", "2020-01-01"), set("new", "2024-01-01")];
+    const result = computeCanonicalSort(stock, cards, sets);
+    expect(result.slots).toHaveLength(2);
+    expect(result.slots[0].set).toBe("old");
+    expect(result.slots[1].set).toBe("new");
+  });
+
+  it("within a set, orders by color group W→U→B→R→G→M→C→L", () => {
+    const stock: StockRow[] = [
+      { name: "Land", set: "s", qty: 1 },
+      { name: "Multi", set: "s", qty: 1 },
+      { name: "White", set: "s", qty: 1 },
+      { name: "Blue", set: "s", qty: 1 },
+      { name: "Colorless", set: "s", qty: 1 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["Land|s", card({ name: "Land", set: "s", type_line: "Land", color_identity: [] })],
+      ["Multi|s", card({ name: "Multi", set: "s", color_identity: ["W", "U"] })],
+      ["White|s", card({ name: "White", set: "s", color_identity: ["W"] })],
+      ["Blue|s", card({ name: "Blue", set: "s", color_identity: ["U"] })],
+      ["Colorless|s", card({ name: "Colorless", set: "s", color_identity: [], type_line: "Artifact" })],
+    ]);
+    const sets = [set("s", "2022-01-01")];
+    const result = computeCanonicalSort(stock, cards, sets);
+    expect(result.slots.map((s) => s.name)).toEqual([
+      "White", "Blue", "Multi", "Colorless", "Land",
+    ]);
+  });
+
+  it("within a color, orders by rarity mythic→rare→uncommon→common", () => {
+    const stock: StockRow[] = [
+      { name: "Common", set: "s", qty: 1 },
+      { name: "Mythic", set: "s", qty: 1 },
+      { name: "Uncommon", set: "s", qty: 1 },
+      { name: "Rare", set: "s", qty: 1 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["Common|s", card({ name: "Common", set: "s", color_identity: ["W"], rarity: "common" })],
+      ["Mythic|s", card({ name: "Mythic", set: "s", color_identity: ["W"], rarity: "mythic" })],
+      ["Uncommon|s", card({ name: "Uncommon", set: "s", color_identity: ["W"], rarity: "uncommon" })],
+      ["Rare|s", card({ name: "Rare", set: "s", color_identity: ["W"], rarity: "rare" })],
+    ]);
+    const sets = [set("s", "2022-01-01")];
+    const result = computeCanonicalSort(stock, cards, sets);
+    expect(result.slots.map((s) => s.name)).toEqual(["Mythic", "Rare", "Uncommon", "Common"]);
+  });
+
+  it("within a rarity, orders by cmc ascending with 7+ bucket", () => {
+    const stock: StockRow[] = [
+      { name: "Seven-plus", set: "s", qty: 1 },
+      { name: "One", set: "s", qty: 1 },
+      { name: "Four", set: "s", qty: 1 },
+      { name: "Zero", set: "s", qty: 1 },
+      { name: "Fifteen", set: "s", qty: 1 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["Seven-plus|s", card({ name: "Seven-plus", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 8 })],
+      ["One|s", card({ name: "One", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 1 })],
+      ["Four|s", card({ name: "Four", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 4 })],
+      ["Zero|s", card({ name: "Zero", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 0 })],
+      ["Fifteen|s", card({ name: "Fifteen", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 15 })],
+    ]);
+    const sets = [set("s", "2022-01-01")];
+    const result = computeCanonicalSort(stock, cards, sets);
+    // cmc 8 and 15 both bucket to 7; the name tiebreaker puts Fifteen before Seven-plus.
+    expect(result.slots.map((s) => s.name)).toEqual(["Zero", "One", "Four", "Fifteen", "Seven-plus"]);
+  });
+
+  it("within a cmc bucket, orders by name A→Z case-insensitive", () => {
+    const stock: StockRow[] = [
+      { name: "banana", set: "s", qty: 1 },
+      { name: "Apple", set: "s", qty: 1 },
+      { name: "Cherry", set: "s", qty: 1 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["banana|s", card({ name: "banana", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 1 })],
+      ["Apple|s", card({ name: "Apple", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 1 })],
+      ["Cherry|s", card({ name: "Cherry", set: "s", color_identity: ["W"], rarity: "mythic", cmc: 1 })],
+    ]);
+    const sets = [set("s", "2022-01-01")];
+    const result = computeCanonicalSort(stock, cards, sets);
+    expect(result.slots.map((s) => s.name)).toEqual(["Apple", "banana", "Cherry"]);
+  });
+});
+
+describe("computeCanonicalSort — L bucket sub-order", () => {
+  it("orders L as nonbasic → basic → token, each sub-bucket alphabetical", () => {
+    const stock: StockRow[] = [
+      { name: "Soldier Token", set: "tdmu", qty: 1 },
+      { name: "Forest", set: "dmu", qty: 1 },
+      { name: "Command Tower", set: "dmu", qty: 1 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["Command Tower|dmu", card({ name: "Command Tower", set: "dmu", type_line: "Land" })],
+      ["Forest|dmu", card({ name: "Forest", set: "dmu", type_line: "Basic Land — Forest", color_identity: ["G"] })],
+      ["Soldier Token|tdmu", card({ name: "Soldier Token", set: "tdmu", layout: "token", type_line: "Token Creature — Soldier" })],
+    ]);
+    const sets = [
+      set("dmu", "2022-09-09"),
+      set("tdmu", "2022-09-09", { set_type: "token", parent_set_code: "dmu" }),
+    ];
+    const result = computeCanonicalSort(stock, cards, sets);
+    // After token re-homing, Soldier Token lives in the dmu L bucket at tail.
+    expect(result.slots.map((s) => s.name)).toEqual([
+      "Command Tower",   // nonbasic
+      "Forest",          // basic
+      "Soldier Token",   // token
+    ]);
+  });
+});
+
+describe("computeCanonicalSort — slot splitting", () => {
+  it("qty 1 → 1 slot", () => {
+    const stock: StockRow[] = [{ name: "x", set: "s", qty: 1 }];
+    const cards = new Map<string, CardMeta>([
+      ["x|s", card({ name: "x", set: "s", color_identity: ["W"] })],
+    ]);
+    const result = computeCanonicalSort(stock, cards, [set("s", "2022-01-01")]);
+    expect(result.slots).toHaveLength(1);
+    expect(result.slots[0].qtyInSlot).toBe(1);
+    expect(result.slots[0].slotIndexInVariant).toBe(0);
+  });
+
+  it("qty 8 → 1 slot of 8", () => {
+    const stock: StockRow[] = [{ name: "x", set: "s", qty: 8 }];
+    const cards = new Map<string, CardMeta>([
+      ["x|s", card({ name: "x", set: "s", color_identity: ["W"] })],
+    ]);
+    const result = computeCanonicalSort(stock, cards, [set("s", "2022-01-01")]);
+    expect(result.slots).toHaveLength(1);
+    expect(result.slots[0].qtyInSlot).toBe(8);
+  });
+
+  it("qty 9 → 2 slots (8, 1)", () => {
+    const stock: StockRow[] = [{ name: "x", set: "s", qty: 9 }];
+    const cards = new Map<string, CardMeta>([
+      ["x|s", card({ name: "x", set: "s", color_identity: ["W"] })],
+    ]);
+    const result = computeCanonicalSort(stock, cards, [set("s", "2022-01-01")]);
+    expect(result.slots).toHaveLength(2);
+    expect(result.slots[0].qtyInSlot).toBe(8);
+    expect(result.slots[1].qtyInSlot).toBe(1);
+    expect(result.slots[0].slotIndexInVariant).toBe(0);
+    expect(result.slots[1].slotIndexInVariant).toBe(1);
+  });
+
+  it("qty 17 → 3 slots (8, 8, 1)", () => {
+    const stock: StockRow[] = [{ name: "x", set: "s", qty: 17 }];
+    const cards = new Map<string, CardMeta>([
+      ["x|s", card({ name: "x", set: "s", color_identity: ["W"] })],
+    ]);
+    const result = computeCanonicalSort(stock, cards, [set("s", "2022-01-01")]);
+    expect(result.slots.map((s) => s.qtyInSlot)).toEqual([8, 8, 1]);
+  });
+
+  it("position index increments across split slots and across variants", () => {
+    const stock: StockRow[] = [
+      { name: "A", set: "s", qty: 9 },
+      { name: "B", set: "s", qty: 3 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["A|s", card({ name: "A", set: "s", color_identity: ["W"], rarity: "mythic" })],
+      ["B|s", card({ name: "B", set: "s", color_identity: ["W"], rarity: "mythic" })],
+    ]);
+    const result = computeCanonicalSort(stock, cards, [set("s", "2022-01-01")]);
+    expect(result.slots.map((s) => s.position)).toEqual([1, 2, 3]);
+    // A splits into 2 slots, B is 1 slot
+    expect(result.slots.map((s) => s.name)).toEqual(["A", "A", "B"]);
+  });
+});
+
+describe("computeCanonicalSort — unmatched variants", () => {
+  it("returns unmatched list for stock with no metadata", () => {
+    const stock: StockRow[] = [
+      { name: "Known", set: "s", qty: 2 },
+      { name: "Unknown", set: "s", qty: 3 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["Known|s", card({ name: "Known", set: "s", color_identity: ["W"] })],
+    ]);
+    const result = computeCanonicalSort(stock, cards, [set("s", "2022-01-01")]);
+    expect(result.slots).toHaveLength(1);
+    expect(result.slots[0].name).toBe("Known");
+    expect(result.unmatched).toEqual([{ name: "Unknown", set: "s", qty: 3 }]);
+  });
+});
+
+describe("computeCanonicalSort — determinism", () => {
+  it("running twice on the same input produces identical output", () => {
+    const stock: StockRow[] = [
+      { name: "C", set: "s", qty: 2 },
+      { name: "A", set: "s", qty: 1 },
+      { name: "B", set: "s", qty: 3 },
+    ];
+    const cards = new Map<string, CardMeta>([
+      ["A|s", card({ name: "A", set: "s", color_identity: ["W"] })],
+      ["B|s", card({ name: "B", set: "s", color_identity: ["W"] })],
+      ["C|s", card({ name: "C", set: "s", color_identity: ["W"] })],
+    ]);
+    const sets = [set("s", "2022-01-01")];
+    const r1 = computeCanonicalSort(stock, cards, sets);
+    const r2 = computeCanonicalSort(stock, cards, sets);
+    expect(r1).toEqual(r2);
   });
 });
