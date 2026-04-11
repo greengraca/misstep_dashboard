@@ -5,6 +5,14 @@
 //
 // Usage: npx tsx scripts/storage-indexes.ts
 
+// Load .env before importing any module that reads process.env. Next.js does
+// this automatically for the dev server, but standalone scripts don't get that.
+try {
+  process.loadEnvFile(".env");
+} catch {
+  // .env missing — the user will get a clearer "MONGODB_URI undefined" error below.
+}
+
 import { getDb } from "../lib/mongodb";
 
 const COL_SLOTS = "dashboard_storage_slots";
