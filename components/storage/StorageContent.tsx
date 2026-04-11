@@ -1,11 +1,13 @@
+// components/storage/StorageContent.tsx
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import StorageHeader from "./StorageHeader";
 import StorageDrawer from "./StorageDrawer";
 import LayoutEditor from "./LayoutEditor";
-import StorageViewer from "./StorageViewer";
+import Shelf3D from "./Shelf3D";
+import BoxContentsPanel from "./BoxContentsPanel";
 import {
   fetcher,
   type StatsResponse,
@@ -13,12 +15,13 @@ import {
   type SlotsResponse,
   type RebuildResponse,
   type ShelfLayout,
+  type PlacedCell,
 } from "./types";
 
 export default function StorageContent() {
   const [search, setSearch] = useState("");
   const [isRebuilding, setIsRebuilding] = useState(false);
-  const [scrollToPosition, setScrollToPosition] = useState<number | undefined>();
+  const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
   const [lastRebuild, setLastRebuild] = useState<RebuildResponse["data"] | null>(null);
 
   const statsSwr = useSWR<StatsResponse>("/api/storage/stats", fetcher);
@@ -34,7 +37,6 @@ export default function StorageContent() {
       if (!res.ok) throw new Error(`Rebuild failed: ${res.status}`);
       const body = (await res.json()) as RebuildResponse;
       setLastRebuild(body.data);
-      // Refetch everything.
       await Promise.all([statsSwr.mutate(), slotsSwr.mutate()]);
     } finally {
       setIsRebuilding(false);
@@ -51,26 +53,6 @@ export default function StorageContent() {
     await layoutSwr.mutate();
   };
 
-  const handleDragStart = (_slotKey: string) => {
-    // Drag state is tracked via HTML5 dataTransfer; nothing to do here yet.
-  };
-
-  const handleDragEnd = () => {
-    // Cleanup if needed.
-  };
-
-  const handleDrop = async (
-    targetShelfRowId: string,
-    targetBoxId: string,
-    targetBoxRowIdx: number
-  ) => {
-    // Read from the drop event's dataTransfer — but StorageViewer already
-    // extracted the slotKey and called this. For now, ask the user to
-    // confirm in the next iteration; for this initial commit, just log.
-    console.log("override drop:", { targetShelfRowId, targetBoxId, targetBoxRowIdx });
-    // Full implementation in a follow-up: POST /api/storage/overrides.
-  };
-
   const handleDeleteStale = async (id: string) => {
     await fetch(`/api/storage/overrides/${id}`, { method: "DELETE" });
     await slotsSwr.mutate();
@@ -84,6 +66,30 @@ export default function StorageContent() {
   const stats = statsSwr.data?.data ?? null;
   const layout: ShelfLayout = layoutSwr.data?.data ?? { shelfRows: [] };
   const slots = slotsSwr.data?.data.slots ?? [];
+
+  // Pre-compute slot buckets per box for the side panel.
+  const slotsByBoxId = useMemo(() => {
+    const map = new Map<string, PlacedCell[]>();
+    for (const slot of slots) {
+      if (slot.kind === "empty-reserved") continue;
+      if (!("boxId" in slot) || !slot.boxId) continue;
+      const bucket = map.get(slot.boxId) ?? [];
+      bucket.push(slot);
+      map.set(slot.boxId, bucket);
+    }
+    return map;
+  }, [slots]);
+
+  const selectedBoxSlots = selectedBoxId ? slotsByBoxId.get(selectedBoxId) ?? [] : [];
+  const selectedBoxLabel = selectedBoxId
+    ? (() => {
+        for (const row of layout.shelfRows) {
+          const box = row.boxes.find((b) => b.id === selectedBoxId);
+          if (box) return `${row.label} · ${box.type}${box.label ? ` · ${box.label}` : ""}`;
+        }
+        return undefined;
+      })()
+    : undefined;
 
   return (
     <div className="p-6 space-y-4">
@@ -112,13 +118,17 @@ export default function StorageContent() {
 
       <LayoutEditor layout={layout} onSave={handleLayoutSave} />
 
-      <StorageViewer
-        slots={slots}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDrop={handleDrop}
-        onClearGap={() => {}}
-        scrollToPosition={scrollToPosition}
+      <Shelf3D
+        layout={layout}
+        selectedBoxId={selectedBoxId}
+        onBoxClick={setSelectedBoxId}
+      />
+
+      <BoxContentsPanel
+        boxId={selectedBoxId}
+        boxLabel={selectedBoxLabel}
+        slots={selectedBoxSlots}
+        onClose={() => setSelectedBoxId(null)}
       />
     </div>
   );
