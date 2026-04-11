@@ -98,20 +98,15 @@ function deriveCardTreatment(card: any): string {
 
 // ── Scryfall Sync: Sets ────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function isRelevantSet(s: any): boolean {
-  if (!BOOSTER_SET_TYPES.has(s.set_type)) return false;
-  if (s.digital) return false;
-  const year = parseInt(s.released_at?.slice(0, 4), 10);
-  return year >= MIN_RELEASE_YEAR;
-}
+// NOTE: isRelevantSet removed — EV-specific filtering moved to getSets (read time)
+// so canonical-sort can see every set while the EV UI remains unchanged.
 
 export async function syncSets(): Promise<{ added: number; updated: number }> {
   await ensureIndexes();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = (await scryfallGet("/sets")) as any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sets = (res.data as any[]).filter(isRelevantSet);
+  const sets = res.data as any[];
   const db = await getDb();
   const col = db.collection(COL_SETS);
   const now = new Date().toISOString();
@@ -128,6 +123,8 @@ export async function syncSets(): Promise<{ added: number; updated: number }> {
           icon_svg_uri: s.icon_svg_uri,
           set_type: s.set_type,
           scryfall_id: s.id,
+          parent_set_code: s.parent_set_code ?? null,
+          digital: s.digital ?? false,
           synced_at: now,
         },
       },
