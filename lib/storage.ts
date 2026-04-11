@@ -176,6 +176,76 @@ export interface ApplyOverridesResult {
   staleOverrides: StaleOverrideReport[];
 }
 
+// ── Helpers ────────────────────────────────────────────────────
+
+function normalizeRarity(raw: string): Rarity {
+  if (raw === "mythic" || raw === "special" || raw === "bonus") return "mythic";
+  if (raw === "rare") return "rare";
+  if (raw === "uncommon") return "uncommon";
+  return "common";
+}
+
+function colorGroupFor(card: CardMeta): ColorGroup {
+  // Tokens go to L regardless of color.
+  if (card.layout === "token") return "L";
+  if (card.type_line.includes("Token")) return "L";
+  // Lands go to L.
+  if (card.type_line.includes("Land")) return "L";
+  // No color identity → colorless bucket.
+  if (card.color_identity.length === 0) return "C";
+  // Single-color card → that color's bucket.
+  if (card.color_identity.length === 1) {
+    const c = card.color_identity[0];
+    if (c === "W" || c === "U" || c === "B" || c === "R" || c === "G") return c;
+    return "C"; // defensive: unknown color letter falls back to C
+  }
+  // Two or more colors (including mono-hybrid with multi-letter color_identity) → M.
+  return "M";
+}
+
+function landTierFor(card: CardMeta, colorGroup: ColorGroup): 0 | 1 | 2 {
+  if (colorGroup !== "L") return 0;
+  if (card.layout === "token" || card.type_line.includes("Token")) return 2;
+  if (card.type_line.includes("Basic")) return 1;
+  return 0;
+}
+
+function effectiveSetFor(card: CardMeta, parentSetMap: Map<string, string>): string {
+  // Token re-homing: rewrite set to parent_set_code if this is a token card
+  // AND the set is mapped. Non-token cards are left alone even if the map has
+  // an entry for their set (defensive against map pollution).
+  const isToken = card.layout === "token" || card.type_line.includes("Token");
+  if (!isToken) return card.set;
+  const parent = parentSetMap.get(card.set);
+  return parent ?? card.set;
+}
+
+export function deriveSortFields(
+  card: CardMeta,
+  parentSetMap: Map<string, string>
+): SortFields {
+  const colorGroup = colorGroupFor(card);
+  const landTier = landTierFor(card, colorGroup);
+  const rarity = normalizeRarity(card.rarity);
+  const rarityOrder = RARITY_ORDER[rarity] ?? 3;
+  const cmc = typeof card.cmc === "number" ? card.cmc : 0;
+  const cmcBucket = Math.min(Math.floor(cmc), 7);
+  const effectiveSet = effectiveSetFor(card, parentSetMap);
+
+  return {
+    effectiveSet,
+    colorGroup,
+    landTier,
+    rarityOrder,
+    cmcBucket,
+    rarity,
+    cmc,
+    name: card.name,
+    nameLower: card.name.toLowerCase(),
+    releasedAt: card.released_at,
+  };
+}
+
 // ── Main functions (implemented in later tasks) ────────────────
 
 // Task 4 — computeCanonicalSort
