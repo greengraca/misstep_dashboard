@@ -408,3 +408,53 @@ export async function setLayout(layout: ShelfLayout): Promise<ShelfLayout> {
   );
   return normalized;
 }
+
+// ── Override CRUD ──────────────────────────────────────────────
+
+export interface CreateOverrideInput {
+  anchorSlotKey: string;
+  targetBoxId: string;
+  targetBoxRowIndex: number;
+  note?: string;
+  createdBy: string;
+}
+
+export async function listOverrides(statusFilter?: "all" | "applied" | "stale"): Promise<CutOverride[]> {
+  const db = await getDb();
+  const col = db.collection<CutOverride>(COL_STORAGE_OVERRIDES);
+  const filter: Record<string, unknown> = {};
+  if (statusFilter === "applied") filter.lastStatus = "applied";
+  else if (statusFilter === "stale") {
+    filter.lastStatus = { $in: ["stale-missing-slot", "stale-missing-target", "stale-regression"] };
+  }
+  return col.find(filter).sort({ createdAt: -1 }).toArray();
+}
+
+export async function createOverride(input: CreateOverrideInput): Promise<CutOverride> {
+  const db = await getDb();
+  const doc: CutOverride & { createdAt: Date; createdBy: string; note?: string } = {
+    id: randomUUID(),
+    anchorSlotKey: input.anchorSlotKey,
+    targetBoxId: input.targetBoxId,
+    targetBoxRowIndex: input.targetBoxRowIndex,
+    createdAt: new Date(),
+    createdBy: input.createdBy,
+    note: input.note,
+  };
+  await db.collection(COL_STORAGE_OVERRIDES).insertOne(doc);
+  return doc;
+}
+
+export async function deleteOverride(id: string): Promise<boolean> {
+  const db = await getDb();
+  const result = await db.collection(COL_STORAGE_OVERRIDES).deleteOne({ id });
+  return result.deletedCount === 1;
+}
+
+export async function clearStaleOverrides(): Promise<number> {
+  const db = await getDb();
+  const result = await db.collection(COL_STORAGE_OVERRIDES).deleteMany({
+    lastStatus: { $in: ["stale-missing-slot", "stale-missing-target", "stale-regression"] },
+  });
+  return result.deletedCount ?? 0;
+}
