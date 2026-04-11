@@ -1158,7 +1158,8 @@ import {
 
 export async function refreshAllScryfall(): Promise<{
   setsUpserted: number;
-  cardsUpserted: number;
+  cardsProcessed: number;
+  cardsWritten: number;
   durationMs: number;
 }> {
   const started = Date.now();
@@ -1185,9 +1186,9 @@ export async function refreshAllScryfall(): Promise<{
   // 4. Stream-parse and bulk-upsert
   const db = await getDb();
   const col = db.collection(COL_CARDS);
-  let cardsUpserted = 0;
+  let cardsWritten = 0;
 
-  await streamBulkCards(body, {
+  const { processed: cardsProcessed } = await streamBulkCards(body, {
     batchSize: 1000,
     onBatch: async (batch) => {
       const ops = batch.map((doc) => ({
@@ -1198,13 +1199,14 @@ export async function refreshAllScryfall(): Promise<{
         },
       }));
       const result = await col.bulkWrite(ops, { ordered: false });
-      cardsUpserted += (result.upsertedCount ?? 0) + (result.modifiedCount ?? 0);
+      cardsWritten += (result.upsertedCount ?? 0) + (result.modifiedCount ?? 0);
     },
   });
 
   return {
     setsUpserted,
-    cardsUpserted,
+    cardsProcessed,
+    cardsWritten,
     durationMs: Date.now() - started,
   };
 }
