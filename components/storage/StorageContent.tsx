@@ -208,14 +208,14 @@ export default function StorageContent() {
         />
       )}
 
-      <LayoutEditor layout={layout} onSave={handleLayoutSave} />
-
       <Shelf3D
         layout={layout}
         selectedBoxId={selectedBoxId}
         onBoxClick={setSelectedBoxId}
         boxData={boxData}
       />
+
+      <LayoutEditor layout={layout} onSave={handleLayoutSave} />
 
       <BoxContentsPanel
         boxId={selectedBoxId}
