@@ -188,9 +188,13 @@ async function processOrders(
     if (existing) {
       const existingIdx = STATUS_ORDER.indexOf(existing.status as string);
       const updates: Record<string, unknown> = { lastSeenAt: now, submittedBy };
-      if (newIdx > existingIdx) {
+      if (newIdx !== existingIdx) {
+        // Allow status correction in BOTH directions: advancing is normal
+        // lifecycle, but regressing fixes orders that were incorrectly
+        // advanced by the single-page cleanup (e.g. date-filter caused
+        // incomplete page view → cleanup promoted paid orders to sent).
         updates.status = status;
-        // Update date/time to match the new status page (Paid shows paid date, Sent shows sent date, etc.)
+        // Update date/time to match the status page
         if (order.orderDate) updates.orderDate = order.orderDate;
         if (order.orderTime) updates.orderTime = order.orderTime;
       }
@@ -230,7 +234,12 @@ async function processOrders(
   // - unpaid / paid / sent: advance to next status (they moved forward)
   const totalPages = (data.totalPages as number) || 1;
   const currentPage = (data.currentPage as number) || 1;
-  if (totalPages === 1 && currentPage === 1) {
+  const totalCount = (data.totalCount as number) || 0;
+  // Only run cleanup when the synced set is complete — if the extension
+  // filtered some orders (e.g. date cutoff) the page view is incomplete
+  // and advancing "missing" orders would be incorrect.
+  const viewComplete = totalCount === 0 || orders.length >= totalCount;
+  if (totalPages === 1 && currentPage === 1 && viewComplete) {
     const syncedIds = orders.map(o => o.orderId);
     const staleFilter = { status, direction, orderId: { $nin: syncedIds } };
     const staleIds = await col.find(staleFilter).project({ orderId: 1 }).toArray();
@@ -270,12 +279,13 @@ async function processOrderDetail(
   const orderId = detail.orderId;
   let added = 0, updated = 0;
 
-  // Check status progression — only advance, never regress (same guard as processOrders)
+  // Check status change — allow both advance and correction (regression)
   const PAID_INDEX = STATUS_ORDER.indexOf("paid");
   const existing = await db.collection(COL.orders).findOne({ orderId }, { projection: { status: 1 } });
   const existingIdx = existing ? STATUS_ORDER.indexOf(existing.status as string) : -1;
   const newIdx = detail.status ? STATUS_ORDER.indexOf(detail.status) : -1;
   const statusAdvanced = detail.status ? newIdx > existingIdx : false;
+  const statusChanged = detail.status ? newIdx !== existingIdx : false;
 
   // Enrich the parent order
   const orderUpdates: Record<string, unknown> = {
@@ -296,7 +306,7 @@ async function processOrderDetail(
       if (parts[1]) orderUpdates.orderTime = parts[1];
     }
   }
-  if (statusAdvanced) orderUpdates.status = detail.status;
+  if (statusChanged) orderUpdates.status = detail.status;
   else if (!existing && detail.status) orderUpdates.status = detail.status; // new order, set initial status
   if (detail.counterparty) orderUpdates.counterparty = detail.counterparty;
   if (detail.country) orderUpdates.country = detail.country;

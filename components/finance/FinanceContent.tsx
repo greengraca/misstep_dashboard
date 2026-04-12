@@ -15,6 +15,8 @@ import {
   TrendingDown,
   Banknote,
   ShoppingBag,
+  Package,
+  Landmark,
   PlusCircle,
   Clock,
   CheckCircle,
@@ -26,6 +28,7 @@ const TEAM_MEMBERS = ["Graça", "Bezugas", "Mil"];
 const CATEGORIES = [
   { value: "shipping", label: "Shipping" },
   { value: "operational", label: "Operational" },
+  { value: "direct", label: "Direct Transaction" },
   { value: "other", label: "Other" },
 ];
 const TYPE_OPTIONS = [
@@ -121,7 +124,27 @@ export default function FinanceContent() {
   const totalWithdrawals = transactions
     .filter((t) => t.type === "withdrawal")
     .reduce((s, t) => s + t.amount, 0);
-  const netBalance = totalIncome - totalExpenses;
+
+  // Shipping Profit: CM shipping collected - actual shipping expenses
+  const cmShippingCollected = cmRev?.shippingCosts ?? 0;
+  const shippingExpenses = transactions
+    .filter((t) => t.type === "expense" && t.category === "shipping")
+    .reduce((s, t) => s + t.amount, 0);
+  const shippingProfit = cmShippingCollected - shippingExpenses;
+
+  const netBalance = totalIncome - totalExpenses + shippingProfit;
+
+  // Treasury Account: Withdrawals - Checked Reimbursements + Direct Income - Direct Expenses
+  const checkedReimbursements = transactions
+    .filter((t) => t.type === "expense" && t.reimbursed)
+    .reduce((s, t) => s + t.amount, 0);
+  const directIncome = transactions
+    .filter((t) => t.type === "income" && t.category === "direct")
+    .reduce((s, t) => s + t.amount, 0);
+  const directExpenses = transactions
+    .filter((t) => t.type === "expense" && t.category === "direct")
+    .reduce((s, t) => s + t.amount, 0);
+  const treasuryAccount = totalWithdrawals - checkedReimbursements + directIncome - directExpenses;
 
   function openAdd() {
     setEditingTx(null);
@@ -359,6 +382,18 @@ export default function FinanceContent() {
           value={isLoading ? "..." : `${netBalance >= 0 ? "" : "-"}€${Math.abs(netBalance).toFixed(2)}`}
           icon={<Wallet size={20} style={{ color: "var(--accent)" }} />}
           active={netBalance > 0}
+        />
+        <StatCard
+          title="Shipping Profit"
+          value={isLoading ? "..." : `${shippingProfit >= 0 ? "" : "-"}€${Math.abs(shippingProfit).toFixed(2)}`}
+          icon={<Package size={20} style={{ color: "var(--accent)" }} />}
+          active={shippingProfit > 0}
+        />
+        <StatCard
+          title="Treasury Account"
+          value={isLoading ? "..." : `${treasuryAccount >= 0 ? "" : "-"}€${Math.abs(treasuryAccount).toFixed(2)}`}
+          icon={<Landmark size={20} style={{ color: "var(--accent)" }} />}
+          active={treasuryAccount > 0}
         />
       </div>
 

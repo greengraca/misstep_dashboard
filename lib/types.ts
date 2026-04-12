@@ -25,7 +25,7 @@ export interface ErrorLogEntry {
 }
 
 export type TransactionType = "income" | "expense" | "withdrawal";
-export type TransactionCategory = "shipping" | "operational" | "other";
+export type TransactionCategory = "shipping" | "operational" | "other" | "direct";
 
 export interface Transaction {
   _id: string;
