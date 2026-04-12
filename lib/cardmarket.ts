@@ -178,23 +178,22 @@ async function processOrders(
   const now = new Date().toISOString();
   const newIdx = STATUS_ORDER.indexOf(status);
 
-  // Batch-read existing orders to check status progression
+  // Batch-read existing orders to determine status changes
   const orderIds = orders.map(o => o.orderId);
   const existingDocs = await col.find({ orderId: { $in: orderIds } }).toArray();
   const existingMap = new Map(existingDocs.map(d => [d.orderId as string, d]));
 
+  // Status changes come from POSITIVE signals only: we saw this order on
+  // a specific status tab, so we set it to that status. This works in both
+  // directions — advancing (paid→sent) and correcting (sent→paid).
+  // We never infer status from an order's ABSENCE on a tab.
   const ops = orders.map(order => {
     const existing = existingMap.get(order.orderId);
     if (existing) {
       const existingIdx = STATUS_ORDER.indexOf(existing.status as string);
       const updates: Record<string, unknown> = { lastSeenAt: now, submittedBy };
       if (newIdx !== existingIdx) {
-        // Allow status correction in BOTH directions: advancing is normal
-        // lifecycle, but regressing fixes orders that were incorrectly
-        // advanced by the single-page cleanup (e.g. date-filter caused
-        // incomplete page view → cleanup promoted paid orders to sent).
         updates.status = status;
-        // Update date/time to match the status page
         if (order.orderDate) updates.orderDate = order.orderDate;
         if (order.orderTime) updates.orderTime = order.orderTime;
       }
@@ -226,39 +225,6 @@ async function processOrders(
   if (ops.length) {
     const bulkResult = await col.bulkWrite(ops, { ordered: false });
     result = { upsertedCount: bulkResult.upsertedCount || 0, modifiedCount: bulkResult.modifiedCount || 0 };
-  }
-
-  // Single-page cleanup: when we see the complete list for a status, handle
-  // DB orders that are no longer on that page.
-  // - shopping_cart / arrived: delete (removed by buyer / completed)
-  // - unpaid / paid / sent: advance to next status (they moved forward)
-  const totalPages = (data.totalPages as number) || 1;
-  const currentPage = (data.currentPage as number) || 1;
-  const totalCount = (data.totalCount as number) || 0;
-  // Only run cleanup when the synced set is complete — if the extension
-  // filtered some orders (e.g. date cutoff) the page view is incomplete
-  // and advancing "missing" orders would be incorrect.
-  const viewComplete = totalCount === 0 || orders.length >= totalCount;
-  if (totalPages === 1 && currentPage === 1 && viewComplete) {
-    const syncedIds = orders.map(o => o.orderId);
-    const staleFilter = { status, direction, orderId: { $nin: syncedIds } };
-    const staleIds = await col.find(staleFilter).project({ orderId: 1 }).toArray();
-    if (staleIds.length) {
-      const ids = staleIds.map(d => d.orderId as string);
-      const statusIdx = STATUS_ORDER.indexOf(status);
-      const nextStatus = STATUS_ORDER[statusIdx + 1];
-
-      if (status === "shopping_cart" || status === "arrived" || !nextStatus) {
-        // Terminal: delete stale orders and their items
-        await col.deleteMany(staleFilter);
-        await db.collection(COL.orderItems).deleteMany({ orderId: { $in: ids } });
-      } else {
-        // Non-terminal: advance stale orders to the next status
-        await col.updateMany(staleFilter, {
-          $set: { status: nextStatus, lastSeenAt: now },
-        });
-      }
-    }
   }
 
   return {
