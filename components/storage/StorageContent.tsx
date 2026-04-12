@@ -112,9 +112,12 @@ export default function StorageContent() {
       if (cell.kind === "empty-reserved") continue;
       if (map.has(cell.set)) continue;
       const hue = (index * 137.508) % 360;
+      // Both the fill and the divider stay in the soft-pastel range
+      // (high lightness, moderate saturation). Divider is slightly less
+      // light than the fill so it reads as an accent without going dark.
       map.set(cell.set, {
-        fillColor: hslToHex(hue, 55, 80), // pastel: high lightness
-        dividerColor: hslToHex(hue, 65, 50), // darker accent for the separator
+        fillColor: hslToHex(hue, 50, 86), // very soft pastel body
+        dividerColor: hslToHex(hue, 58, 72), // slightly deeper pastel accent
       });
       index += 1;
     }
