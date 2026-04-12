@@ -48,7 +48,7 @@ const BOX_SELECTED_COLOR = "#d4a24b";
 const CHANNEL_DIVIDER_COLOR = "#d7ccac"; // internal row walls (cardboard)
 
 // Divider and label geometry
-const SET_DIVIDER_THICKNESS = 0.002; // 2mm separator card thickness
+const SET_DIVIDER_THICKNESS = 0.001; // 1mm separator card thickness
 const SET_DIVIDER_HEIGHT_ABOVE_WALL = 0.015; // separator sticks 1.5cm above box walls
 
 /** Fallback colors if the set-run didn't come with pre-assigned colors. */
