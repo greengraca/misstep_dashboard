@@ -55,7 +55,7 @@ export const ROW_CAPACITY_SLOTS = 125;
  * the user can see the box fronts without the shelf frame occluding them.
  */
 export const CAMERA_DEFAULTS = {
-  position: [2.8, 1.5, 2.5] as [number, number, number],
+  position: [0.925, 2.5, 2.8] as [number, number, number], // centered in front, tilted down
   fov: 50,
-  target: [0.925, 1.1, 0.2] as [number, number, number], // shelf center-ish
+  target: [0.925, 0.9, 0.2] as [number, number, number],
 };
