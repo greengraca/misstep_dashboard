@@ -2,7 +2,7 @@
 /// <reference types="@react-three/fiber" />
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   BOX_DIMENSIONS,
   BOX_WALL_THICKNESS,
@@ -10,6 +10,7 @@ import {
   ROW_CAPACITY_SLOTS,
 } from "./physical-config";
 import { BOX_ROWS, type BoxType } from "@/lib/storage";
+import { cloneCardStackTexture } from "./card-stack-texture";
 
 /** A run of consecutive slots in the same row that share a set code. */
 export interface BoxSetRun {
@@ -47,9 +48,8 @@ const BOX_HOVER_COLOR = "#f6ecd0";
 const BOX_SELECTED_COLOR = "#d4a24b";
 const CHANNEL_DIVIDER_COLOR = "#d7ccac"; // internal row walls (cardboard)
 
-// Divider and label geometry
-const SET_DIVIDER_THICKNESS = 0.001; // 1mm separator card thickness
-const SET_DIVIDER_HEIGHT_ABOVE_WALL = 0.015; // separator sticks 1.5cm above box walls
+// Divider geometry
+const SET_DIVIDER_THICKNESS = 0.0006; // 0.6 mm separator card thickness
 
 /** Fallback colors if the set-run didn't come with pre-assigned colors. */
 const DEFAULT_FILL_COLOR = "#c8d0dc";
@@ -85,8 +85,8 @@ export default function Box3D({
   const fillHeight = H * CARD_FILL_HEIGHT_RATIO;
   // Channel divider height — slightly taller than the card fill to separate rows
   const channelDividerHeight = H * 0.92;
-  // Set divider total height — sticks above the box walls so the label is visible
-  const setDividerHeight = H + SET_DIVIDER_HEIGHT_ABOVE_WALL;
+  // Set divider height — capped at the box height (10 cm), no overhang
+  const setDividerHeight = H;
 
   // X position of each internal row's left edge (just inside the outer wall)
   const rowLeftX = (rowIndex: number): number =>
@@ -171,10 +171,8 @@ export default function Box3D({
         let zCursor = T; // starts inside the front wall
 
         return row.setRuns.map((run, runIdx) => {
-          // 1. Set divider (vertical white card) at the start of this run
           const dividerCenterZ = zCursor + SET_DIVIDER_THICKNESS / 2;
           const dividerCenterY = setDividerHeight / 2;
-          // 2. Card fill after the divider
           const runZLength = run.slotCount * zPerSlot;
           const fillCenterZ =
             zCursor + SET_DIVIDER_THICKNESS + Math.max(runZLength, 0) / 2;
@@ -183,7 +181,7 @@ export default function Box3D({
           const dividerColor = run.dividerColor ?? DEFAULT_DIVIDER_COLOR;
           const node = (
             <group key={`r${row.rowIndex}-${runIdx}`}>
-              {/* Set separator card — darker shade of the set's pastel */}
+              {/* Set separator card */}
               <mesh position={[rowCenterX, dividerCenterY, dividerCenterZ]}>
                 <boxGeometry
                   args={[rowWidth * 0.96, setDividerHeight, SET_DIVIDER_THICKNESS]}
@@ -191,16 +189,13 @@ export default function Box3D({
                 <meshStandardMaterial color={dividerColor} />
               </mesh>
 
-              {/* Card fill — pastel of the set's hue */}
+              {/* Card fill with card-stack texture */}
               {runZLength > 0 && (
-                <mesh
+                <CardFillMesh
                   position={[rowCenterX, T + fillHeight / 2, fillCenterZ]}
-                >
-                  <boxGeometry
-                    args={[rowWidth * 0.92, fillHeight, runZLength]}
-                  />
-                  <meshStandardMaterial color={fillColor} />
-                </mesh>
+                  size={[rowWidth * 0.92, fillHeight, runZLength]}
+                  color={fillColor}
+                />
               )}
             </group>
           );
@@ -209,5 +204,28 @@ export default function Box3D({
         });
       })}
     </group>
+  );
+}
+
+interface CardFillMeshProps {
+  position: [number, number, number];
+  size: [number, number, number];
+  color: string;
+}
+
+/**
+ * A single card-stack block. Pulls a cloned card-stack texture keyed to its
+ * own Z (depth) length so every run gets the right stripe density for its
+ * physical size — short runs show fewer card edges, long runs show more.
+ */
+function CardFillMesh({ position, size, color }: CardFillMeshProps) {
+  const [, , zLength] = size;
+  const texture = useMemo(() => cloneCardStackTexture(zLength), [zLength]);
+
+  return (
+    <mesh position={position}>
+      <boxGeometry args={size} />
+      <meshStandardMaterial color={color} map={texture ?? undefined} />
+    </mesh>
   );
 }
