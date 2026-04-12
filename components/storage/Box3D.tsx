@@ -2,7 +2,7 @@
 /// <reference types="@react-three/fiber" />
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   BOX_DIMENSIONS,
   BOX_WALL_THICKNESS,
@@ -10,7 +10,6 @@ import {
   ROW_CAPACITY_SLOTS,
 } from "./physical-config";
 import { BOX_ROWS, type BoxType } from "@/lib/storage";
-import { cloneCardStackTexture } from "./card-stack-texture";
 
 /** A run of consecutive slots in the same row that share a set code. */
 export interface BoxSetRun {
@@ -213,19 +212,11 @@ interface CardFillMeshProps {
   color: string;
 }
 
-/**
- * A single card-stack block. Pulls a cloned card-stack texture keyed to its
- * own Z (depth) length so every run gets the right stripe density for its
- * physical size — short runs show fewer card edges, long runs show more.
- */
 function CardFillMesh({ position, size, color }: CardFillMeshProps) {
-  const [, , zLength] = size;
-  const texture = useMemo(() => cloneCardStackTexture(zLength), [zLength]);
-
   return (
     <mesh position={position}>
       <boxGeometry args={size} />
-      <meshStandardMaterial color={color} map={texture ?? undefined} />
+      <meshStandardMaterial color={color} />
     </mesh>
   );
 }
