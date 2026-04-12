@@ -6,6 +6,7 @@ interface StatCardProps {
   subtitle?: string;
   icon?: React.ReactNode;
   active?: boolean;
+  tooltip?: string;
   trend?: {
     value: number;
     label: string;
@@ -18,11 +19,13 @@ export default function StatCard({
   subtitle,
   icon,
   active,
+  tooltip,
   trend,
 }: StatCardProps) {
   return (
     <div
       className="h-full p-3 sm:p-5 rounded-xl transition-all duration-200 group hover:-translate-y-0.5"
+      title={tooltip}
       style={{
         background: "var(--surface-gradient)",
         backdropFilter: "var(--surface-blur)",

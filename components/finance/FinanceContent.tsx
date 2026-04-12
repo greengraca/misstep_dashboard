@@ -361,39 +361,43 @@ export default function FinanceContent() {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         <StatCard
           title="Income"
           value={isLoading ? "..." : `€${totalIncome.toFixed(2)}`}
           icon={<TrendingUp size={20} style={{ color: "var(--accent)" }} />}
+          tooltip="Manual income + Cardmarket net revenue"
         />
         <StatCard
           title="Expenses"
           value={isLoading ? "..." : `€${totalExpenses.toFixed(2)}`}
           icon={<TrendingDown size={20} style={{ color: "var(--accent)" }} />}
+          tooltip="All expenses: shipping, operational, direct, and other"
         />
         <StatCard
           title="Withdrawals"
           value={isLoading ? "..." : `€${totalWithdrawals.toFixed(2)}`}
           icon={<Banknote size={20} style={{ color: "var(--accent)" }} />}
+          tooltip="Money withdrawn from Cardmarket balance"
+        />
+        <StatCard
+          title="Shipping Profit"
+          value={isLoading ? "..." : `${shippingProfit >= 0 ? "" : "-"}€${Math.abs(shippingProfit).toFixed(2)}`}
+          icon={<Package size={20} style={{ color: "var(--accent)" }} />}
+          tooltip="Cardmarket shipping collected minus actual postage costs"
+        />
+        <StatCard
+          title="Treasury Account"
+          value={isLoading ? "..." : `${treasuryAccount >= 0 ? "" : "-"}€${Math.abs(treasuryAccount).toFixed(2)}`}
+          icon={<Landmark size={20} style={{ color: "var(--accent)" }} />}
+          tooltip="Withdrawals - Reimbursements paid + Direct Transactions net"
         />
         <StatCard
           title="Net Balance"
           value={isLoading ? "..." : `${netBalance >= 0 ? "" : "-"}€${Math.abs(netBalance).toFixed(2)}`}
           icon={<Wallet size={20} style={{ color: "var(--accent)" }} />}
           active={netBalance > 0}
-        />
-        <StatCard
-          title="Shipping Profit"
-          value={isLoading ? "..." : `${shippingProfit >= 0 ? "" : "-"}€${Math.abs(shippingProfit).toFixed(2)}`}
-          icon={<Package size={20} style={{ color: "var(--accent)" }} />}
-          active={shippingProfit > 0}
-        />
-        <StatCard
-          title="Treasury Account"
-          value={isLoading ? "..." : `${treasuryAccount >= 0 ? "" : "-"}€${Math.abs(treasuryAccount).toFixed(2)}`}
-          icon={<Landmark size={20} style={{ color: "var(--accent)" }} />}
-          active={treasuryAccount > 0}
+          tooltip="Income - Expenses + Shipping Profit"
         />
       </div>
 
