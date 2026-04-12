@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Save, Trash2 } from "lucide-react";
+import Select from "@/components/dashboard/select";
 import type { ShelfLayout } from "./types";
 import type { BoxConfig, BoxType, ShelfRowConfig } from "@/lib/storage";
 
@@ -297,30 +298,19 @@ function BoxEditor({ box, row, boxIdx, onTypeChange, onRemove, onMoveUp, onMoveD
   );
   const budget = ROW_MAX_CARDS - otherCards;
 
+  const options = BOX_TYPES.filter((t) => BOX_CARD_CAPACITY[t] <= budget).map(
+    (t) => ({ value: t, label: t })
+  );
+
   return (
     <div className="inline-flex items-center gap-1 px-2 py-1 rounded-[var(--radius)] bg-[var(--bg)] border border-[var(--border)] text-xs">
-      <select
+      <Select
         value={box.type}
-        onChange={(e) => onTypeChange(e.target.value as BoxType)}
-        className="appearance-none bg-[var(--card-bg)] border border-[var(--border)] text-[var(--text-primary)] text-xs px-1.5 py-0.5 pr-4 rounded-[var(--radius)] outline-none focus:border-[var(--accent)] cursor-pointer"
-        style={{
-          backgroundImage:
-            "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4l3 3 3-3' stroke='%23888' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "right 2px center",
-          backgroundSize: "12px",
-        }}
-      >
-        {BOX_TYPES.map((t) => {
-          const fits = BOX_CARD_CAPACITY[t] <= budget;
-          return (
-            <option key={t} value={t} disabled={!fits}>
-              {t}
-              {!fits ? " —" : ""}
-            </option>
-          );
-        })}
-      </select>
+        onChange={(v) => onTypeChange(v as BoxType)}
+        options={options}
+        size="sm"
+        className="min-w-[52px]"
+      />
       <button
         onClick={onMoveUp}
         className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"

@@ -9,6 +9,21 @@ import LayoutEditor from "./LayoutEditor";
 import Shelf3D from "./Shelf3D";
 import BoxContentsPanel from "./BoxContentsPanel";
 import type { BoxData, BoxRowData, BoxSetRun } from "./Box3D";
+
+/** HSL → #rrggbb — three.js's Color.setStyle can't parse modern hsl() syntax. */
+function hslToHex(h: number, s: number, l: number): string {
+  const sN = s / 100;
+  const lN = l / 100;
+  const a = sN * Math.min(lN, 1 - lN);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const c = lN - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(c * 255)
+      .toString(16)
+      .padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
 import {
   fetcher,
   type StatsResponse,
@@ -81,6 +96,31 @@ export default function StorageContent() {
     return map;
   }, [slots]);
 
+  // Assign a pastel color to every distinct set code, in chronological
+  // order (the order set codes first appear in the sorted slot stream).
+  // Uses the golden angle (137.508°) so adjacent sets get maximally
+  // different hues even for dense palettes.
+  const setColors = useMemo(() => {
+    const map = new Map<string, { fillColor: string; dividerColor: string }>();
+    let index = 0;
+    const sortedByPosition = [...slots].sort((a, b) => {
+      const pa = "position" in a ? a.position : 0;
+      const pb = "position" in b ? b.position : 0;
+      return pa - pb;
+    });
+    for (const cell of sortedByPosition) {
+      if (cell.kind === "empty-reserved") continue;
+      if (map.has(cell.set)) continue;
+      const hue = (index * 137.508) % 360;
+      map.set(cell.set, {
+        fillColor: hslToHex(hue, 55, 80), // pastel: high lightness
+        dividerColor: hslToHex(hue, 65, 50), // darker accent for the separator
+      });
+      index += 1;
+    }
+    return map;
+  }, [slots]);
+
   // Derive per-box row + set-run data for the 3D scene. Each box row becomes
   // a list of (set, slotCount) runs in reading order, which Box3D renders as
   // color-coded blocks inside the internal channel.
@@ -111,10 +151,13 @@ export default function StorageContent() {
           if (last && last.set === cell.set) {
             last.slotCount += 1;
           } else {
+            const colors = setColors.get(cell.set);
             setRuns.push({
               set: cell.set,
               setName: cell.setName,
               slotCount: 1,
+              fillColor: colors?.fillColor,
+              dividerColor: colors?.dividerColor,
             });
           }
         }
@@ -124,7 +167,7 @@ export default function StorageContent() {
       result.set(boxId, { rows });
     }
     return result;
-  }, [slotsByBoxId]);
+  }, [slotsByBoxId, setColors]);
 
   const selectedBoxSlots = selectedBoxId ? slotsByBoxId.get(selectedBoxId) ?? [] : [];
   const selectedBoxLabel = selectedBoxId

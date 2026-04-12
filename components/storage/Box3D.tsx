@@ -16,6 +16,10 @@ export interface BoxSetRun {
   set: string;
   setName: string;
   slotCount: number;
+  /** Precomputed fill hex (from StorageContent). Optional for backwards compat. */
+  fillColor?: string;
+  /** Precomputed divider hex (from StorageContent). Optional. */
+  dividerColor?: string;
 }
 
 /** Slot data for a single internal row of a box. */
@@ -47,46 +51,9 @@ const CHANNEL_DIVIDER_COLOR = "#d7ccac"; // internal row walls (cardboard)
 const SET_DIVIDER_THICKNESS = 0.002; // 2mm separator card thickness
 const SET_DIVIDER_HEIGHT_ABOVE_WALL = 0.015; // separator sticks 1.5cm above box walls
 
-/**
- * Deterministic hash-based hue for a set code. Same code always produces
- * the same hue so color stays stable across rebuilds.
- */
-function hueFor(setCode: string): number {
-  let hash = 0;
-  for (let i = 0; i < setCode.length; i++) {
-    hash = (hash * 31 + setCode.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash) % 360;
-}
-
-/**
- * Convert HSL to #rrggbb hex. Three.js's Color.setStyle() regex for `hsl()`
- * requires comma-separated args (modern space-separated syntax is silently
- * rejected, leaving the material white), so we hand three.js plain hex.
- */
-function hslToHex(h: number, s: number, l: number): string {
-  const sN = s / 100;
-  const lN = l / 100;
-  const a = sN * Math.min(lN, 1 - lN);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const c = lN - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    return Math.round(c * 255)
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-/** Card fill color for a set — mid-lightness, mid-saturation. */
-function setFillColor(setCode: string): string {
-  return hslToHex(hueFor(setCode), 55, 58);
-}
-
-/** Darker shade of the same hue used for the set's front divider card. */
-function setDividerColor(setCode: string): string {
-  return hslToHex(hueFor(setCode), 60, 32);
-}
+/** Fallback colors if the set-run didn't come with pre-assigned colors. */
+const DEFAULT_FILL_COLOR = "#c8d0dc";
+const DEFAULT_DIVIDER_COLOR = "#8b93a3";
 
 export default function Box3D({
   position,
@@ -212,17 +179,19 @@ export default function Box3D({
           const fillCenterZ =
             zCursor + SET_DIVIDER_THICKNESS + Math.max(runZLength, 0) / 2;
 
+          const fillColor = run.fillColor ?? DEFAULT_FILL_COLOR;
+          const dividerColor = run.dividerColor ?? DEFAULT_DIVIDER_COLOR;
           const node = (
             <group key={`r${row.rowIndex}-${runIdx}`}>
-              {/* Set separator card — darker shade of the set's color */}
+              {/* Set separator card — darker shade of the set's pastel */}
               <mesh position={[rowCenterX, dividerCenterY, dividerCenterZ]}>
                 <boxGeometry
                   args={[rowWidth * 0.96, setDividerHeight, SET_DIVIDER_THICKNESS]}
                 />
-                <meshStandardMaterial color={setDividerColor(run.set)} />
+                <meshStandardMaterial color={dividerColor} />
               </mesh>
 
-              {/* Card fill — mid shade of the set's color */}
+              {/* Card fill — pastel of the set's hue */}
               {runZLength > 0 && (
                 <mesh
                   position={[rowCenterX, T + fillHeight / 2, fillCenterZ]}
@@ -230,7 +199,7 @@ export default function Box3D({
                   <boxGeometry
                     args={[rowWidth * 0.92, fillHeight, runZLength]}
                   />
-                  <meshStandardMaterial color={setFillColor(run.set)} />
+                  <meshStandardMaterial color={fillColor} />
                 </mesh>
               )}
             </group>
