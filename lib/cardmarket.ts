@@ -250,6 +250,37 @@ async function processOrders(
     result = { upsertedCount: bulkResult.upsertedCount || 0, modifiedCount: bulkResult.modifiedCount || 0 };
   }
 
+  // Remove sold items from stock when orders first reach paid.
+  // Uses items from cm_order_items (if the detail was previously synced).
+  const PAID_INDEX = STATUS_ORDER.indexOf("paid");
+  const newlyPaidIds = orders
+    .filter(o => {
+      const existing = existingMap.get(o.orderId);
+      if (!existing) return newIdx >= PAID_INDEX; // new order inserted at paid+
+      const existingIdx = STATUS_ORDER.indexOf(existing.status as string);
+      return existingIdx < PAID_INDEX && newIdx >= PAID_INDEX;
+    })
+    .map(o => o.orderId);
+
+  if (newlyPaidIds.length) {
+    const items = await db.collection(COL.orderItems)
+      .find({ orderId: { $in: newlyPaidIds } }).toArray();
+    if (items.length) {
+      const removeOps = items.map(item => ({
+        deleteOne: {
+          filter: {
+            name: item.name as string,
+            condition: item.condition as string,
+            foil: item.foil as boolean,
+            set: item.set as string,
+            source: "stock_page",
+          },
+        },
+      }));
+      await db.collection(COL.stock).bulkWrite(removeOps, { ordered: false });
+    }
+  }
+
   return {
     added: result.upsertedCount,
     updated: result.modifiedCount,
