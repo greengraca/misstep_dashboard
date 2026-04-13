@@ -94,14 +94,36 @@ export async function processSync(
   });
   const results: Record<string, { added: number; updated: number; skipped: number }> = {};
 
+  // Deduplicate orderIds across multiple "orders" batch items.
+  // The extension queues batches from different tabs in order visited;
+  // during SPA tab navigation, a race condition can produce a duplicate
+  // batch where the DOM hasn't updated but the URL has, tagging stale
+  // orders with the wrong status. First-seen orderId wins.
+  const seenOrderIds = new Set<string>();
+
   for (const item of orderedBatch) {
     switch (item.type) {
       case "balance":
         results.balance = await processBalance(submittedBy, item.data);
         break;
-      case "orders":
-        results.orders = await processOrders(submittedBy, item.data);
+      case "orders": {
+        const data = item.data as Record<string, unknown>;
+        const orders = data.orders as CmOrder[];
+        const fresh = orders.filter(o => !seenOrderIds.has(o.orderId));
+        fresh.forEach(o => seenOrderIds.add(o.orderId));
+        if (fresh.length > 0) {
+          const r = await processOrders(submittedBy, { ...data, orders: fresh });
+          // Accumulate stats across multiple orders batches
+          if (results.orders) {
+            results.orders.added += r.added;
+            results.orders.updated += r.updated;
+            results.orders.skipped += r.skipped;
+          } else {
+            results.orders = r;
+          }
+        }
         break;
+      }
       case "order_detail":
         results.order_detail = await processOrderDetail(submittedBy, item.data);
         break;
@@ -192,6 +214,7 @@ async function processOrders(
     if (existing) {
       const existingIdx = STATUS_ORDER.indexOf(existing.status as string);
       const updates: Record<string, unknown> = { lastSeenAt: now, submittedBy };
+      if (!existing.direction) updates.direction = direction;
       if (newIdx !== existingIdx) {
         updates.status = status;
         if (order.orderDate) updates.orderDate = order.orderDate;
@@ -245,9 +268,16 @@ async function processOrderDetail(
   const orderId = detail.orderId;
   let added = 0, updated = 0;
 
+  // Cancelled orders: delete from DB entirely (they shouldn't count toward anything)
+  if (detail.status === "cancelled") {
+    const deleted = await db.collection(COL.orders).deleteOne({ orderId });
+    await db.collection(COL.orderItems).deleteMany({ orderId });
+    return { added: 0, updated: 0, skipped: deleted.deletedCount ? 0 : 1 };
+  }
+
   // Check status change — allow both advance and correction (regression)
   const PAID_INDEX = STATUS_ORDER.indexOf("paid");
-  const existing = await db.collection(COL.orders).findOne({ orderId }, { projection: { status: 1 } });
+  const existing = await db.collection(COL.orders).findOne({ orderId }, { projection: { status: 1, direction: 1 } });
   const existingIdx = existing ? STATUS_ORDER.indexOf(existing.status as string) : -1;
   const newIdx = detail.status ? STATUS_ORDER.indexOf(detail.status) : -1;
   const statusAdvanced = detail.status ? newIdx > existingIdx : false;
@@ -274,6 +304,7 @@ async function processOrderDetail(
   }
   if (statusChanged) orderUpdates.status = detail.status;
   else if (!existing && detail.status) orderUpdates.status = detail.status; // new order, set initial status
+  if (!existing?.direction) orderUpdates.direction = detail.direction || "sale";
   if (detail.counterparty) orderUpdates.counterparty = detail.counterparty;
   if (detail.country) orderUpdates.country = detail.country;
 
@@ -468,13 +499,17 @@ export async function getOrders(filters: {
   const col = db.collection(COL.orders);
   const query: Record<string, unknown> = {};
   if (filters.status) query.status = filters.status;
-  if (filters.direction) query.direction = filters.direction;
+  if (filters.direction) {
+    query.direction = filters.direction === "sale"
+      ? { $in: ["sale", null] }
+      : filters.direction;
+  }
 
   const limit = filters.limit || 20;
   const skip = ((filters.page || 1) - 1) * limit;
 
   const [docs, total, valueResult] = await Promise.all([
-    col.find(query).sort({ orderDate: 1, orderTime: 1, _id: 1 }).skip(skip).limit(limit).toArray(),
+    col.find(query).sort({ orderDate: -1, orderTime: -1, _id: -1 }).skip(skip).limit(limit).toArray(),
     col.countDocuments(query),
     col.aggregate([
       { $match: query },
@@ -504,7 +539,7 @@ export async function getCmRevenueForMonth(month: string): Promise<{
   const monthSuffix = `${mm}.${year}`; // e.g., "04.2026"
 
   const orders = await db.collection(COL.orders).find({
-    direction: "sale",
+    direction: { $in: ["sale", null] },
     status: { $in: ["paid", "sent", "arrived"] },
     orderDate: { $regex: `\\.${monthSuffix}$` },
   }).toArray();
@@ -550,7 +585,7 @@ export async function markOrdersPrinted(orderIds: string[], printed: boolean): P
 export async function getOrderValuesByStatus(): Promise<Record<string, number>> {
   const db = await getDb();
   const results = await db.collection(COL.orders).aggregate([
-    { $match: { direction: "sale" } },
+    { $match: { direction: { $in: ["sale", null] } } },
     { $group: { _id: "$status", total: { $sum: "$totalPrice" } } },
   ]).toArray();
   return Object.fromEntries(results.map(r => [r._id as string, r.total as number]));
@@ -568,7 +603,7 @@ export async function getOrderCounts(): Promise<Record<string, { sale: number; p
     const status = r._id.status as string;
     const direction = r._id.direction as string;
     if (!counts[status]) counts[status] = { sale: 0, purchase: 0 };
-    counts[status][direction === "purchase" ? "purchase" : "sale"] = r.count;
+    counts[status][direction === "purchase" ? "purchase" : "sale"] += r.count;
   }
   return counts;
 }
