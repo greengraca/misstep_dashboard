@@ -24,8 +24,7 @@ export default function StatCard({
 }: StatCardProps) {
   return (
     <div
-      className="h-full p-3 sm:p-5 rounded-xl transition-all duration-200 group hover:-translate-y-0.5"
-      title={tooltip}
+      className="h-full p-3 sm:p-5 rounded-xl transition-all duration-200 hover:-translate-y-0.5"
       style={{
         background: "var(--surface-gradient)",
         backdropFilter: "var(--surface-blur)",
@@ -38,15 +37,38 @@ export default function StatCard({
       }}
     >
       <div className="flex items-start justify-between mb-1.5 sm:mb-3">
-        <p
-          className="text-[10px] sm:text-xs font-medium uppercase tracking-wider"
-          style={{
-            color: "var(--text-muted)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {title}
-        </p>
+        <div className="flex items-baseline gap-1.5">
+          <p
+            className="text-[10px] sm:text-xs font-medium uppercase tracking-wider"
+            style={{
+              color: "var(--text-muted)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {title}
+          </p>
+          {tooltip && (
+            <span className="relative group/tip">
+              <span
+                className="cursor-help text-[9px] sm:text-[10px] leading-none select-none inline-flex items-center justify-center rounded"
+                style={{ color: "var(--text-muted)", opacity: 0.6, background: "rgba(0,0,0,0.25)", width: "14px", height: "14px" }}
+              >
+                ?
+              </span>
+              <span
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg text-xs hidden group-hover/tip:block z-50 w-52 text-center pointer-events-none"
+                style={{
+                  background: "rgba(15, 20, 25, 0.95)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  color: "var(--text-secondary)",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                }}
+              >
+                {tooltip}
+              </span>
+            </span>
+          )}
+        </div>
         {icon && (
           <div
             className="hidden sm:block p-2 rounded-lg"

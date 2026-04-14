@@ -152,6 +152,7 @@ export default function DataTable<T extends Record<string, unknown>>({
                       rowIndex < sorted.length - 1
                         ? "1px solid var(--border-subtle)"
                         : "none",
+                    background: rowIndex % 2 === 1 ? "rgba(255, 255, 255, 0.015)" : undefined,
                     contentVisibility: "auto",
                     containIntrinsicSize: "0 45px",
                   }}
