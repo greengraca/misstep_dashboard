@@ -272,7 +272,7 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
         <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
           EV per Theme ({filteredThemes.length})
         </h3>
-        <div className="flex flex-col gap-1">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
           {filteredThemes.map((theme) => {
             const key = themeKey(theme);
             const expanded = expandedTheme === key;
@@ -285,49 +285,33 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                 style={{
                   border: "1px solid var(--border-subtle)",
                   background: "rgba(255, 255, 255, 0.015)",
+                  gridColumn: expanded ? "1 / -1" : undefined,
                 }}
               >
                 {/* Theme header */}
                 <div
-                  className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
                   onClick={() => setExpandedTheme(expanded ? null : key)}
                 >
-                  {expanded
-                    ? <ChevronDown size={14} style={{ color: "var(--text-muted)" }} />
-                    : <ChevronRight size={14} style={{ color: "var(--text-muted)" }} />
-                  }
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded capitalize"
-                    style={{ background: cs.bg, color: cs.color, fontFamily: "var(--font-mono)" }}
-                  >
-                    {theme.color}
-                  </span>
-                  <span className="text-sm flex-1" style={{ color: "var(--text-primary)" }}>
+                    className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                    style={{ background: cs.color }}
+                  />
+                  <span className="text-xs flex-1 truncate" style={{ color: "var(--text-primary)" }}>
                     {theme.name}
                     {theme.tier !== "mythic" && (
-                      <span className="text-xs ml-1" style={{ color: "var(--text-muted)" }}>
-                        v{theme.variant}
-                      </span>
+                      <span className="ml-1" style={{ color: "var(--text-muted)" }}>v{theme.variant}</span>
                     )}
                   </span>
                   <span
-                    className="text-[10px] px-1.5 py-0.5 rounded capitalize"
+                    className="text-xs font-bold text-right"
                     style={{
-                      background:
-                        theme.tier === "mythic" ? "rgba(239, 68, 68, 0.12)"
-                        : theme.tier === "rare" ? "rgba(234, 179, 8, 0.12)"
-                        : "rgba(255, 255, 255, 0.05)",
+                      fontFamily: "var(--font-mono)",
                       color:
                         theme.tier === "mythic" ? "#ef4444"
                         : theme.tier === "rare" ? "#eab308"
-                        : "var(--text-muted)",
+                        : "var(--accent)",
                     }}
-                  >
-                    {theme.tier}
-                  </span>
-                  <span
-                    className="text-sm font-bold w-[70px] text-right"
-                    style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}
                   >
                     &euro;{theme.ev_net.toFixed(2)}
                   </span>
@@ -563,6 +547,8 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                         <ReferenceLine x={snap(simResult.percentiles.p84)} stroke="rgba(99,102,241,0.6)" strokeDasharray="4 4" />
                         {/* Mean */}
                         <ReferenceLine x={snap(simResult.mean)} stroke="rgba(255,255,255,0.7)" strokeDasharray="6 3" />
+                        {/* Median */}
+                        <ReferenceLine x={snap(simResult.median)} stroke="rgba(34,197,94,0.7)" strokeDasharray="6 3" />
                         {simResult.roi && (
                           <ReferenceLine x={snap(simResult.roi.box_cost)} stroke="#ef4444" strokeDasharray="4 4" />
                         )}
@@ -586,6 +572,10 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(255,255,255,0.6)" }} />
                   Mean
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(34,197,94,0.6)" }} />
+                  Median
                 </span>
                 {simResult.roi && (
                   <span className="flex items-center gap-1.5">

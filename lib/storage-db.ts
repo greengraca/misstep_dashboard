@@ -88,6 +88,7 @@ const SET_NAME_ALIASES: Record<string, string> = {
   "revised": "3ed",
   "magic: the gathering foundations": "fdn",
   "mystery booster": "mb1",
+  "mystery booster 2": "mb2",
 };
 
 /**

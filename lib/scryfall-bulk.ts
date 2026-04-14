@@ -14,6 +14,7 @@ export interface EvCardDoc {
   rarity: string;
   price_eur: number | null;
   price_eur_foil: number | null;
+  price_eur_estimated: boolean;
   finishes: string[];
   booster: boolean;
   image_uri: string | null;
@@ -28,6 +29,7 @@ export interface EvCardDoc {
   cmc: number;
   released_at: string;
   layout: string;
+  frame: string;
   prices_updated_at: string;
   synced_at: string;
 }
@@ -64,14 +66,23 @@ export function findDefaultCardsEntry(index: ScryfallBulkIndex): ScryfallBulkEnt
   return entry;
 }
 
-export function parseScryfallCardToDoc(card: any, nowIso: string): EvCardDoc {
+export function parseScryfallCardToDoc(card: any, nowIso: string, usdToEurFactor?: number): EvCardDoc {
   const imageUri =
     card.image_uris?.small ??
     card.card_faces?.[0]?.image_uris?.small ??
     null;
 
-  const priceEur = card.prices?.eur ? parseFloat(card.prices.eur) : null;
-  const priceEurFoil = card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null;
+  let priceEur = card.prices?.eur ? parseFloat(card.prices.eur) : null;
+  let priceEurFoil = card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null;
+  let priceEurEstimated = false;
+  if (priceEur === null && card.prices?.usd && usdToEurFactor) {
+    priceEur = Math.round(parseFloat(card.prices.usd) * usdToEurFactor * 100) / 100;
+    priceEurEstimated = true;
+  }
+  if (priceEurFoil === null && card.prices?.usd_foil && usdToEurFactor) {
+    priceEurFoil = Math.round(parseFloat(card.prices.usd_foil) * usdToEurFactor * 100) / 100;
+    if (priceEur === null) priceEurEstimated = true;
+  }
 
   return {
     scryfall_id: card.id,
@@ -81,6 +92,7 @@ export function parseScryfallCardToDoc(card: any, nowIso: string): EvCardDoc {
     rarity: card.rarity,
     price_eur: priceEur,
     price_eur_foil: priceEurFoil,
+    price_eur_estimated: priceEurEstimated,
     finishes: card.finishes ?? [],
     booster: card.booster ?? false,
     image_uri: imageUri,
@@ -95,6 +107,7 @@ export function parseScryfallCardToDoc(card: any, nowIso: string): EvCardDoc {
     cmc: typeof card.cmc === "number" ? card.cmc : 0,
     released_at: card.released_at ?? "9999-12-31",
     layout: card.layout ?? "normal",
+    frame: card.frame ?? "2015",
     prices_updated_at: nowIso,
     synced_at: nowIso,
   };
@@ -123,6 +136,7 @@ export interface StreamBulkCardsOptions {
   batchSize: number;
   onBatch: (batch: EvCardDoc[]) => Promise<void>;
   now?: string;
+  usdToEurFactor?: number;
 }
 
 export async function streamBulkCards(
@@ -145,7 +159,7 @@ export async function streamBulkCards(
   let processed = 0;
 
   for await (const chunk of pipeline as AsyncIterable<{ key: number; value: unknown }>) {
-    const doc = parseScryfallCardToDoc(chunk.value, nowIso);
+    const doc = parseScryfallCardToDoc(chunk.value, nowIso, opts.usdToEurFactor);
     batch.push(doc);
     processed++;
     if (batch.length >= opts.batchSize) {

@@ -10,7 +10,9 @@ interface EvSummaryCardsProps {
   isLoading: boolean;
   boosterType: "play" | "collector";
   onBoosterTypeChange: (type: "play" | "collector") => void;
-  isJumpstart?: boolean;
+  boosterLabel?: string;
+  packsPerBox?: number;
+  cardsPerPack?: number;
 }
 
 export default function EvSummaryCards({
@@ -18,12 +20,14 @@ export default function EvSummaryCards({
   isLoading,
   boosterType,
   onBoosterTypeChange,
-  isJumpstart,
+  boosterLabel,
+  packsPerBox,
+  cardsPerPack,
 }: EvSummaryCardsProps) {
   return (
     <div>
       <div className="flex items-center gap-3 mb-3">
-        {isJumpstart ? (
+        {boosterLabel ? (
           <span
             className="text-sm font-medium px-3 py-1.5 rounded-lg"
             style={{
@@ -32,7 +36,7 @@ export default function EvSummaryCards({
               color: "var(--text-primary)",
             }}
           >
-            Jumpstart Booster
+            {boosterLabel}
           </span>
         ) : (
           <Select
@@ -67,10 +71,11 @@ export default function EvSummaryCards({
         <StatCard
           title="Pack EV"
           value={isLoading ? "..." : result ? `€${result.pack_ev.toFixed(2)}` : "—"}
+          subtitle={packsPerBox && cardsPerPack ? `${packsPerBox} packs × ${cardsPerPack} cards` : undefined}
           icon={<Package size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
-          title="Cards Priced"
+          title="Above Floor"
           value={
             isLoading
               ? "..."
@@ -78,7 +83,7 @@ export default function EvSummaryCards({
                 ? `${result.cards_above_floor} / ${result.cards_counted}`
                 : "—"
           }
-          subtitle={result ? `${result.cards_total} total in set` : undefined}
+          subtitle={result ? `≥ €${result.sift_floor.toFixed(2)} sift floor` : undefined}
           icon={<BarChart3 size={18} style={{ color: "var(--accent)" }} />}
         />
       </div>

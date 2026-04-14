@@ -222,6 +222,7 @@ export interface EvCard {
   cmc: number;
   released_at: string;
   layout: string;
+  frame: string;
   pull_rate_per_box?: number;
   ev_contribution?: number;
 }
@@ -231,10 +232,14 @@ export interface EvCardFilter {
   treatment?: string[];
   border_color?: string[];
   frame_effects?: string[];
+  frame?: string[];
   promo_types?: string[];
   type_line_contains?: string;
   type_line_not_contains?: string;
   finishes?: string[];
+  booster?: boolean;
+  mono_color?: boolean;
+  colors?: string[];
   custom_pool?: string[];
 }
 
@@ -286,16 +291,20 @@ export interface EvCalculationResult {
     slot_ev: number;
     top_cards: { name: string; price: number; pull_rate: number; ev: number }[];
   }[];
-  top_ev_cards: {
-    name: string;
-    collector_number: string;
-    rarity: string;
-    treatment: string;
-    price: number;
-    pull_rate_per_box: number;
-    ev_contribution: number;
-    image_uri: string | null;
-  }[];
+  top_ev_cards: EvTopCard[];
+  top_price_cards: EvTopCard[];
+}
+
+export interface EvTopCard {
+  name: string;
+  set: string;
+  collector_number: string;
+  rarity: string;
+  treatment: string;
+  price: number;
+  pull_rate_per_box: number;
+  ev_contribution: number;
+  image_uri: string | null;
 }
 
 export interface EvSimulationResult {

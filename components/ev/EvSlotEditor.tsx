@@ -163,6 +163,20 @@ export default function EvSlotEditor({ slot, onChange, onRemove }: EvSlotEditorP
                 />
               </div>
               <div>
+                <label className="text-[10px] block" style={{ color: "var(--text-muted)" }}>Frame</label>
+                <input
+                  type="text"
+                  value={outcome.filter.frame?.join(", ") || ""}
+                  onChange={(e) => {
+                    const val = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                    updateOutcome(idx, { ...outcome, filter: { ...outcome.filter, frame: val.length ? val : undefined } });
+                  }}
+                  placeholder="2015, future, 2003"
+                  className="rounded border px-2 py-1 text-xs w-36 outline-none"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
                 <label className="text-[10px] block" style={{ color: "var(--text-muted)" }}>Promo Types</label>
                 <input
                   type="text"

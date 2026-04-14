@@ -1,7 +1,7 @@
 import { withAuthReadParams, withAuthParams } from "@/lib/api-helpers";
 import {
   getConfig, saveConfig, getSetByCode,
-  getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig,
+  getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig,
 } from "@/lib/ev";
 import type { EvConfigInput } from "@/lib/types";
 
@@ -11,7 +11,8 @@ export const GET = withAuthReadParams<{ code: string }>(async (_req, params) => 
 
   // Detect set type for appropriate defaults
   const set = await getSetByCode(params.code);
-  const isJumpstart = set?.set_type === "draft_innovation" || set?.name?.toLowerCase().includes("jumpstart");
+  const isMB2 = set?.name?.toLowerCase().includes("mystery booster 2");
+  const isJumpstart = !isMB2 && (set?.set_type === "draft_innovation" || set?.name?.toLowerCase().includes("jumpstart"));
 
   return {
     data: {
@@ -21,8 +22,8 @@ export const GET = withAuthReadParams<{ code: string }>(async (_req, params) => 
       updated_by: "",
       sift_floor: 0.25,
       fee_rate: 0.05,
-      play_booster: isJumpstart ? getDefaultJumpstartBoosterConfig() : getDefaultPlayBoosterConfig(),
-      collector_booster: isJumpstart ? null : getDefaultCollectorBoosterConfig(),
+      play_booster: isMB2 ? getDefaultMB2BoosterConfig() : isJumpstart ? getDefaultJumpstartBoosterConfig() : getDefaultPlayBoosterConfig(),
+      collector_booster: (isMB2 || isJumpstart) ? null : getDefaultCollectorBoosterConfig(),
     },
   };
 }, "ev-config-read");

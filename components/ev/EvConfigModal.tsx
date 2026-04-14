@@ -19,10 +19,10 @@ interface EvConfigModalProps {
   config: EvConfig;
   onSave: (config: EvConfig) => void;
   saving: boolean;
-  isJumpstart?: boolean;
+  boosterLabel?: string;
 }
 
-export default function EvConfigModal({ open, onClose, config, onSave, saving, isJumpstart }: EvConfigModalProps) {
+export default function EvConfigModal({ open, onClose, config, onSave, saving, boosterLabel }: EvConfigModalProps) {
   const [tab, setTab] = useState<"play" | "collector">("play");
   const [localConfig, setLocalConfig] = useState<EvConfig>(config);
 
@@ -97,7 +97,7 @@ export default function EvConfigModal({ open, onClose, config, onSave, saving, i
 
         {/* Booster type tabs */}
         <div className="flex items-center gap-2">
-          {isJumpstart ? (
+          {boosterLabel ? (
             <span
               className="text-sm font-medium px-3 py-1.5 rounded-lg"
               style={{
@@ -106,7 +106,7 @@ export default function EvConfigModal({ open, onClose, config, onSave, saving, i
                 color: "var(--text-primary)",
               }}
             >
-              Jumpstart Booster
+              {boosterLabel}
             </span>
           ) : (
             <Select

@@ -6,10 +6,10 @@ import type { EvSnapshot } from "@/lib/types";
 interface EvHistoryChartProps {
   snapshots: EvSnapshot[];
   isLoading: boolean;
-  isJumpstart?: boolean;
+  boosterLabel?: string;
 }
 
-export default function EvHistoryChart({ snapshots, isLoading, isJumpstart }: EvHistoryChartProps) {
+export default function EvHistoryChart({ snapshots, isLoading, boosterLabel }: EvHistoryChartProps) {
   if (isLoading) {
     return <div className="skeleton" style={{ height: "200px" }} />;
   }
@@ -88,7 +88,7 @@ export default function EvHistoryChart({ snapshots, isLoading, isJumpstart }: Ev
                   stroke="var(--accent)"
                   strokeWidth={2}
                   dot={false}
-                  name={isJumpstart ? "Jumpstart Booster" : "Play Booster"}
+                  name={boosterLabel || "Play Booster"}
                   connectNulls
                 />
               )}

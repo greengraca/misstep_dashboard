@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
+import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
 import type {
   EvSet,
   EvCard,
@@ -96,6 +97,53 @@ function deriveCardTreatment(card: any): string {
   return "normal";
 }
 
+// USD → EUR fallback: ECB exchange rate via frankfurter.dev, then 25% EU market discount
+const EUR_MARKET_DISCOUNT = 0.75;
+const FRANKFURTER_URL = "https://api.frankfurter.dev/v1/latest?from=USD&to=EUR";
+let cachedUsdToEurRate: number | null = null;
+
+async function getUsdToEurRate(): Promise<number> {
+  if (cachedUsdToEurRate !== null) return cachedUsdToEurRate;
+  try {
+    const res = await fetch(FRANKFURTER_URL);
+    if (!res.ok) throw new Error(`Frankfurter ${res.status}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await res.json()) as any;
+    cachedUsdToEurRate = data.rates.EUR as number;
+    return cachedUsdToEurRate;
+  } catch {
+    // Fallback if API is down
+    cachedUsdToEurRate = 0.856;
+    return cachedUsdToEurRate;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyUsdFallback(card: any, usdToEur: number): { price_eur: number | null; price_eur_foil: number | null; price_eur_estimated: boolean } {
+  let price_eur = card.prices?.eur ? parseFloat(card.prices.eur) : null;
+  let price_eur_foil = card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null;
+  let price_eur_estimated = false;
+  const factor = usdToEur * EUR_MARKET_DISCOUNT;
+
+  // Fallback chain for EUR: eur → usd (converted)
+  if (price_eur === null && card.prices?.usd) {
+    price_eur = Math.round(parseFloat(card.prices.usd) * factor * 100) / 100;
+    price_eur_estimated = true;
+  }
+  // Fallback chain for EUR foil: eur_foil → usd_foil (converted)
+  if (price_eur_foil === null && card.prices?.usd_foil) {
+    price_eur_foil = Math.round(parseFloat(card.prices.usd_foil) * factor * 100) / 100;
+    if (price_eur === null) price_eur_estimated = true;
+  }
+  // Last resort: if still no EUR price, use foil price (for foil-only cards)
+  if (price_eur === null && price_eur_foil !== null) {
+    price_eur = price_eur_foil;
+    price_eur_estimated = true;
+  }
+
+  return { price_eur, price_eur_foil, price_eur_estimated };
+}
+
 // ── Scryfall Sync: Sets ────────────────────────────────────────
 
 // NOTE: isRelevantSet removed — EV-specific filtering moved to getSets (read time)
@@ -179,12 +227,16 @@ export async function getSets(): Promise<EvSet[]> {
     .toArray();
   const snapMap = new Map(latestSnapshots.map((s) => [s._id, s.doc]));
 
+  // Count mb2-list cards to show accurate total for MB2
+  const mb2ListCount = await db.collection(COL_CARDS).countDocuments({ set: "mb2-list" });
+
   return sets.map((s) => {
     const snap = snapMap.get(s.code);
     return {
       ...s,
       _id: s._id.toString(),
-      config_exists: configSet.has(s.code) || jumpstartSet.has(s.code) || s.code in JUMPSTART_SEED_DATA,
+      card_count: s.code === "mb2" && mb2ListCount > 0 ? s.card_count + mb2ListCount : s.card_count,
+      config_exists: configSet.has(s.code) || jumpstartSet.has(s.code) || s.code in JUMPSTART_SEED_DATA || s.code === "mb2",
       play_ev_net: snap?.play_ev_net ?? null,
       collector_ev_net: snap?.collector_ev_net ?? null,
     } as EvSet;
@@ -217,12 +269,14 @@ export async function getSetByCode(code: string): Promise<EvSet | null> {
 // ── Scryfall Sync: Cards ───────────────────────────────────────
 
 export async function syncCards(
-  setCode: string
+  setCode: string,
+  onProgress?: (pct: number) => void,
 ): Promise<{ added: number; updated: number; total: number }> {
   await ensureIndexes();
   const db = await getDb();
   const col = db.collection(COL_CARDS);
   const now = new Date().toISOString();
+  const usdToEur = await getUsdToEurRate();
   let added = 0, updated = 0, total = 0;
 
   let url: string | null = `/cards/search?q=set:${setCode}&unique=prints&order=set`;
@@ -233,14 +287,16 @@ export async function syncCards(
     for (const card of page.data as any[]) {
       total++;
       const treatment = deriveCardTreatment(card);
+      const { price_eur, price_eur_foil, price_eur_estimated } = applyUsdFallback(card, usdToEur);
       const doc = {
         scryfall_id: card.id,
         set: card.set,
         name: card.name,
         collector_number: card.collector_number,
         rarity: card.rarity,
-        price_eur: card.prices?.eur ? parseFloat(card.prices.eur) : null,
-        price_eur_foil: card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null,
+        price_eur,
+        price_eur_foil,
+        price_eur_estimated,
         finishes: card.finishes || [],
         booster: card.booster ?? false,
         image_uri: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || null,
@@ -256,6 +312,7 @@ export async function syncCards(
         cmc: typeof card.cmc === "number" ? card.cmc : 0,
         released_at: card.released_at ?? "9999-12-31",
         layout: card.layout ?? "normal",
+        frame: card.frame ?? "2015",
         prices_updated_at: now,
         synced_at: now,
       };
@@ -269,9 +326,96 @@ export async function syncCards(
     }
     url = page.has_more ? page.next_page : null;
     if (url) await sleep(SCRYFALL_DELAY_MS);
+    // Estimate progress: total_cards from first page response, cards processed so far
+    if (onProgress && page.total_cards) onProgress(Math.min(99, Math.round((total / page.total_cards) * 100)));
   }
+  onProgress?.(100);
 
   return { added, updated, total };
+}
+
+// ── MB2 Pick-up Reprint Sync ──────────────────────────────────
+
+export async function syncMB2Cards(
+  onProgress?: (pct: number, phase: string) => void,
+): Promise<{ native: { added: number; updated: number; total: number }; pickups: { added: number; updated: number; total: number } }> {
+  // 1. Sync the 385 native mb2 cards (futureshifted, white-bordered, test, acorn)
+  onProgress?.(0, "Syncing native mb2 cards...");
+  const native = await syncCards("mb2", (pct) => onProgress?.(Math.round(pct * 0.2), "Syncing native mb2 cards..."));
+
+  // 2. Sync the 1451 pick-up reprints from plst via /cards/collection
+  await ensureIndexes();
+  const db = await getDb();
+  const col = db.collection(COL_CARDS);
+  const now = new Date().toISOString();
+  const usdToEur = await getUsdToEurRate(); // already cached from syncCards above
+  let added = 0, updated = 0, total = 0;
+
+  const BATCH_SIZE = 75;
+  for (let i = 0; i < MB2_PICKUP_CARDS.length; i += BATCH_SIZE) {
+    const batch = MB2_PICKUP_CARDS.slice(i, i + BATCH_SIZE);
+    const identifiers = batch.map((c) => ({ name: c.name, set: "plst" }));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = (await scryfallPost("/cards/collection", { identifiers })) as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const card of (res.data || []) as any[]) {
+      total++;
+      const treatment = deriveCardTreatment(card);
+      const { price_eur, price_eur_foil, price_eur_estimated } = applyUsdFallback(card, usdToEur);
+      const doc = {
+        scryfall_id: card.id,
+        set: "mb2-list",
+        name: card.name,
+        collector_number: card.collector_number,
+        rarity: card.rarity,
+        price_eur,
+        price_eur_foil,
+        price_eur_estimated,
+        finishes: card.finishes || [],
+        booster: card.booster ?? false,
+        image_uri: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || null,
+        cardmarket_id: card.cardmarket_id ?? null,
+        type_line: card.type_line || "",
+        frame_effects: card.frame_effects || [],
+        promo_types: card.promo_types || [],
+        border_color: card.border_color || "black",
+        treatment,
+        colors: card.colors ?? [],
+        color_identity: card.color_identity ?? [],
+        cmc: typeof card.cmc === "number" ? card.cmc : 0,
+        released_at: card.released_at ?? "9999-12-31",
+        layout: card.layout ?? "normal",
+        frame: card.frame ?? "2015",
+        prices_updated_at: now,
+        synced_at: now,
+      };
+      const result = await col.updateOne(
+        { scryfall_id: card.id },
+        { $set: doc },
+        { upsert: true }
+      );
+      if (result.upsertedCount) added++;
+      else if (result.modifiedCount) updated++;
+    }
+    if (i + BATCH_SIZE < MB2_PICKUP_CARDS.length) await sleep(SCRYFALL_DELAY_MS);
+    // 20-100% range (native sync is 0-20%)
+    onProgress?.(20 + Math.round(((i + BATCH_SIZE) / MB2_PICKUP_CARDS.length) * 80), "Syncing pick-up reprints...");
+  }
+  onProgress?.(100, "Done");
+
+  return { native, pickups: { added, updated, total } };
+}
+
+async function scryfallPost(path: string, body: unknown): Promise<unknown> {
+  const url = `${SCRYFALL_BASE}${path}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "User-Agent": SCRYFALL_UA, Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Scryfall POST ${res.status}: ${await res.text()}`);
+  return res.json();
 }
 
 export async function getCardsForSet(
@@ -281,8 +425,9 @@ export async function getCardsForSet(
   await ensureIndexes();
   const db = await getDb();
   const col = db.collection(COL_CARDS);
+  // MB2: combine native mb2 cards with plst pick-up reprints stored as "mb2-list"
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filter: any = { set: setCode };
+  const filter: any = setCode === "mb2" ? { set: { $in: ["mb2", "mb2-list"] } } : { set: setCode };
   if (options?.boosterOnly) filter.booster = true;
   const total = await col.countDocuments(filter);
   const page = options?.page ?? 1;
@@ -494,6 +639,61 @@ export function getDefaultJumpstartBoosterConfig(): EvBoosterConfig {
   };
 }
 
+// ── Mystery Booster 2 Default Config ──────────────────────────
+
+const MB2_NON_FUTURE_FRAMES = ["2015", "2003", "1997", "1993"];
+
+export function getDefaultMB2BoosterConfig(): EvBoosterConfig {
+  const base: Omit<EvCardFilter, "colors"> = { rarity: ["common", "uncommon"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: true };
+  const cuW: EvCardFilter = { ...base, colors: ["W"] };
+  const cuU: EvCardFilter = { ...base, colors: ["U"] };
+  const cuB: EvCardFilter = { ...base, colors: ["B"] };
+  const cuR: EvCardFilter = { ...base, colors: ["R"] };
+  const cuG: EvCardFilter = { ...base, colors: ["G"] };
+  const rmFilter: EvCardFilter = { rarity: ["rare", "mythic"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: true };
+  const slot11Filter: EvCardFilter = { border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: false };
+
+  return {
+    packs_per_box: 24,
+    cards_per_pack: 15,
+    slots: [
+      { slot_number: 1, label: "White C/U 1", is_foil: false, outcomes: [{ probability: 1, filter: cuW }] },
+      { slot_number: 2, label: "White C/U 2", is_foil: false, outcomes: [{ probability: 1, filter: cuW }] },
+      { slot_number: 3, label: "Blue C/U 1", is_foil: false, outcomes: [{ probability: 1, filter: cuU }] },
+      { slot_number: 4, label: "Blue C/U 2", is_foil: false, outcomes: [{ probability: 1, filter: cuU }] },
+      { slot_number: 5, label: "Black C/U 1", is_foil: false, outcomes: [{ probability: 1, filter: cuB }] },
+      { slot_number: 6, label: "Black C/U 2", is_foil: false, outcomes: [{ probability: 1, filter: cuB }] },
+      { slot_number: 7, label: "Red C/U 1", is_foil: false, outcomes: [{ probability: 1, filter: cuR }] },
+      { slot_number: 8, label: "Red C/U 2", is_foil: false, outcomes: [{ probability: 1, filter: cuR }] },
+      { slot_number: 9, label: "Green C/U 1", is_foil: false, outcomes: [{ probability: 1, filter: cuG }] },
+      { slot_number: 10, label: "Green C/U 2", is_foil: false, outcomes: [{ probability: 1, filter: cuG }] },
+      { slot_number: 11, label: "Multi/Artifact/Land", is_foil: false, outcomes: [{ probability: 1, filter: slot11Filter }] },
+      { slot_number: 12, label: "Rare / Mythic Rare", is_foil: false, outcomes: [{ probability: 1, filter: rmFilter }] },
+      {
+        // 99% futureshifted (95% non-foil, 5% foil) + 1% alchemy replacement
+        // Non-foil pool: finishes includes "nonfoil" → excludes foil-only cards (#243-265)
+        // Foil pool: finishes includes "foil" → includes both-finish + foil-only cards
+        slot_number: 13, label: "Future Sight Frame", is_foil: false,
+        outcomes: [
+          { probability: 0.564, filter: { rarity: ["rare", "mythic"], frame: ["future"], finishes: ["nonfoil"] } },
+          { probability: 0.376, filter: { rarity: ["common", "uncommon"], frame: ["future"], finishes: ["nonfoil"] } },
+          { probability: 0.030, filter: { rarity: ["rare", "mythic"], frame: ["future"], finishes: ["foil"] } },
+          { probability: 0.020, filter: { rarity: ["common", "uncommon"], frame: ["future"], finishes: ["foil"] } },
+          { probability: 0.010, filter: { promo_types: ["alchemy"] } },
+        ],
+      },
+      {
+        slot_number: 14, label: "White-Bordered", is_foil: false,
+        outcomes: [
+          { probability: 0.40, filter: { rarity: ["rare", "mythic"], border_color: ["white"] } },
+          { probability: 0.60, filter: { rarity: ["common", "uncommon"], border_color: ["white"] } },
+        ],
+      },
+      { slot_number: 15, label: "Test Card (no value)", is_foil: false, outcomes: [] },
+    ],
+  };
+}
+
 // ── Jumpstart Themes (DB) ──────────────────────────────────────
 
 export async function getJumpstartThemes(setCode: string): Promise<EvJumpstartTheme[] | null> {
@@ -551,10 +751,17 @@ export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCar
     if (filter.treatment?.length && !filter.treatment.includes(c.treatment)) return false;
     if (filter.border_color?.length && !filter.border_color.includes(c.border_color)) return false;
     if (filter.frame_effects?.length && !filter.frame_effects.some((fe) => c.frame_effects.includes(fe))) return false;
+    if (filter.frame?.length && !filter.frame.includes(c.frame ?? "2015")) return false;
     if (filter.promo_types?.length && !filter.promo_types.some((pt) => c.promo_types.includes(pt))) return false;
     if (filter.type_line_contains && !c.type_line.includes(filter.type_line_contains)) return false;
     if (filter.type_line_not_contains && c.type_line.includes(filter.type_line_not_contains)) return false;
     if (filter.finishes?.length && !filter.finishes.some((f) => c.finishes.includes(f))) return false;
+    if (filter.booster !== undefined && c.booster !== filter.booster) return false;
+    if (filter.mono_color !== undefined) {
+      const isMono = c.colors.length === 1;
+      if (filter.mono_color !== isMono) return false;
+    }
+    if (filter.colors?.length && !filter.colors.some((fc) => c.colors.includes(fc))) return false;
     if (filter.custom_pool?.length && !filter.custom_pool.includes(c.collector_number)) return false;
     return true;
   });
@@ -563,7 +770,7 @@ export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCar
 // ── EV Calculation (Deterministic) ─────────────────────────────
 
 function getCardPrice(card: EvCard, isFoil: boolean, siftFloor: number): number {
-  const price = isFoil ? (card.price_eur_foil ?? card.price_eur ?? 0) : (card.price_eur ?? 0);
+  const price = isFoil ? (card.price_eur_foil ?? card.price_eur ?? 0) : (card.price_eur ?? card.price_eur_foil ?? 0);
   return price >= siftFloor ? price : 0;
 }
 
@@ -639,6 +846,23 @@ export function calculateEv(
 
   const cardsAboveFloor = allCardEvs.length;
 
+  // Biggest pulls — sorted by raw price (most expensive cards you could open)
+  const allCardsByPrice = Array.from(cardEvMap.values())
+    .filter((e) => e.ev > 0)
+    .sort((a, b) => getCardPrice(b.card, false, 0) - getCardPrice(a.card, false, 0));
+
+  const mapToTopCard = (e: { card: EvCard; ev: number; pullRate: number }) => ({
+    name: e.card.name,
+    set: e.card.set,
+    collector_number: e.card.collector_number,
+    rarity: e.card.rarity,
+    treatment: e.card.treatment,
+    price: getCardPrice(e.card, false, 0),
+    pull_rate_per_box: Math.round(e.pullRate * 10000) / 10000,
+    ev_contribution: Math.round(e.ev * 100) / 100,
+    image_uri: e.card.image_uri,
+  });
+
   return {
     set_code: setCode,
     booster_type: boosterType,
@@ -651,16 +875,8 @@ export function calculateEv(
     cards_above_floor: cardsAboveFloor,
     cards_total: cards.length,
     slot_breakdown: slotBreakdown,
-    top_ev_cards: allCardEvs.slice(0, 20).map((e) => ({
-      name: e.card.name,
-      collector_number: e.card.collector_number,
-      rarity: e.card.rarity,
-      treatment: e.card.treatment,
-      price: getCardPrice(e.card, false, 0),
-      pull_rate_per_box: Math.round(e.pullRate * 10000) / 10000,
-      ev_contribution: Math.round(e.ev * 100) / 100,
-      image_uri: e.card.image_uri,
-    })),
+    top_ev_cards: allCardEvs.slice(0, 20).map(mapToTopCard),
+    top_price_cards: allCardsByPrice.slice(0, 20).map(mapToTopCard),
   };
 }
 
@@ -1024,6 +1240,21 @@ export function simulateJumpstartBox(
   };
 }
 
+// ── Default Config Fallback ───────────────────────────────────
+
+async function getDefaultConfigForSet(setCode: string): Promise<EvConfig | null> {
+  const set = await getSetByCode(setCode);
+  const isMB2 = set?.name?.toLowerCase().includes("mystery booster 2");
+  if (isMB2) {
+    return {
+      _id: "", set_code: setCode, updated_at: "", updated_by: "",
+      sift_floor: 0.25, fee_rate: 0.05,
+      play_booster: getDefaultMB2BoosterConfig(), collector_booster: null,
+    };
+  }
+  return null;
+}
+
 // ── Snapshots ──────────────────────────────────────────────────
 
 export async function generateSnapshot(setCode: string): Promise<EvSnapshot | null> {
@@ -1053,13 +1284,14 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     playEvGross = result.box_ev_gross;
     playEvNet = result.box_ev_net;
   } else {
-    // Standard slot-based calculation
-    if (!config) return null;
+    // Standard slot-based calculation — use saved config or fall back to defaults
+    const effectiveConfig = config ?? await getDefaultConfigForSet(setCode);
+    if (!effectiveConfig) return null;
 
-    if (config.play_booster) {
-      const result = calculateEv(cards, config.play_booster, {
-        siftFloor: config.sift_floor,
-        feeRate: config.fee_rate,
+    if (effectiveConfig.play_booster) {
+      const result = calculateEv(cards, effectiveConfig.play_booster, {
+        siftFloor: effectiveConfig.sift_floor,
+        feeRate: effectiveConfig.fee_rate,
         setCode,
         boosterType: "play",
       });
@@ -1067,10 +1299,10 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
       playEvNet = result.box_ev_net;
     }
 
-    if (config.collector_booster) {
-      const result = calculateEv(cards, config.collector_booster, {
-        siftFloor: config.sift_floor,
-        feeRate: config.fee_rate,
+    if (effectiveConfig.collector_booster) {
+      const result = calculateEv(cards, effectiveConfig.collector_booster, {
+        siftFloor: effectiveConfig.sift_floor,
+        feeRate: effectiveConfig.fee_rate,
         setCode,
         boosterType: "collector",
       });
@@ -1115,6 +1347,7 @@ export async function generateAllSnapshots(): Promise<{ generated: number; error
   const allCodes = new Set([
     ...configCodes.map((c) => c.set_code as string),
     ...jumpstartCodes.map((c) => c._id as string),
+    "mb2", // MB2 uses default config, not saved — always include
   ]);
 
   let generated = 0;

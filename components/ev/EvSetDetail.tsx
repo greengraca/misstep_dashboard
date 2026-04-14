@@ -19,12 +19,15 @@ interface EvSetDetailProps {
 }
 
 export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
-  const isJumpstart = set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart");
+  const isMB2 = set.name.toLowerCase().includes("mystery booster 2");
+  const isJumpstart = !isMB2 && (set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart"));
+  const boosterLabel = isJumpstart ? "Jumpstart Booster" : isMB2 ? "Mystery Booster" : undefined;
   const [boosterType, setBoosterType] = useState<"play" | "collector">("play");
   const [siftFloor, setSiftFloor] = useState(0.25);
   const [configOpen, setConfigOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ pct: number; phase: string } | null>(null);
   const [snapshotting, setSnapshotting] = useState(false);
 
   // SWR hooks
@@ -47,8 +50,27 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
 
   async function handleSyncCards() {
     setSyncing(true);
+    setSyncProgress(null);
     try {
-      await fetch(`/api/ev/sets/${set.code}/sync`, { method: "POST" });
+      const res = await fetch(`/api/ev/sets/${set.code}/sync`, { method: "POST" });
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (msg.pct !== undefined) setSyncProgress({ pct: msg.pct, phase: msg.phase || "" });
+          } catch { /* skip malformed */ }
+        }
+      }
       globalMutate((key) => typeof key === "string" && (
         key.startsWith(`/api/ev/calculate/${set.code}`) ||
         key.startsWith(`/api/ev/jumpstart/${set.code}`)
@@ -56,6 +78,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
       globalMutate(`/api/ev/sets/${set.code}/cards`);
     } finally {
       setSyncing(false);
+      setSyncProgress(null);
     }
   }
 
@@ -129,7 +152,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
             style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
-            Sync Cards
+            {syncProgress ? `${syncProgress.pct}%` : syncing ? "Syncing..." : "Sync Cards"}
           </button>
           <button
             onClick={() => setConfigOpen(true)}
@@ -153,11 +176,15 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
             isLoading={calcLoading}
             boosterType={boosterType}
             onBoosterTypeChange={setBoosterType}
+            boosterLabel={boosterLabel}
+            packsPerBox={boosterType === "play" ? config?.play_booster?.packs_per_box : config?.collector_booster?.packs_per_box}
+            cardsPerPack={boosterType === "play" ? config?.play_booster?.cards_per_pack : config?.collector_booster?.cards_per_pack}
           />
           {calcResult && (
             <EvSlotBreakdown slots={calcResult.slot_breakdown} boxEvGross={calcResult.box_ev_gross} />
           )}
           <EvCardTable cards={calcResult?.top_ev_cards ?? []} isLoading={calcLoading} />
+          <EvCardTable cards={calcResult?.top_price_cards ?? []} isLoading={calcLoading} title="Biggest Pulls" defaultSortKey="price" />
           <EvSimulationPanel
             setCode={set.code}
             boosterType={boosterType}
@@ -167,7 +194,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
       )}
 
       {/* History — shown for both */}
-      <EvHistoryChart snapshots={snapshots} isLoading={snapshotsLoading} isJumpstart={isJumpstart} />
+      <EvHistoryChart snapshots={snapshots} isLoading={snapshotsLoading} boosterLabel={boosterLabel} />
 
       {/* Config Modal */}
       {config && (
@@ -177,7 +204,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
           config={config}
           onSave={handleSaveConfig}
           saving={saving}
-          isJumpstart={isJumpstart}
+          boosterLabel={boosterLabel}
         />
       )}
     </div>

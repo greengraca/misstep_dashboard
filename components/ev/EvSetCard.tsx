@@ -8,7 +8,9 @@ interface EvSetCardProps {
 }
 
 export default function EvSetCard({ set, onClick }: EvSetCardProps) {
-  const isJumpstart = set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart");
+  const isMB2 = set.name.toLowerCase().includes("mystery booster 2");
+  const isJumpstart = !isMB2 && (set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart"));
+  const playLabel = isJumpstart ? "Jumpstart" : isMB2 ? "Mystery" : "Play";
   const hasEv = set.play_ev_net != null || set.collector_ev_net != null;
 
   return (
@@ -63,7 +65,7 @@ export default function EvSetCard({ set, onClick }: EvSetCardProps) {
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  {isJumpstart ? "Jumpstart" : "Play"}: &euro;{set.play_ev_net.toFixed(2)}
+                  {playLabel}: &euro;{set.play_ev_net.toFixed(2)}
                 </span>
               )}
               {set.collector_ev_net != null && (

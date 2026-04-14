@@ -1,21 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
-import type { EvCalculationResult } from "@/lib/types";
-
-type TopCard = EvCalculationResult["top_ev_cards"][number];
+import type { EvTopCard } from "@/lib/types";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface EvCardTableProps {
-  cards: TopCard[];
+  cards: EvTopCard[];
   isLoading: boolean;
+  title?: string;
+  defaultSortKey?: string;
+  defaultExpanded?: boolean;
 }
 
-export default function EvCardTable({ cards, isLoading }: EvCardTableProps) {
+export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", defaultSortKey = "ev_contribution", defaultExpanded = false }: EvCardTableProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   if (isLoading) {
     return <div className="skeleton" style={{ height: "300px" }} />;
   }
 
-  const columns: Column<TopCard & Record<string, unknown>>[] = [
+  const columns: Column<EvTopCard & Record<string, unknown>>[] = [
     {
       key: "name",
       label: "Card",
@@ -34,9 +38,16 @@ export default function EvCardTable({ cards, isLoading }: EvCardTableProps) {
             <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
               {row.name}
             </p>
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            <a
+              href={`https://scryfall.com/card/${row.set === "mb2-list" ? "plst" : row.set}/${row.collector_number}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs hover:underline"
+              style={{ color: "var(--text-muted)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
               #{row.collector_number}
-            </p>
+            </a>
           </div>
         </div>
       ),
@@ -121,22 +132,27 @@ export default function EvCardTable({ cards, isLoading }: EvCardTableProps) {
     },
   ];
 
-  const data = cards.map((c) => ({ ...c } as TopCard & Record<string, unknown>));
+  const data = cards.map((c) => ({ ...c } as EvTopCard & Record<string, unknown>));
 
   return (
     <div>
-      <h3
-        className="text-sm font-semibold mb-3"
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full text-left mb-3"
         style={{ color: "var(--text-primary)" }}
       >
-        Top EV Cards
-      </h3>
-      <DataTable
+        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {cards.length} cards
+        </span>
+      </button>
+      {!expanded ? null : <DataTable
         columns={columns}
         data={data}
         keyField="collector_number"
         emptyMessage="No cards with EV above sift floor"
-        defaultSortKey="ev_contribution"
+        defaultSortKey={defaultSortKey}
         defaultSortDir="desc"
         rowHover
         renderMobileCard={(row) => (
@@ -162,7 +178,7 @@ export default function EvCardTable({ cards, isLoading }: EvCardTableProps) {
             </div>
           </div>
         )}
-      />
+      />}
     </div>
   );
 }

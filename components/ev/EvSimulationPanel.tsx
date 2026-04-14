@@ -116,22 +116,22 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
         {/* Results */}
         {result && (
           <div className="flex flex-col gap-4">
-            {/* Stats grid */}
+            {/* Stats grid with tooltips */}
             <div
               className="grid gap-3"
               style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}
             >
               {[
-                { label: "Mean", value: `€${result.mean.toFixed(2)}` },
-                { label: "Median", value: `€${result.median.toFixed(2)}` },
-                { label: "Std Dev", value: `€${result.stddev.toFixed(2)}` },
-                { label: "Min", value: `€${result.min.toFixed(2)}` },
-                { label: "Max", value: `€${result.max.toFixed(2)}` },
-                { label: "Time", value: `${result.duration_ms}ms` },
+                { label: "Mean", value: `€${result.mean.toFixed(2)}`, tip: "Average box value across all simulations. The expected value you'd get if you opened many boxes." },
+                { label: "Median", value: `€${result.median.toFixed(2)}`, tip: "The middle value — 50% of boxes are worth more, 50% less. More representative than mean when distribution is skewed." },
+                { label: "Std Dev", value: `€${result.stddev.toFixed(2)}`, tip: "Standard deviation — measures how spread out box values are. Higher means more variance between boxes." },
+                { label: "Min", value: `€${result.min.toFixed(2)}`, tip: "Worst box in the simulation — the floor of what you might get." },
+                { label: "Max", value: `€${result.max.toFixed(2)}`, tip: "Best box in the simulation — the ceiling with perfect luck." },
+                { label: "Time", value: `${result.duration_ms}ms`, tip: `Time to simulate ${result.iterations.toLocaleString()} box openings.` },
               ].map((s) => (
                 <div
                   key={s.label}
-                  className="p-2 rounded-lg"
+                  className="p-2 rounded-lg relative group cursor-help"
                   style={{ background: "rgba(255,255,255,0.03)" }}
                 >
                   <p className="text-[10px] uppercase" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
@@ -140,6 +140,17 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
                   <p className="text-sm font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
                     {s.value}
                   </p>
+                  <div
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg text-xs hidden group-hover:block z-50 w-56 text-center"
+                    style={{
+                      background: "rgba(15, 20, 25, 0.95)",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      color: "var(--text-secondary)",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                    }}
+                  >
+                    {s.tip}
+                  </div>
                 </div>
               ))}
             </div>
@@ -157,43 +168,82 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
               </span>
             </div>
 
-            {/* Histogram */}
-            <div style={{ width: "100%", height: 200 }}>
-              <ResponsiveContainer>
-                <BarChart data={result.histogram} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-                  <XAxis
-                    dataKey="bin_min"
-                    tickFormatter={(v: number) => `€${v.toFixed(0)}`}
-                    tick={{ fill: "var(--text-muted)", fontSize: 10 }}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis hide />
-                  <Tooltip
-                    contentStyle={{
-                      background: "rgba(15, 20, 25, 0.95)",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "8px",
-                      color: "var(--text-primary)",
-                      fontSize: "12px",
-                    }}
-                    formatter={(value) => [`${value} boxes`, "Count"]}
-                    labelFormatter={(v) => {
-                      const n = typeof v === "number" ? v : parseFloat(String(v));
-                      const binW = (result.histogram[1]?.bin_min ?? 0) - (result.histogram[0]?.bin_min ?? 0);
-                      return `€${n.toFixed(2)} – €${(n + binW).toFixed(2)}`;
-                    }}
-                  />
-                  <Bar dataKey="count" fill="var(--accent)" radius={[2, 2, 0, 0]} />
-                  {result.roi && (
-                    <ReferenceLine
-                      x={result.roi.box_cost}
-                      stroke="#ef4444"
-                      strokeDasharray="4 4"
-                      label={{ value: "Cost", fill: "#ef4444", fontSize: 10 }}
-                    />
-                  )}
-                </BarChart>
-              </ResponsiveContainer>
+            {/* Histogram with CI overlays */}
+            {(() => {
+              const bins = result.histogram.map((b) => b.bin_min);
+              const snap = (v: number) => bins.reduce((best, b) => Math.abs(b - v) < Math.abs(best - v) ? b : best, bins[0]);
+
+              return (
+                <div style={{ width: "100%", height: 220 }}>
+                  <ResponsiveContainer>
+                    <BarChart data={result.histogram} margin={{ top: 10, right: 5, bottom: 5, left: 5 }}>
+                      <XAxis
+                        dataKey="bin_min"
+                        tickFormatter={(v: number) => `€${v.toFixed(0)}`}
+                        tick={{ fill: "var(--text-muted)", fontSize: 10 }}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis hide />
+                      <Tooltip
+                        contentStyle={{
+                          background: "rgba(15, 20, 25, 0.95)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: "8px",
+                          color: "var(--text-primary)",
+                          fontSize: "12px",
+                        }}
+                        formatter={(value) => [`${value} boxes`, "Count"]}
+                        labelFormatter={(v) => {
+                          const n = typeof v === "number" ? v : parseFloat(String(v));
+                          const binW = (result.histogram[1]?.bin_min ?? 0) - (result.histogram[0]?.bin_min ?? 0);
+                          return `€${n.toFixed(2)} – €${(n + binW).toFixed(2)}`;
+                        }}
+                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                      />
+                      {/* 95% CI band */}
+                      <ReferenceLine x={snap(result.percentiles.p2_5)} stroke="rgba(234,179,8,0.4)" strokeDasharray="3 3" />
+                      <ReferenceLine x={snap(result.percentiles.p97_5)} stroke="rgba(234,179,8,0.4)" strokeDasharray="3 3" />
+                      {/* 68% CI band */}
+                      <ReferenceLine x={snap(result.percentiles.p16)} stroke="rgba(99,102,241,0.6)" strokeDasharray="4 4" />
+                      <ReferenceLine x={snap(result.percentiles.p84)} stroke="rgba(99,102,241,0.6)" strokeDasharray="4 4" />
+                      {/* Mean */}
+                      <ReferenceLine x={snap(result.mean)} stroke="rgba(255,255,255,0.7)" strokeDasharray="6 3" />
+                      {/* Median */}
+                      <ReferenceLine x={snap(result.median)} stroke="rgba(34,197,94,0.7)" strokeDasharray="6 3" />
+                      {result.roi && (
+                        <ReferenceLine x={snap(result.roi.box_cost)} stroke="#ef4444" strokeDasharray="4 4" />
+                      )}
+                      <Bar dataKey="count" fill="var(--accent)" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
+
+            {/* CI legend */}
+            <div className="flex flex-wrap gap-4 text-[10px]" style={{ color: "var(--text-muted)" }}>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(99,102,241,0.5)" }} />
+                Likely range (68%): €{result.percentiles.p16.toFixed(0)}–€{result.percentiles.p84.toFixed(0)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(234,179,8,0.3)" }} />
+                Almost certain (95%): €{result.percentiles.p2_5.toFixed(0)}–€{result.percentiles.p97_5.toFixed(0)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(255,255,255,0.6)" }} />
+                Mean
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(34,197,94,0.6)" }} />
+                Median
+              </span>
+              {result.roi && (
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "#ef4444" }} />
+                  Cost
+                </span>
+              )}
             </div>
 
             {/* ROI */}
