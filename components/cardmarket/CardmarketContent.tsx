@@ -309,8 +309,10 @@ export default function CardmarketContent() {
             const ov = status?.orderValues || {};
             const u = ov.unpaid || 0;
             const p = ov.paid || 0;
-            const t = (status?.currentBalance ?? 0) + u + p;
-            return `U: ${formatEur(u)} | P: ${formatEur(p)} | T: ${formatEur(t)}`;
+            const s = status?.trusteeSentValue || 0;
+            const t = (status?.currentBalance ?? 0) + u + p + s;
+            const r = (n: number) => `€${Math.round(n)}`;
+            return <>{`U: ${r(u)} \u00B7 P: ${r(p)} \u00B7 S: ${r(s)} \u00B7 `}<span style={{ color: "var(--text-secondary)" }}>{`T: ${r(t)}`}</span></>;
           })()}
           icon={<DollarSign size={18} style={{ color: "var(--accent)" }} />}
         />
@@ -323,9 +325,13 @@ export default function CardmarketContent() {
           icon={<Package size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
-          title={activeTab === "shopping_cart" ? "In Cart" : activeTab === "unpaid" ? "Awaiting Payment" : activeTab === "paid" ? "To Ship" : "Sent"}
+          title={activeTab === "shopping_cart" ? "In Cart" : activeTab === "unpaid" ? "Awaiting Payment" : activeTab === "paid" ? "To Ship" : activeTab === "sent" ? "Sent" : "Arrived"}
           value={formatEur(orders?.totalValue ?? null)}
-          subtitle={orders?.total != null ? `${orders.total} orders` : undefined}
+          subtitle={orders?.total != null
+            ? activeTab === "sent" && status?.trusteeSentValue
+              ? `${orders.total} orders \u00B7 TBPUA: ${formatEur(status.trusteeSentValue)}`
+              : `${orders.total} orders`
+            : undefined}
           icon={<ShoppingCart size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard

@@ -3,7 +3,7 @@
 interface StatCardProps {
   title: string;
   value: React.ReactNode;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   icon?: React.ReactNode;
   active?: boolean;
   tooltip?: string;

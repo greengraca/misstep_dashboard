@@ -749,6 +749,15 @@ export async function getOrderValuesByStatus(): Promise<Record<string, number>> 
   return Object.fromEntries(results.map(r => [r._id as string, r.total as number]));
 }
 
+export async function getTrusteeSentValue(): Promise<number> {
+  const db = await getDb();
+  const results = await db.collection(COL.orders).aggregate([
+    { $match: { direction: { $in: ["sale", null] }, status: "sent", trustee: true } },
+    { $group: { _id: null, total: { $sum: "$totalPrice" } } },
+  ]).toArray();
+  return results[0]?.total || 0;
+}
+
 async function getOrderCountForStatus(status: string, direction: string): Promise<number> {
   const db = await getDb();
   const query: Record<string, unknown> = { status };
