@@ -658,8 +658,11 @@ export async function getOrders(filters: {
   const limit = filters.limit || 20;
   const skip = ((filters.page || 1) - 1) * limit;
 
+  // Arrived and shopping_cart: newest first. All other tabs: oldest first (most urgent on top).
+  const sortDir = filters.status === "arrived" || filters.status === "shopping_cart" ? -1 : 1;
+
   const [docs, total, valueResult] = await Promise.all([
-    col.find(query).sort({ orderDate: -1, orderTime: -1, _id: -1 }).skip(skip).limit(limit).toArray(),
+    col.find(query).sort({ orderDate: sortDir, orderTime: sortDir, _id: sortDir }).skip(skip).limit(limit).toArray(),
     col.countDocuments(query),
     col.aggregate([
       { $match: query },

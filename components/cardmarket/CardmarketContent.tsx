@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
-import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2 } from "lucide-react";
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
 
 const SENDER_ADDRESS = {
@@ -117,6 +117,7 @@ export default function CardmarketContent() {
   const [direction, setDirection] = useState<"sale" | "purchase">("sale");
   const [orderPage, setOrderPage] = useState(1);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data: statusData, mutate: mutateStatus } = useSWR("/api/ext/status", fetcher, { refreshInterval: 15000 });
@@ -285,11 +286,17 @@ export default function CardmarketContent() {
           </p>
         </div>
         <button
-          onClick={() => { mutateStatus(); mutateOrders(); mutateBalance(); }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+          onClick={async () => {
+            setRefreshing(true);
+            await Promise.all([mutateStatus(), mutateOrders(), mutateBalance()]);
+            setRefreshing(false);
+          }}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: refreshing ? "var(--accent)" : "var(--text-secondary)", cursor: refreshing ? "not-allowed" : "pointer", opacity: refreshing ? 0.8 : 1 }}
         >
-          <RefreshCw size={14} /> Refresh
+          {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          {refreshing ? "Refreshing\u2026" : "Refresh"}
         </button>
       </div>
 
