@@ -62,7 +62,7 @@ async function ensureIndexes() {
 // ── Rate limiting (in-memory) ───────────────────────────────────────
 
 const lastSyncByMember = new Map<string, number>();
-const SYNC_COOLDOWN_MS = 30_000;
+const SYNC_COOLDOWN_MS = 10_000;
 
 export function checkRateLimit(memberName: string): { ok: boolean; retryAfter?: number } {
   const last = lastSyncByMember.get(memberName) || 0;
@@ -503,39 +503,54 @@ async function processProductStock(
 
   for (const listing of listings) {
     if (listing.qty <= 0) {
-      // Quantity dropped to 0 — remove from stock
+      // Quantity dropped to 0 — remove from stock (by articleId or matching stock_page entry)
       const del = await col.deleteOne({ articleId: listing.articleId });
-      if (del.deletedCount) removed++;
+      if (del.deletedCount) { removed++; continue; }
+      // Also try removing a matching stock_page entry
+      const del2 = await col.deleteOne({
+        name: listing.name, condition: listing.condition,
+        foil: listing.foil || false, set: listing.set, source: "stock_page",
+      });
+      if (del2.deletedCount) removed++;
       continue;
     }
 
-    const result = await col.updateOne(
-      { articleId: listing.articleId },
-      {
-        $set: {
-          name: listing.name,
-          qty: listing.qty,
-          price: listing.price,
-          condition: listing.condition,
-          language: listing.language || "English",
-          foil: listing.foil || false,
-          set: listing.set,
-          lastSeenAt: now,
-          submittedBy,
-          source: "product_page" as const,
-          // Also maintain a dedupKey for compatibility with stock page entries
-          dedupKey: `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}`,
-        },
-        $setOnInsert: {
-          articleId: listing.articleId,
-          firstSeenAt: now,
-        },
-      },
-      { upsert: true }
-    );
+    // First check if we already track this by articleId
+    const existing = await col.findOne({ articleId: listing.articleId });
+    if (existing) {
+      await col.updateOne(
+        { _id: existing._id },
+        { $set: { qty: listing.qty, price: listing.price, lastSeenAt: now, submittedBy } }
+      );
+      updated++;
+      continue;
+    }
 
-    if (result.upsertedId) added++;
-    else if (result.modifiedCount) updated++;
+    // Check if a stock_page entry exists for this card — claim it by adding articleId
+    const stockPageMatch = await col.findOne({
+      name: listing.name, condition: listing.condition,
+      foil: listing.foil || false, set: listing.set, source: "stock_page",
+    });
+    if (stockPageMatch) {
+      await col.updateOne(
+        { _id: stockPageMatch._id },
+        { $set: { articleId: listing.articleId, qty: listing.qty, price: listing.price, lastSeenAt: now, submittedBy, source: "product_page" as const } }
+      );
+      updated++;
+      continue;
+    }
+
+    // New listing — insert with article-scoped dedupKey to avoid conflicts
+    await col.insertOne({
+      articleId: listing.articleId,
+      name: listing.name, qty: listing.qty, price: listing.price,
+      condition: listing.condition, language: listing.language || "English",
+      foil: listing.foil || false, set: listing.set,
+      dedupKey: `article:${listing.articleId}`,
+      source: "product_page" as const,
+      firstSeenAt: now, lastSeenAt: now, submittedBy,
+    });
+    added++;
   }
 
   const details = `${cardName}${listings.length > 0 ? ` — ${listings.length} listing${listings.length !== 1 ? "s" : ""}` : ""}${removed ? `, ${removed} removed` : ""}`;
