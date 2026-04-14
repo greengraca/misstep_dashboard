@@ -659,12 +659,12 @@ function OrderRow({
               {order.orderId}
             </a>
             <span
-              title={(order as unknown as Record<string, unknown>).shippingAddress ? "Detail synced" : "Needs sync — visit order on CM"}
+              title={(order as unknown as Record<string, unknown>).timeline ? "Detail synced" : "Needs sync — visit order on CM"}
               style={{
                 width: "6px",
                 height: "6px",
                 borderRadius: "50%",
-                background: (order as unknown as Record<string, unknown>).shippingAddress ? "var(--success)" : "#f44336",
+                background: (order as unknown as Record<string, unknown>).timeline ? "var(--success)" : "#f44336",
                 flexShrink: 0,
               }}
             />
