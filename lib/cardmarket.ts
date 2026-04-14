@@ -208,11 +208,16 @@ async function processBalance(
   const balance = data.balance as number;
   const now = new Date().toISOString();
 
-  // Get the 2 most recent records
-  const recent = await col.find().sort({ extractedAt: -1 }).limit(2).toArray();
+  // Get the 3 most recent records for compression logic
+  const recent = await col.find().sort({ extractedAt: -1 }).limit(3).toArray();
 
-  if (recent.length === 2 && recent[0].balance === balance && recent[1].balance === balance) {
-    // All 3 have same value: delete the middle one (recent[0]), insert new
+  if (recent.length >= 2 && recent[0].balance === balance && recent[1].balance === balance) {
+    // Same value continuing: delete the middle one, insert new (keeps first + latest)
+    await col.deleteOne({ _id: recent[0]._id });
+  } else if (recent.length >= 2 && recent[0].balance !== balance &&
+             recent[0].balance === recent[1].balance) {
+    // Value changed: the previous value had 2 records. Collapse to 1 — keep the
+    // earlier one (when that value started), delete the "last confirmed" record.
     await col.deleteOne({ _id: recent[0]._id });
   }
 
