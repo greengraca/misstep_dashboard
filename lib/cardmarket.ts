@@ -8,6 +8,7 @@ import type {
   CmStockListing,
   CmStockSnapshot,
   CmTransactionSummary,
+  CmProductStockListing,
   CmSyncLogEntry,
   ExtSyncBatchItem,
 } from "@/lib/types";
@@ -44,6 +45,10 @@ async function ensureIndexes() {
       db.collection(COL.stock).createIndex({ name: 1 }),
       db.collection(COL.stock).createIndex({ set: 1, condition: 1 }),
       db.collection(COL.stock).createIndex({ price: 1 }),
+      db.collection(COL.stock).createIndex(
+        { articleId: 1 },
+        { unique: true, sparse: true }
+      ),
       db.collection(COL.stockSnapshots).createIndex({ extractedAt: -1 }),
       db.collection(COL.transactions).createIndex({ dedupKey: 1 }, { unique: true }),
       db.collection(COL.syncLog).createIndex({ receivedAt: -1 }),
@@ -83,7 +88,7 @@ export function parseEurPrice(str: string): number | null {
 export async function processSync(
   submittedBy: string,
   batch: ExtSyncBatchItem[]
-): Promise<Record<string, { added: number; updated: number; skipped: number }>> {
+): Promise<Record<string, { added: number; updated: number; skipped: number; removed?: number }>> {
   await ensureIndexes();
   // Stable sort: ensure "stock" items run before "stock_overview" so the
   // overview snapshot reflects the freshly-synced stock state (see T6).
@@ -92,7 +97,8 @@ export async function processSync(
       t === "stock" ? 0 : t === "stock_overview" ? 1 : 2;
     return priority(a.type) - priority(b.type);
   });
-  const results: Record<string, { added: number; updated: number; skipped: number }> = {};
+  const results: Record<string, { added: number; updated: number; skipped: number; removed?: number }> = {};
+  const details: Record<string, string> = {};
 
   // Deduplicate orderIds across multiple "orders" batch items.
   // The extension queues batches from different tabs in order visited;
@@ -103,9 +109,12 @@ export async function processSync(
 
   for (const item of orderedBatch) {
     switch (item.type) {
-      case "balance":
+      case "balance": {
         results.balance = await processBalance(submittedBy, item.data);
+        const bal = item.data.balance as number;
+        details.balance = `\u20AC${bal?.toFixed(2) ?? "?"}`;
         break;
+      }
       case "orders": {
         const data = item.data as Record<string, unknown>;
         const orders = data.orders as CmOrder[];
@@ -122,24 +131,57 @@ export async function processSync(
             results.orders = r;
           }
         }
+        // Build descriptive details for orders
+        const dir = (data.direction as string) || "sale";
+        const st = (data.status as string) || "?";
+        const totalCount = (data.totalCount as number) || 0;
+        const currentPage = (data.currentPage as number) || 1;
+        const totalPages = (data.totalPages as number) || 1;
+        const syncedCount = (data.orders as CmOrder[])?.length || 0;
+        // Compare: how many does the dashboard have for this status/direction?
+        const dbCount = await getOrderCountForStatus(st, dir);
+        const pageInfo = totalPages > 1 ? ` (pg ${currentPage}/${totalPages})` : "";
+        const cmVsDb = totalCount > 0 ? ` | CM: ${totalCount}, DB: ${dbCount}` : "";
+        const prev = details.orders || "";
+        details.orders = prev
+          ? `${prev}; ${dir}/${st} ${syncedCount}${pageInfo}${cmVsDb}`
+          : `${dir}/${st} ${syncedCount}${pageInfo}${cmVsDb}`;
         break;
       }
-      case "order_detail":
+      case "order_detail": {
         results.order_detail = await processOrderDetail(submittedBy, item.data);
+        const od = item.data as unknown as CmOrderDetail;
+        const itemCount = od.items?.length || 0;
+        details.order_detail = `#${od.orderId} \u2192 ${od.status || "?"} (${itemCount} item${itemCount !== 1 ? "s" : ""})`;
         break;
-      case "stock":
+      }
+      case "stock": {
         results.stock = await processStock(submittedBy, item.data);
+        const listings = item.data.listings as CmStockListing[];
+        const page = (item.data.page as string) || "";
+        details.stock = `${listings?.length || 0} listings${page ? ` ${page}` : ""}`;
         break;
+      }
       case "stock_overview":
         results.stock_overview = await processStockOverview(submittedBy, item.data);
+        details.stock_overview = `${(item.data.totalListings as number) || 0} total listings`;
         break;
-      case "transactions":
+      case "transactions": {
         results.transactions = await processTransactions(submittedBy, item.data);
+        const tx = item.data as Record<string, unknown>;
+        details.transactions = `${tx.periodStart || "?"} to ${tx.periodEnd || "?"}`;
         break;
+      }
+      case "product_stock": {
+        const psr = await processProductStock(submittedBy, item.data);
+        results.product_stock = psr;
+        details.product_stock = psr.details;
+        break;
+      }
     }
   }
 
-  // Log sync
+  // Log sync with descriptive details
   const db = await getDb();
   for (const [dataType, stats] of Object.entries(results)) {
     await db.collection(COL.syncLog).insertOne({
@@ -148,6 +190,7 @@ export async function processSync(
       submittedBy,
       receivedAt: new Date().toISOString(),
       stats,
+      details: details[dataType] || "",
     });
   }
 
@@ -419,6 +462,62 @@ async function processStock(
   };
 }
 
+// ── Product Stock (upsert by articleId from card detail pages) ──────
+
+async function processProductStock(
+  submittedBy: string,
+  data: Record<string, unknown>
+): Promise<{ added: number; updated: number; skipped: number; removed: number; details: string }> {
+  const db = await getDb();
+  const col = db.collection(COL.stock);
+  const listings = data.listings as CmProductStockListing[];
+  const cardName = (data.cardName as string) || "";
+  const now = new Date().toISOString();
+
+  let added = 0, updated = 0, removed = 0;
+
+  for (const listing of listings) {
+    if (listing.qty <= 0) {
+      // Quantity dropped to 0 — remove from stock
+      const del = await col.deleteOne({ articleId: listing.articleId });
+      if (del.deletedCount) removed++;
+      continue;
+    }
+
+    const result = await col.updateOne(
+      { articleId: listing.articleId },
+      {
+        $set: {
+          name: listing.name,
+          qty: listing.qty,
+          price: listing.price,
+          condition: listing.condition,
+          language: listing.language || "English",
+          foil: listing.foil || false,
+          set: listing.set,
+          lastSeenAt: now,
+          submittedBy,
+          source: "product_page" as const,
+          // Also maintain a dedupKey for compatibility with stock page entries
+          dedupKey: `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}`,
+        },
+        $setOnInsert: {
+          articleId: listing.articleId,
+          firstSeenAt: now,
+        },
+      },
+      { upsert: true }
+    );
+
+    if (result.upsertedId) added++;
+    else if (result.modifiedCount) updated++;
+  }
+
+  const details = `${cardName}${listings.length > 0 ? ` — ${listings.length} listing${listings.length !== 1 ? "s" : ""}` : ""}${removed ? `, ${removed} removed` : ""}`;
+
+  return { added, updated, skipped: 0, removed, details };
+}
+
 // ── Stock Overview (total count, time-series compressed) ────────────
 
 async function processStockOverview(
@@ -620,6 +719,14 @@ export async function getOrderValuesByStatus(): Promise<Record<string, number>> 
     { $group: { _id: "$status", total: { $sum: "$totalPrice" } } },
   ]).toArray();
   return Object.fromEntries(results.map(r => [r._id as string, r.total as number]));
+}
+
+async function getOrderCountForStatus(status: string, direction: string): Promise<number> {
+  const db = await getDb();
+  const query: Record<string, unknown> = { status };
+  if (direction === "purchase") query.direction = "purchase";
+  else query.direction = { $in: ["sale", null] };
+  return db.collection(COL.orders).countDocuments(query);
 }
 
 export async function getOrderCounts(): Promise<Record<string, { sale: number; purchase: number }>> {

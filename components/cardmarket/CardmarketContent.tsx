@@ -546,28 +546,36 @@ export default function CardmarketContent() {
           <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Sync Activity</h2>
           <div className="flex flex-col gap-1">
             {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => (
-              <div key={i} className="flex items-center justify-between py-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                    style={{ background: "rgba(63,206,229,0.15)", color: "var(--accent)" }}
-                  >
-                    {log.dataType}
-                  </span>
-                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                    {log.stats.added > 0 && `+${log.stats.added}`}
-                    {log.stats.updated > 0 && ` ~${log.stats.updated}`}
-                    {log.stats.skipped > 0 && ` =${log.stats.skipped}`}
-                  </span>
+              <div key={i} className="py-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                      style={{ background: "rgba(63,206,229,0.15)", color: "var(--accent)" }}
+                    >
+                      {log.dataType}
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {log.stats.added > 0 && `+${log.stats.added}`}
+                      {log.stats.updated > 0 && ` ~${log.stats.updated}`}
+                      {log.stats.skipped > 0 && ` =${log.stats.skipped}`}
+                      {(log.stats as Record<string, number>).removed > 0 && ` -${(log.stats as Record<string, number>).removed}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                      {log.submittedBy}
+                    </span>
+                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                      {formatAgo(log.receivedAt)}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {log.submittedBy}
-                  </span>
-                  <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {formatAgo(log.receivedAt)}
-                  </span>
-                </div>
+                {log.details && (
+                  <div className="mt-0.5 text-[10px] pl-1" style={{ color: "var(--text-muted)" }}>
+                    {log.details}
+                  </div>
+                )}
               </div>
             ))}
           </div>

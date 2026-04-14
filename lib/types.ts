@@ -121,6 +121,7 @@ export interface CmOrderDetail {
 
 export interface CmStockListing {
   _id?: string;
+  articleId?: string;
   name: string;
   qty: number;
   price: number;
@@ -129,7 +130,7 @@ export interface CmStockListing {
   foil: boolean;
   set: string;
   dedupKey: string;
-  source: "stock_page" | "import";
+  source: "stock_page" | "import" | "product_page";
   firstSeenAt?: string;
   lastSeenAt?: string;
   submittedBy?: string;
@@ -164,11 +165,23 @@ export interface CmSyncLogEntry {
   itemCount: number;
   submittedBy: string;
   receivedAt: string;
-  stats: { added: number; updated: number; skipped: number };
+  stats: { added: number; updated: number; skipped: number; removed?: number };
+  details?: string;
+}
+
+export interface CmProductStockListing {
+  articleId: string;
+  name: string;
+  set: string;
+  qty: number;
+  price: number;
+  condition: string;
+  language: string;
+  foil: boolean;
 }
 
 export interface ExtSyncBatchItem {
-  type: "balance" | "orders" | "order_detail" | "stock" | "stock_overview" | "transactions";
+  type: "balance" | "orders" | "order_detail" | "stock" | "stock_overview" | "transactions" | "product_stock";
   data: Record<string, unknown>;
 }
 
