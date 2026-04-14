@@ -293,6 +293,26 @@ async function processOrders(
     result = { upsertedCount: bulkResult.upsertedCount || 0, modifiedCount: bulkResult.modifiedCount || 0 };
   }
 
+  // Ghost cleanup for shopping_cart: when we have the COMPLETE list of orders
+  // for a status (single page or last page covers totalCount), delete any DB
+  // orders with that status that weren't in the incoming set.
+  // Buyers can remove orders from shopping cart — those ghosts never appear
+  // on any other tab, so positive-signal-only logic can't clean them up.
+  const totalCount = (data.totalCount as number) || 0;
+  const currentPage = (data.currentPage as number) || 1;
+  const totalPages = (data.totalPages as number) || 1;
+  if (status === "shopping_cart" && totalPages === 1 && totalCount > 0) {
+    const incomingIds = orders.map(o => o.orderId);
+    const deleted = await col.deleteMany({
+      status: "shopping_cart",
+      direction: { $in: [direction, null] },
+      orderId: { $nin: incomingIds },
+    });
+    if (deleted.deletedCount) {
+      result.modifiedCount += deleted.deletedCount;
+    }
+  }
+
   // Remove sold items from stock when orders first reach paid.
   // Uses items from cm_order_items (if the detail was previously synced).
   const PAID_INDEX = STATUS_ORDER.indexOf("paid");
