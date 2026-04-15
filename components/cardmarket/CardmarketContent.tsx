@@ -262,7 +262,8 @@ export default function CardmarketContent() {
             font-size: 17px;
             line-height: 1.8;
             color: #000;
-            white-space: nowrap;
+            max-height: 90mm; /* in vertical-rl this is the line length — text wraps when exceeded */
+            word-break: break-word;
           }
         </style>
       </head>
