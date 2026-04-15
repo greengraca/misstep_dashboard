@@ -1,7 +1,8 @@
 "use client";
+import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import { Settings, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { Settings, CheckCircle, XCircle, RefreshCw, ChevronRight, Radar } from "lucide-react";
 
 interface EnvVar {
   name: string;
@@ -57,6 +58,44 @@ export default function SettingsContent() {
           <RefreshCw size={15} /> Refresh
         </button>
       </div>
+
+      {/* Seed Stock progress link */}
+      <Link
+        href="/settings/seed-progress"
+        style={{
+          ...panelStyle,
+          display: "flex",
+          alignItems: "center",
+          gap: "16px",
+          textDecoration: "none",
+          color: "inherit",
+          cursor: "pointer",
+        }}
+      >
+        <div
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "10px",
+            background: "rgba(63,206,229,0.1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--accent, #3fcee5)",
+          }}
+        >
+          <Radar size={20} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
+            Seed Stock Progress
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+            Team-wide coverage, active leases, and per-member last position.
+          </div>
+        </div>
+        <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
+      </Link>
 
       {/* Team Members */}
       <div style={panelStyle}>
