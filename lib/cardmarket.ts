@@ -503,6 +503,7 @@ async function processProductStock(
   const col = db.collection(COL.stock);
   const listings = data.listings as CmProductStockListing[];
   const cardName = (data.cardName as string) || "";
+  const setName = (data.setName as string) || "";
   const now = new Date().toISOString();
 
   let added = 0, updated = 0, removed = 0;
@@ -559,7 +560,24 @@ async function processProductStock(
     added++;
   }
 
-  const details = `${cardName}${listings.length > 0 ? ` — ${listings.length} listing${listings.length !== 1 ? "s" : ""}` : ""}${removed ? `, ${removed} removed` : ""}`;
+  // Ghost cleanup: the product page shows ALL of the user's listings for this
+  // specific product. Any DB entry for the same name+set with a product_page
+  // articleId that's NOT in the current batch was delisted on CM — remove it.
+  // Scoped to product_page source only, so stock_page-only entries for the
+  // same card (never visited on product page) are preserved.
+  if (cardName && setName) {
+    const incomingArticleIds = listings
+      .map(l => l.articleId)
+      .filter((id): id is string => !!id);
+    const cleanupResult = await col.deleteMany({
+      name: cardName,
+      set: setName,
+      articleId: { $exists: true, $nin: incomingArticleIds },
+    });
+    if (cleanupResult.deletedCount) removed += cleanupResult.deletedCount;
+  }
+
+  const details = `${cardName}${listings.length > 0 ? ` — ${listings.length} listing${listings.length !== 1 ? "s" : ""}` : listings.length === 0 && removed > 0 ? " — all delisted" : ""}${removed ? `, ${removed} removed` : ""}`;
 
   return { added, updated, skipped: 0, removed, details };
 }
