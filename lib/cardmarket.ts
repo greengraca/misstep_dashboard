@@ -178,6 +178,12 @@ export async function processSync(
         details.product_stock = psr.details;
         break;
       }
+      case "card_prices": {
+        const cpr = await processCardPrices(item.data);
+        results.card_prices = cpr;
+        details.card_prices = cpr.details;
+        break;
+      }
     }
   }
 
@@ -556,6 +562,59 @@ async function processProductStock(
   const details = `${cardName}${listings.length > 0 ? ` — ${listings.length} listing${listings.length !== 1 ? "s" : ""}` : ""}${removed ? `, ${removed} removed` : ""}`;
 
   return { added, updated, skipped: 0, removed, details };
+}
+
+// ── Card Prices (update ev_cards by cardmarket_id, nonfoil/foil split) ──
+
+async function processCardPrices(
+  data: Record<string, unknown>
+): Promise<{ added: number; updated: number; skipped: number; details: string }> {
+  const db = await getDb();
+  const productId = data.productId as number;
+  const cardName = (data.cardName as string) || "";
+  const isFoil = !!data.isFoil;
+  const prices = (data.prices || {}) as Record<string, number>;
+  const available = (data.available as number | null) ?? null;
+  const chart = data.chart as Array<{ date: string; avg_sell: number }> | null;
+  const now = new Date().toISOString();
+
+  if (!productId) {
+    return { added: 0, updated: 0, skipped: 1, details: `${cardName || "?"} — no productId` };
+  }
+
+  // Build the nested cm_prices snapshot (nonfoil or foil branch)
+  const variantKey = isFoil ? "foil" : "nonfoil";
+  const snapshot: Record<string, unknown> = { updatedAt: now };
+  if (prices.from != null) snapshot.from = prices.from;
+  if (prices.trend != null) snapshot.trend = prices.trend;
+  if (prices.avg30d != null) snapshot.avg30d = prices.avg30d;
+  if (prices.avg7d != null) snapshot.avg7d = prices.avg7d;
+  if (prices.avg1d != null) snapshot.avg1d = prices.avg1d;
+  if (available != null) snapshot.available = available;
+  if (chart && chart.length) snapshot.chart = chart;
+
+  // Only update if we have at least one useful field
+  if (Object.keys(snapshot).length === 1) {
+    return { added: 0, updated: 0, skipped: 1, details: `${cardName} (#${productId}) — no parseable prices` };
+  }
+
+  // Update existing ev_cards doc by cardmarket_id; don't create new entries.
+  const result = await db.collection("dashboard_ev_cards").updateOne(
+    { cardmarket_id: productId },
+    { $set: { [`cm_prices.${variantKey}`]: snapshot } }
+  );
+
+  const matched = result.matchedCount || 0;
+  const detailsMsg = matched
+    ? `${cardName} (#${productId}) ${isFoil ? "foil" : "nonfoil"}${prices.trend != null ? ` — trend €${prices.trend.toFixed(2)}` : ""}`
+    : `${cardName} (#${productId}) — card not in ev_cards`;
+
+  return {
+    added: 0,
+    updated: matched,
+    skipped: matched ? 0 : 1,
+    details: detailsMsg,
+  };
 }
 
 // ── Stock Overview (total count, time-series compressed) ────────────

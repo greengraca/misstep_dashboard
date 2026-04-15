@@ -181,7 +181,7 @@ export interface CmProductStockListing {
 }
 
 export interface ExtSyncBatchItem {
-  type: "balance" | "orders" | "order_detail" | "stock" | "stock_overview" | "transactions" | "product_stock";
+  type: "balance" | "orders" | "order_detail" | "stock" | "stock_overview" | "transactions" | "product_stock" | "card_prices";
   data: Record<string, unknown>;
 }
 
