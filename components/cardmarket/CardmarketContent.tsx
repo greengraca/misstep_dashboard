@@ -218,6 +218,7 @@ export default function CardmarketContent() {
           </div>
           <div class="recipient">
             <div>${addr.name}</div>
+            ${addr.extra ? `<div>${addr.extra}</div>` : ""}
             <div>${addr.street}</div>
             <div>${addr.city}</div>
             <div>${addr.country}</div>

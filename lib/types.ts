@@ -83,6 +83,7 @@ export interface CmOrder {
 
 export interface CmShippingAddress {
   name: string;
+  extra?: string;
   street: string;
   city: string;
   country: string;
