@@ -6,7 +6,9 @@ import { COLLECTION_PREFIX } from "@/lib/constants";
 const COL_PROGRESS = `${COLLECTION_PREFIX}ext_seed_progress`;
 
 export const GET = withExtAuthRead(async (req) => {
-  const memberName = req.headers.get("x-member-name") || "";
+  const rawMember = req.headers.get("x-member-name") || "";
+  let memberName = rawMember;
+  try { memberName = decodeURIComponent(rawMember); } catch { /* keep raw */ }
   const db = await getDb();
   const col = db.collection(COL_PROGRESS);
 

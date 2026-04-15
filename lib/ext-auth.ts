@@ -43,8 +43,20 @@ export async function requireExtAuth(
     };
   }
 
-  // Member name comes from x-member-name header (set by extension on every request)
-  const memberName = request.headers.get("x-member-name") || "unknown";
+  // Member name comes from x-member-name header (set by extension on every
+  // request).  HTTP headers are only safe for ISO-8859-1, so the extension
+  // percent-encodes non-ASCII characters ("Graça" -> "Gra%C3%A7a") and we
+  // decode here.  Values written by older extension builds that sent raw
+  // UTF-8 bytes will have already been mojibake'd into latin-1 on receipt;
+  // decodeURIComponent is a no-op for pure ASCII so those cases round-trip
+  // unchanged.
+  const rawMember = request.headers.get("x-member-name") || "unknown";
+  let memberName = rawMember;
+  try {
+    memberName = decodeURIComponent(rawMember);
+  } catch {
+    memberName = rawMember;
+  }
 
   return { memberName };
 }
