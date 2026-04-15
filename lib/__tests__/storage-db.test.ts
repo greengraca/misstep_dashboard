@@ -46,6 +46,7 @@ describe("projectCardMeta", () => {
       cmc: 3,
       released_at: "2022-09-09",
       layout: "normal",
+      frame: "2015",
     };
     expect(projectCardMeta(ev)).toEqual({
       name: "Liliana",
@@ -88,6 +89,7 @@ describe("projectCardMeta", () => {
       cmc: 0,
       released_at: "1993-08-05",
       layout: "normal",
+      frame: "1993",
     };
     expect(projectCardMeta(ev).image_uri).toBeNull();
     expect(projectCardMeta(ev).color_identity).toEqual([]);

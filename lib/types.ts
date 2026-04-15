@@ -390,4 +390,29 @@ export interface EvJumpstartResult {
   box_ev_net: number;
   fee_rate: number;
   sift_floor: number;
+  weights_source?: "default" | "empirical";
+  weights_sample_size?: number;
+}
+
+export interface EvJumpstartWeights {
+  _id?: string;
+  set_code: string;
+  tier_counts: { common: number; rare: number; mythic: number };
+  theme_counts: Record<string, number>;   // key = "name|variant"
+  sample_size: number;                    // total packs observed
+  tier_weights: { common: number; rare: number; mythic: number };
+  theme_weights: Record<string, number>;  // absolute probability per theme, sums to 1
+  sessions: {
+    date: string;
+    packs: number;
+    tier_counts: { common: number; rare: number; mythic: number };
+    theme_counts: Record<string, number>;
+  }[];
+  updated_at: string;
+}
+
+export interface EvJumpstartSessionSubmit {
+  tier_counts: { common: number; rare: number; mythic: number };
+  theme_counts: Record<string, number>;
+  packs: number;
 }

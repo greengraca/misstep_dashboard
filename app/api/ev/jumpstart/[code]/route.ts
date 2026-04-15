@@ -3,6 +3,7 @@ import {
   getConfig, getCardsForSet,
   calculateJumpstartEv, simulateJumpstartBox,
   getJumpstartThemes, seedJumpstartThemes, hasJumpstartSeedData,
+  getJumpstartWeights, weightsToOverride,
 } from "@/lib/ev";
 
 /** Load themes from DB, auto-seed from hardcoded data if DB is empty */
@@ -31,15 +32,18 @@ export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
   const feeRate = config?.fee_rate ?? 0.05;
   const packsPerBox = config?.play_booster?.packs_per_box ?? 24;
   const { cards } = await getCardsForSet(code, { boosterOnly: false, limit: 10000 });
+  const weightsDoc = await getJumpstartWeights(code);
+  const weights = weightsToOverride(weightsDoc);
 
   const data = calculateJumpstartEv(cards, themes, {
     siftFloor: floor,
     feeRate,
     setCode: code,
     packsPerBox,
+    weights,
   });
 
-  return { data };
+  return { data: { ...data, weights_sample_size: weightsDoc?.sample_size ?? 0 } };
 }, "ev-jumpstart-calculate");
 
 export const POST = withAuthParams<{ code: string }>(async (req, _session, params) => {
@@ -62,6 +66,7 @@ export const POST = withAuthParams<{ code: string }>(async (req, _session, param
   const feeRate = config?.fee_rate ?? 0.05;
   const packsPerBox = config?.play_booster?.packs_per_box ?? 24;
   const { cards } = await getCardsForSet(code, { boosterOnly: false, limit: 10000 });
+  const weights = weightsToOverride(await getJumpstartWeights(code));
 
   const data = simulateJumpstartBox(cards, themes, {
     siftFloor: floor,
@@ -70,6 +75,7 @@ export const POST = withAuthParams<{ code: string }>(async (req, _session, param
     iterations,
     boxCost,
     quantity,
+    weights,
   });
 
   return { data };

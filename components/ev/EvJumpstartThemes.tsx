@@ -6,7 +6,8 @@ import { fetcher } from "@/lib/fetcher";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import StatCard from "@/components/dashboard/stat-card";
 import type { EvJumpstartResult, EvJumpstartThemeResult, EvSimulationResult } from "@/lib/types";
-import { DollarSign, TrendingUp, Package, ChevronDown, ChevronRight, Layers, FlaskConical, Dices } from "lucide-react";
+import { DollarSign, TrendingUp, Package, ChevronDown, ChevronRight, Layers, FlaskConical, Dices, PackageOpen } from "lucide-react";
+import EvJumpstartOpenSession from "./EvJumpstartOpenSession";
 
 const COLOR_STYLES: Record<string, { bg: string; color: string }> = {
   white: { bg: "rgba(255, 255, 224, 0.10)", color: "#fde68a" },
@@ -31,8 +32,9 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
   const [iterations, setIterations] = useState(10000);
   const [simRunning, setSimRunning] = useState(false);
   const [simResult, setSimResult] = useState<EvSimulationResult | null>(null);
+  const [sessionOpen, setSessionOpen] = useState(false);
 
-  const { data, isLoading } = useSWR<{ data: EvJumpstartResult }>(
+  const { data, isLoading, mutate } = useSWR<{ data: EvJumpstartResult }>(
     `/api/ev/jumpstart/${setCode}?floor=${siftFloor}`,
     fetcher
   );
@@ -234,6 +236,34 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
             </div>
           </div>
         )}
+      </div>
+
+      {/* Open Session + weights indicator */}
+      <div
+        className="flex items-center gap-3 px-3 py-2 rounded-lg"
+        style={{
+          background: "rgba(234,179,8,0.06)",
+          border: "1px solid rgba(234,179,8,0.2)",
+        }}
+      >
+        <PackageOpen size={16} style={{ color: "#eab308" }} />
+        <div className="flex-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+          {result.weights_source === "empirical" ? (
+            <>
+              Using <span style={{ color: "#eab308", fontWeight: 600 }}>empirical weights</span>
+              {" "}from {result.weights_sample_size ?? 0} observed packs.
+            </>
+          ) : (
+            <>Opening boxes? Tally the themes you pull to improve tier and theme pull rates.</>
+          )}
+        </div>
+        <button
+          onClick={() => setSessionOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+          style={{ background: "#eab308", color: "#000" }}
+        >
+          <PackageOpen size={12} /> Start Opening Session
+        </button>
       </div>
 
       {/* Color filter */}
@@ -632,6 +662,15 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
           )}
         </div>
       </div>
+
+      {sessionOpen && (
+        <EvJumpstartOpenSession
+          setCode={setCode}
+          themes={result.themes}
+          onClose={() => setSessionOpen(false)}
+          onSaved={() => { mutate(); setSimResult(null); }}
+        />
+      )}
     </div>
   );
 }

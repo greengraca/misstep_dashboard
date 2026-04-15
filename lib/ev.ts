@@ -16,6 +16,8 @@ import type {
   EvJumpstartTheme,
   EvJumpstartThemeResult,
   EvJumpstartResult,
+  EvJumpstartWeights,
+  EvJumpstartSessionSubmit,
 } from "@/lib/types";
 
 // ── Jumpstart seed data (used only for initial DB population) ──
@@ -29,6 +31,7 @@ const COL_CARDS = "dashboard_ev_cards";
 const COL_CONFIG = "dashboard_ev_config";
 const COL_SNAPSHOTS = "dashboard_ev_snapshots";
 const COL_JUMPSTART_THEMES = "dashboard_ev_jumpstart_themes";
+const COL_JUMPSTART_WEIGHTS = "dashboard_ev_jumpstart_weights";
 
 // ── Scryfall ───────────────────────────────────────────────────
 const SCRYFALL_BASE = "https://api.scryfall.com";
@@ -64,6 +67,7 @@ async function ensureIndexes(): Promise<void> {
         { unique: true, name: "set_code_date_unique" }
       ),
       db.collection(COL_JUMPSTART_THEMES).createIndex({ set_code: 1 }, { name: "jst_set_code" }),
+      db.collection(COL_JUMPSTART_WEIGHTS).createIndex({ set_code: 1 }, { unique: true, name: "jsw_set_code_unique" }),
     ]);
     indexesEnsured = true;
   } catch {
@@ -743,6 +747,185 @@ export function hasJumpstartSeedData(setCode: string): boolean {
   return setCode in JUMPSTART_SEED_DATA;
 }
 
+// ── Jumpstart Empirical Weights ─────────────────────────────────
+//
+// Stores raw per-session counts and derives tier_weights + theme_weights
+// from the accumulated sample. Starts from a seed prior (see
+// JUMPSTART_PRIOR_SAMPLES) so the first saved session merges onto the
+// existing 120-pack baseline instead of overwriting it.
+
+function tierWeightsFromCounts(counts: { common: number; rare: number; mythic: number }) {
+  const total = counts.common + counts.rare + counts.mythic;
+  if (total <= 0) return { common: 0.65, rare: 0.30, mythic: 0.05 };
+  return {
+    common: counts.common / total,
+    rare: counts.rare / total,
+    mythic: counts.mythic / total,
+  };
+}
+
+// Laplace-smoothed absolute per-theme probability, scaled by the tier share.
+// If no theme counts exist for a tier, falls back to uniform within that tier.
+function themeWeightsFromCounts(
+  themes: EvJumpstartTheme[],
+  themeCounts: Record<string, number>,
+  tierWeights: { common: number; rare: number; mythic: number }
+): Record<string, number> {
+  const byTier: Record<JumpstartTierKey, EvJumpstartTheme[]> = { common: [], rare: [], mythic: [] };
+  for (const t of themes) byTier[t.tier].push(t);
+
+  const out: Record<string, number> = {};
+  for (const tier of ["common", "rare", "mythic"] as JumpstartTierKey[]) {
+    const group = byTier[tier];
+    if (!group.length) continue;
+    const tierShare = tierWeights[tier];
+    const observed = group.map((t) => themeCounts[themeKey(t.name, t.variant)] ?? 0);
+    const sumObserved = observed.reduce((s, v) => s + v, 0);
+
+    if (sumObserved === 0) {
+      // Uniform within tier — matches default behavior
+      const uniform = tierShare / group.length;
+      group.forEach((t) => { out[themeKey(t.name, t.variant)] = uniform; });
+      continue;
+    }
+
+    // Laplace: (count + 1) / (sum + N) gives every variant nonzero probability
+    const denom = sumObserved + group.length;
+    group.forEach((t, i) => {
+      const p = (observed[i] + 1) / denom;
+      out[themeKey(t.name, t.variant)] = tierShare * p;
+    });
+  }
+  return out;
+}
+
+async function buildInitialWeights(setCode: string, themes: EvJumpstartTheme[]): Promise<EvJumpstartWeights> {
+  const prior = JUMPSTART_PRIOR_SAMPLES[setCode];
+  const tier_counts = prior ? { ...prior.tier_counts } : { common: 0, rare: 0, mythic: 0 };
+  const sample_size = prior ? prior.packs : 0;
+  const tier_weights = tierWeightsFromCounts(tier_counts);
+  const theme_counts: Record<string, number> = {};
+  const theme_weights = themeWeightsFromCounts(themes, theme_counts, tier_weights);
+  return {
+    set_code: setCode,
+    tier_counts,
+    theme_counts,
+    sample_size,
+    tier_weights,
+    theme_weights,
+    sessions: prior ? [{
+      date: "prior-5-boxes",
+      packs: prior.packs,
+      tier_counts: { ...prior.tier_counts },
+      theme_counts: {},
+    }] : [],
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function getJumpstartWeights(setCode: string): Promise<EvJumpstartWeights | null> {
+  await ensureIndexes();
+  const db = await getDb();
+  const doc = await db.collection(COL_JUMPSTART_WEIGHTS).findOne({ set_code: setCode });
+  if (!doc) return null;
+  return {
+    _id: String(doc._id),
+    set_code: doc.set_code,
+    tier_counts: doc.tier_counts,
+    theme_counts: doc.theme_counts ?? {},
+    sample_size: doc.sample_size ?? 0,
+    tier_weights: doc.tier_weights,
+    theme_weights: doc.theme_weights ?? {},
+    sessions: doc.sessions ?? [],
+    updated_at: doc.updated_at,
+  };
+}
+
+/** Ensure weights doc exists; seed from prior on first call. Returns current state. */
+export async function ensureJumpstartWeights(setCode: string): Promise<EvJumpstartWeights> {
+  const existing = await getJumpstartWeights(setCode);
+  if (existing) return existing;
+
+  const themes = await getJumpstartThemes(setCode);
+  if (!themes) {
+    // no themes yet — still save a zero-state doc so weights endpoint works
+    return buildInitialWeights(setCode, []);
+  }
+  const fresh = await buildInitialWeights(setCode, themes);
+
+  const db = await getDb();
+  await db.collection(COL_JUMPSTART_WEIGHTS).updateOne(
+    { set_code: setCode },
+    { $setOnInsert: fresh },
+    { upsert: true }
+  );
+  const saved = await getJumpstartWeights(setCode);
+  return saved ?? fresh;
+}
+
+export async function appendJumpstartSession(
+  setCode: string,
+  session: EvJumpstartSessionSubmit
+): Promise<EvJumpstartWeights> {
+  await ensureIndexes();
+  const themes = await getJumpstartThemes(setCode);
+  if (!themes) throw new Error(`No Jumpstart themes for set ${setCode}`);
+
+  const current = await ensureJumpstartWeights(setCode);
+
+  const tier_counts = {
+    common: current.tier_counts.common + (session.tier_counts.common || 0),
+    rare: current.tier_counts.rare + (session.tier_counts.rare || 0),
+    mythic: current.tier_counts.mythic + (session.tier_counts.mythic || 0),
+  };
+  const theme_counts: Record<string, number> = { ...current.theme_counts };
+  for (const [k, v] of Object.entries(session.theme_counts || {})) {
+    theme_counts[k] = (theme_counts[k] ?? 0) + v;
+  }
+  const sample_size = current.sample_size + (session.packs || 0);
+  const tier_weights = tierWeightsFromCounts(tier_counts);
+  const theme_weights = themeWeightsFromCounts(themes, theme_counts, tier_weights);
+  const sessions = [
+    ...current.sessions,
+    {
+      date: new Date().toISOString(),
+      packs: session.packs || 0,
+      tier_counts: session.tier_counts,
+      theme_counts: session.theme_counts || {},
+    },
+  ];
+
+  const db = await getDb();
+  await db.collection(COL_JUMPSTART_WEIGHTS).updateOne(
+    { set_code: setCode },
+    {
+      $set: {
+        set_code: setCode,
+        tier_counts,
+        theme_counts,
+        sample_size,
+        tier_weights,
+        theme_weights,
+        sessions,
+        updated_at: new Date().toISOString(),
+      },
+    },
+    { upsert: true }
+  );
+  const saved = await getJumpstartWeights(setCode);
+  if (!saved) throw new Error("Failed to save jumpstart weights");
+  return saved;
+}
+
+export function weightsToOverride(w: EvJumpstartWeights | null): JumpstartWeightOverride | undefined {
+  if (!w) return undefined;
+  const hasThemeSignal = Object.keys(w.theme_counts || {}).length > 0;
+  return {
+    tierWeights: w.tier_weights,
+    themeWeights: hasThemeSignal ? w.theme_weights : undefined,
+  };
+}
+
 // ── Card Matching ──────────────────────────────────────────────
 
 export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCard[] {
@@ -1020,17 +1203,36 @@ export function simulateBoxOpening(
 
 // Tier pull rate weights (derived from 120-pack sample across 5 boxes)
 const JUMPSTART_TIER_WEIGHTS: Record<string, number> = {
-  common: 0.65,   // 65% of packs are common themes
-  rare: 0.30,     // 30% of packs are rare themes
-  mythic: 0.05,   // 5% of packs are mythic themes
+  common: 0.65,
+  rare: 0.30,
+  mythic: 0.05,
 };
+
+// Seed prior sample: raw tier counts from the 5-box (120-pack) dataset
+// displayed in the EvJumpstartThemes UI. Used as the initial accumulation
+// when the weights collection is empty.
+const JUMPSTART_PRIOR_SAMPLES: Record<string, { tier_counts: { common: number; rare: number; mythic: number }; packs: number }> = {
+  j25: { tier_counts: { common: 79, rare: 36, mythic: 5 }, packs: 120 },
+};
+
+export type JumpstartTierKey = "common" | "rare" | "mythic";
+export type JumpstartWeightOverride = {
+  tierWeights?: Record<JumpstartTierKey, number>;
+  themeWeights?: Record<string, number>;
+};
+
+export function themeKey(name: string, variant: number): string {
+  return `${name}|${variant}`;
+}
 
 export function calculateJumpstartEv(
   cards: EvCard[],
   themes: EvJumpstartTheme[],
-  options: { siftFloor: number; feeRate: number; setCode: string; packsPerBox: number }
+  options: { siftFloor: number; feeRate: number; setCode: string; packsPerBox: number; weights?: JumpstartWeightOverride }
 ): EvJumpstartResult {
-  const { siftFloor, feeRate, setCode, packsPerBox } = options;
+  const { siftFloor, feeRate, setCode, packsPerBox, weights } = options;
+  const tierW = weights?.tierWeights ?? { common: JUMPSTART_TIER_WEIGHTS.common, rare: JUMPSTART_TIER_WEIGHTS.rare, mythic: JUMPSTART_TIER_WEIGHTS.mythic };
+  const themeW = weights?.themeWeights;
 
   // Build a name→card lookup (lowercase for fuzzy matching)
   const cardByName = new Map<string, EvCard>();
@@ -1083,14 +1285,21 @@ export function calculateJumpstartEv(
   // Sort themes by EV desc
   themeResults.sort((a, b) => b.ev_gross - a.ev_gross);
 
-  // Weighted average EV per pack using tier pull rates
-  // Each variant's weight = tier_weight / variants_in_tier
+  // Weighted average EV per pack.
+  // Default: each variant weight = tier_weight / variants_in_tier (uniform within tier).
+  // Override: themeW (absolute per-theme probability) supersedes tier/uniform.
   let weightedEvGross = 0;
   for (const t of themeResults) {
-    const tierWeight = JUMPSTART_TIER_WEIGHTS[t.tier] ?? 0;
-    const variantCount = variantsPerTier[t.tier] || 1;
-    const perVariantWeight = tierWeight / variantCount;
-    weightedEvGross += t.ev_gross * perVariantWeight;
+    const key = themeKey(t.name, t.variant);
+    let perThemeWeight: number;
+    if (themeW && themeW[key] !== undefined) {
+      perThemeWeight = themeW[key];
+    } else {
+      const tierWeight = tierW[t.tier] ?? 0;
+      const variantCount = variantsPerTier[t.tier] || 1;
+      perThemeWeight = tierWeight / variantCount;
+    }
+    weightedEvGross += t.ev_gross * perThemeWeight;
   }
   const weightedEvNet = weightedEvGross * (1 - feeRate);
 
@@ -1105,6 +1314,7 @@ export function calculateJumpstartEv(
     box_ev_net: Math.round(weightedEvNet * packsPerBox * 100) / 100,
     fee_rate: feeRate,
     sift_floor: siftFloor,
+    weights_source: themeW ? "empirical" : (weights?.tierWeights ? "empirical" : "default"),
   };
 }
 
@@ -1120,43 +1330,60 @@ export function simulateJumpstartBox(
     iterations: number;
     boxCost?: number;
     quantity?: number;
+    weights?: JumpstartWeightOverride;
   }
 ): EvSimulationResult {
   const start = Date.now();
-  const { siftFloor, feeRate, packsPerBox, iterations } = options;
+  const { siftFloor, feeRate, packsPerBox, iterations, weights } = options;
+  const tierW = weights?.tierWeights ?? { common: JUMPSTART_TIER_WEIGHTS.common, rare: JUMPSTART_TIER_WEIGHTS.rare, mythic: JUMPSTART_TIER_WEIGHTS.mythic };
+  const themeW = weights?.themeWeights;
 
   // Build name→price lookup
   const cardByName = new Map<string, EvCard>();
   for (const c of cards) cardByName.set(c.name.toLowerCase(), c);
 
   // Pre-calculate gross EV for each theme variant
-  const themeEvs: { tier: string; evGross: number }[] = themes.map((theme) => {
+  const themeEvs: { tier: JumpstartTierKey; evGross: number; key: string }[] = themes.map((theme) => {
     let ev = 0;
     for (const name of theme.cards) {
       const card = cardByName.get(name.toLowerCase());
       const price = card?.price_eur ?? 0;
       if (price >= siftFloor) ev += price;
     }
-    return { tier: theme.tier, evGross: ev };
+    return { tier: theme.tier, evGross: ev, key: themeKey(theme.name, theme.variant) };
   });
 
-  // Group themes by tier for weighted random selection
-  const byTier: Record<string, number[]> = { common: [], rare: [], mythic: [] };
-  themeEvs.forEach((t, i) => byTier[t.tier]?.push(i));
+  // If empirical per-theme weights are provided, build a single cumulative
+  // distribution over themes. Otherwise fall back to tier → uniform-in-tier.
+  let themeCum: number[] | null = null;
+  let tiers: { name: JumpstartTierKey; weight: number; indices: number[] }[] = [];
+  let tierCum: number[] = [];
 
-  // Build cumulative tier weights for fast selection — skip tiers with no themes
-  const allTiers = [
-    { name: "common", weight: JUMPSTART_TIER_WEIGHTS.common, indices: byTier.common },
-    { name: "rare", weight: JUMPSTART_TIER_WEIGHTS.rare, indices: byTier.rare },
-    { name: "mythic", weight: JUMPSTART_TIER_WEIGHTS.mythic, indices: byTier.mythic },
-  ];
-  const tiers = allTiers.filter(t => t.indices.length > 0);
-  const cumWeights: number[] = [];
-  let cumW = 0;
-  for (const t of tiers) { cumW += t.weight; cumWeights.push(cumW); }
-  // Normalize so cumulative weights sum to 1.0 (in case tiers were filtered out)
-  if (cumW > 0 && cumW !== 1) {
-    for (let i = 0; i < cumWeights.length; i++) cumWeights[i] /= cumW;
+  if (themeW) {
+    // Absolute per-theme probabilities. Fill missing themes with 0 (or leave).
+    const raw = themeEvs.map((t) => themeW[t.key] ?? 0);
+    const total = raw.reduce((s, v) => s + v, 0);
+    if (total > 0) {
+      themeCum = [];
+      let c = 0;
+      for (const v of raw) { c += v / total; themeCum.push(c); }
+    }
+  }
+
+  if (!themeCum) {
+    const byTier: Record<JumpstartTierKey, number[]> = { common: [], rare: [], mythic: [] };
+    themeEvs.forEach((t, i) => byTier[t.tier].push(i));
+    const allTiers: { name: JumpstartTierKey; weight: number; indices: number[] }[] = [
+      { name: "common", weight: tierW.common, indices: byTier.common },
+      { name: "rare", weight: tierW.rare, indices: byTier.rare },
+      { name: "mythic", weight: tierW.mythic, indices: byTier.mythic },
+    ];
+    tiers = allTiers.filter(t => t.indices.length > 0);
+    let cumW = 0;
+    for (const t of tiers) { cumW += t.weight; tierCum.push(cumW); }
+    if (cumW > 0 && cumW !== 1) {
+      for (let i = 0; i < tierCum.length; i++) tierCum[i] /= cumW;
+    }
   }
 
   // Simulate
@@ -1166,14 +1393,19 @@ export function simulateJumpstartBox(
     let boxGross = 0;
 
     for (let p = 0; p < packsPerBox; p++) {
-      // Pick tier
-      const roll = Math.random();
-      let tierIdx = 0;
-      while (tierIdx < cumWeights.length - 1 && roll > cumWeights[tierIdx]) tierIdx++;
-
-      // Pick random theme within tier
-      const indices = tiers[tierIdx].indices;
-      const themeIdx = indices[Math.floor(Math.random() * indices.length)];
+      let themeIdx: number;
+      if (themeCum) {
+        const roll = Math.random();
+        let idx = 0;
+        while (idx < themeCum.length - 1 && roll > themeCum[idx]) idx++;
+        themeIdx = idx;
+      } else {
+        const roll = Math.random();
+        let tierIdx = 0;
+        while (tierIdx < tierCum.length - 1 && roll > tierCum[tierIdx]) tierIdx++;
+        const indices = tiers[tierIdx].indices;
+        themeIdx = indices[Math.floor(Math.random() * indices.length)];
+      }
       boxGross += themeEvs[themeIdx].evGross;
     }
 
@@ -1274,12 +1506,14 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     const feeRate = config?.fee_rate ?? 0.05;
     const siftFloor = config?.sift_floor ?? 0.25;
     const packsPerBox = config?.play_booster?.packs_per_box ?? 24;
+    const weights = weightsToOverride(await getJumpstartWeights(setCode));
 
     const result = calculateJumpstartEv(cards, jumpstartThemes, {
       siftFloor,
       feeRate,
       setCode,
       packsPerBox,
+      weights,
     });
     playEvGross = result.box_ev_gross;
     playEvNet = result.box_ev_net;
