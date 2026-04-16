@@ -2,7 +2,8 @@
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import { Settings, CheckCircle, XCircle, RefreshCw, ChevronRight, Radar } from "lucide-react";
+import { Settings, CheckCircle, XCircle, RefreshCw, ChevronRight, Radar, Download } from "lucide-react";
+import { LATEST_EXT_VERSION } from "@/lib/constants";
 
 interface EnvVar {
   name: string;
@@ -96,6 +97,45 @@ export default function SettingsContent() {
         </div>
         <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
       </Link>
+
+      {/* Extension download (plain <a>, not next/link — must trigger a real download, not client-side navigation) */}
+      <a
+        href="/api/ext/download"
+        download
+        style={{
+          ...panelStyle,
+          display: "flex",
+          alignItems: "center",
+          gap: "16px",
+          textDecoration: "none",
+          color: "inherit",
+          cursor: "pointer",
+        }}
+      >
+        <div
+          style={{
+            width: "40px",
+            height: "40px",
+            borderRadius: "10px",
+            background: "rgba(63,206,229,0.1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--accent, #3fcee5)",
+          }}
+        >
+          <Download size={20} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
+            Download Extension (v{LATEST_EXT_VERSION})
+          </div>
+          <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+            Unzip over your existing misstep-ext folder, then hit Reload in chrome://extensions.
+          </div>
+        </div>
+        <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
+      </a>
 
       {/* Team Members */}
       <div style={panelStyle}>

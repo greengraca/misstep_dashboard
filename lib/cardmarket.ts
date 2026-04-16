@@ -312,7 +312,12 @@ async function processOrders(
   const totalCount = (data.totalCount as number) || 0;
   const currentPage = (data.currentPage as number) || 1;
   const totalPages = (data.totalPages as number) || 1;
-  if (status === "shopping_cart" && totalPages === 1 && totalCount > 0) {
+  const pageComplete = !!data.pageComplete;
+  // Require either a non-empty incoming list OR the new affirmative
+  // pageComplete signal (ext ≥1.6.1) so truly-empty carts clean up their
+  // last ghost without risking a spurious wipe from an SPA mid-transition
+  // read on older extensions that don't send the flag.
+  if (status === "shopping_cart" && totalPages === 1 && (totalCount > 0 || pageComplete)) {
     const incomingIds = orders.map(o => o.orderId);
     const deleted = await col.deleteMany({
       status: "shopping_cart",
