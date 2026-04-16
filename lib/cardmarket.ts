@@ -415,7 +415,7 @@ async function processOrderDetail(
 
   await db.collection(COL.orders).updateOne(
     { orderId },
-    { $set: orderUpdates, $setOnInsert: { direction: detail.direction || "sale" } },
+    { $set: orderUpdates },
     { upsert: true }
   );
   updated++;
