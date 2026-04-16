@@ -4,7 +4,8 @@ import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { PendingReimbursement } from "@/lib/types";
 import StatCard from "@/components/dashboard/stat-card";
-import { LayoutDashboard, Users, Activity, TrendingUp, Clock, CheckCircle } from "lucide-react";
+import NextGoal from "@/components/home/NextGoal";
+import { Wallet, Store, CreditCard, PackageCheck, Clock, CheckCircle } from "lucide-react";
 
 export default function HomeContent() {
   const { data, isLoading } = useSWR("/api/home/stats", fetcher);
@@ -33,28 +34,32 @@ export default function HomeContent() {
         Dashboard
       </h1>
 
+      <NextGoal />
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px" }}>
         <StatCard
-          title="Total Records"
-          value={isLoading ? "..." : stats?.totalRecords ?? 0}
-          icon={<LayoutDashboard size={20} style={{ color: "var(--accent)" }} />}
+          title="CM Balance"
+          value={isLoading ? "..." : `€${(stats?.cmBalance ?? 0).toFixed(2)}`}
+          icon={<CreditCard size={20} style={{ color: "var(--accent)" }} />}
+          subtitle="Liquid on Cardmarket"
         />
         <StatCard
-          title="Active Users"
-          value={isLoading ? "..." : stats?.activeUsers ?? 0}
-          icon={<Users size={20} style={{ color: "var(--accent)" }} />}
+          title="Treasury"
+          value={isLoading ? "..." : `€${(stats?.treasury ?? 0).toFixed(2)}`}
+          icon={<Wallet size={20} style={{ color: "var(--accent)" }} />}
+          subtitle="All-time net position"
         />
         <StatCard
-          title="Recent Activity"
-          value={isLoading ? "..." : stats?.recentActivity ?? 0}
-          icon={<Activity size={20} style={{ color: "var(--accent)" }} />}
-          subtitle="Last 7 days"
+          title="Active Sales Value"
+          value={isLoading ? "..." : `€${(stats?.activeSalesValue ?? 0).toFixed(2)}`}
+          icon={<Store size={20} style={{ color: "var(--accent)" }} />}
+          subtitle="Unpaid + Paid + Trustee Sent"
         />
         <StatCard
-          title="Growth"
-          value={isLoading ? "..." : `${stats?.growth ?? 0}%`}
-          icon={<TrendingUp size={20} style={{ color: "var(--accent)" }} />}
-          trend={stats?.growthTrend ? { value: stats.growthTrend, label: "vs last month" } : undefined}
+          title="Orders to Ship"
+          value={isLoading ? "..." : (stats?.ordersToShip ?? 0).toLocaleString()}
+          icon={<PackageCheck size={20} style={{ color: "var(--accent)" }} />}
+          subtitle="Paid · awaiting send"
         />
       </div>
 

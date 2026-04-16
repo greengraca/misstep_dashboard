@@ -1,22 +1,31 @@
 import { withAuthRead } from "@/lib/api-helpers";
-import { getDb } from "@/lib/mongodb";
+import { getAllTimeTreasury } from "@/lib/finance";
+import {
+  getLatestBalance,
+  getOrderValuesByStatus,
+  getOrderCounts,
+  getTrusteeSentValue,
+} from "@/lib/cardmarket";
 
 export const GET = withAuthRead(async () => {
-  const db = await getDb();
+  const [treasury, balance, orderValues, orderCounts, trusteeSent] = await Promise.all([
+    getAllTimeTreasury(),
+    getLatestBalance(),
+    getOrderValuesByStatus(),
+    getOrderCounts(),
+    getTrusteeSentValue(),
+  ]);
 
-  const activityCount = await db
-    .collection("dashboard_activity_log")
-    .countDocuments({
-      timestamp: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-    });
+  const activeSalesValue =
+    (orderValues.unpaid ?? 0) + (orderValues.paid ?? 0) + trusteeSent;
+  const ordersToShip = orderCounts.paid?.sale ?? 0;
 
   return {
     data: {
-      totalRecords: 0,
-      activeUsers: 0,
-      recentActivity: activityCount,
-      growth: 0,
-      growthTrend: 0,
+      cmBalance: balance?.balance ?? 0,
+      activeSalesValue,
+      treasury,
+      ordersToShip,
     },
   };
 }, "home-stats");

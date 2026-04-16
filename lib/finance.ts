@@ -116,3 +116,23 @@ export async function unreimburse(id: string, userName: string): Promise<void> {
   );
   logActivity("update", "transaction", id, "Unmarked reimbursement", "system", userName);
 }
+
+export async function getAllTimeTreasury(): Promise<number> {
+  const db = await getDb();
+  const docs = await db.collection(COLLECTION).find({}).toArray();
+
+  const withdrawals = docs
+    .filter((d) => d.type === "withdrawal")
+    .reduce((s, d) => s + (d.amount as number), 0);
+  const reimbursed = docs
+    .filter((d) => d.type === "expense" && d.reimbursed)
+    .reduce((s, d) => s + (d.amount as number), 0);
+  const directIncome = docs
+    .filter((d) => d.type === "income" && d.category === "direct")
+    .reduce((s, d) => s + (d.amount as number), 0);
+  const directExpenses = docs
+    .filter((d) => d.type === "expense" && d.category === "direct")
+    .reduce((s, d) => s + (d.amount as number), 0);
+
+  return Math.round((withdrawals - reimbursed + directIncome - directExpenses) * 100) / 100;
+}
