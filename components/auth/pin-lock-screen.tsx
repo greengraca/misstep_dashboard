@@ -172,14 +172,17 @@ export function PinLockScreen({ callbackUrl }: { callbackUrl: string }) {
 
           {/* Heading */}
           <div style={{ textAlign: "center" }}>
-            <h1 style={{
-              fontSize: "22px",
-              fontWeight: 700,
-              color: "var(--text-primary)",
-              margin: "0 0 8px",
-            }}>
-              MISSTEP
-            </h1>
+            <img
+              src="/misstep-horizontal.svg"
+              alt="MISSTEP"
+              style={{
+                display: "block",
+                height: "44px",
+                width: "auto",
+                maxWidth: "100%",
+                margin: "0 auto 12px",
+              }}
+            />
             <p style={{
               color: "var(--text-muted)",
               fontSize: "14px",

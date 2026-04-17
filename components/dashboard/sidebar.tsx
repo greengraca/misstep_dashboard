@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Activity, BarChart3, Calculator, CheckSquare, ChevronLeft, ChevronRight, LayoutDashboard, Library, LogOut, Menu, MessageCircle, Package, Settings, ShoppingBag, Wallet, X } from "lucide-react";
+import { Activity, BarChart3, Calculator, CheckSquare, ChevronLeft, LayoutDashboard, Library, LogOut, Menu, MessageCircle, Package, Settings, ShoppingBag, Wallet, X } from "lucide-react";
 
 const navSections = [
   { label: "OVERVIEW", items: [
@@ -49,9 +49,11 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-12"
         style={{ background: "var(--header-bg)", backdropFilter: "var(--surface-blur)", borderBottom: "1px solid var(--border)" }}
       >
-        <span style={{ fontWeight: 700, fontSize: "15px", color: "var(--text-primary)" }}>
-          MISSTEP
-        </span>
+        <img
+          src="/misstep-horizontal.svg"
+          alt="MISSTEP"
+          style={{ height: "22px", width: "auto" }}
+        />
         <button onClick={onToggle} style={{ color: "var(--text-secondary)" }}>
           <Menu size={20} />
         </button>
@@ -76,20 +78,37 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {/* Logo area */}
         <div className="flex items-center justify-between h-14 px-4" style={{ borderBottom: "1px solid var(--border)" }}>
           {!collapsed && (
-            <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "baseline", gap: "6px" }}>
-              <span style={{ fontWeight: 600, fontSize: "18px", color: "var(--accent)" }}>MISSTEP</span>
+            <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center" }}>
+              <img
+                src="/misstep-horizontal.svg"
+                alt="MISSTEP"
+                style={{ height: "28px", width: "auto" }}
+              />
             </Link>
           )}
           {collapsed && (
-            <span style={{ fontWeight: 700, fontSize: "18px", color: "var(--accent)", width: "100%", textAlign: "center" }}>M</span>
+            <button
+              onClick={onToggle}
+              className="hidden md:flex items-center justify-center"
+              style={{ width: "100%", background: "transparent", padding: 0, border: "none" }}
+              title="Expand sidebar"
+            >
+              <img
+                src="/misstep-mark.svg"
+                alt="MISSTEP"
+                style={{ height: "28px", width: "28px" }}
+              />
+            </button>
           )}
-          <button
-            onClick={onToggle}
-            className="hidden md:flex items-center justify-center"
-            style={{ color: "var(--text-muted)", padding: "4px", borderRadius: "var(--radius)", background: "transparent" }}
-          >
-            {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          </button>
+          {!collapsed && (
+            <button
+              onClick={onToggle}
+              className="hidden md:flex items-center justify-center"
+              style={{ color: "var(--text-muted)", padding: "4px", borderRadius: "var(--radius)", background: "transparent" }}
+            >
+              <ChevronLeft size={18} />
+            </button>
+          )}
           <button
             onClick={onToggle}
             className="md:hidden flex items-center justify-center"
