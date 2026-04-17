@@ -1278,6 +1278,7 @@ export function calculateJumpstartEv(
       ev_gross: Math.round(themeEvGross * 100) / 100,
       ev_net: Math.round(themeEvGross * (1 - feeRate) * 100) / 100,
       rare_count: rareCount,
+      lead_card: theme.cards[0] ?? "",
       cards: cardResults,
     });
   }

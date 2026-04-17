@@ -376,6 +376,7 @@ export interface EvJumpstartThemeResult {
   ev_gross: number;
   ev_net: number;
   rare_count: number;
+  lead_card: string;  // first card in the theme's source list — the signature rare/mythic of the pack
   cards: { name: string; rarity: string; price: number; image_uri: string | null }[];
 }
 
