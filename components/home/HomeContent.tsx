@@ -36,7 +36,7 @@ export default function HomeContent() {
 
       <NextGoal />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px" }}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
           title="CM Balance"
           value={isLoading ? "..." : `€${(stats?.cmBalance ?? 0).toFixed(2)}`}

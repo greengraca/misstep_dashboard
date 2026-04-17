@@ -51,7 +51,7 @@ export default function AnalyticsContent() {
         Analytics
       </h1>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard
           title="Total Views"
           value={isLoading ? "..." : (data?.totalViews ?? 0).toLocaleString()}

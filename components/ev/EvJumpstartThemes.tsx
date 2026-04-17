@@ -67,13 +67,7 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
   return (
     <div className="flex flex-col gap-5">
       {/* Summary cards */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: "12px",
-        }}
-      >
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           title="Box EV (Gross)"
           value={`€${result.box_ev_gross.toFixed(2)}`}

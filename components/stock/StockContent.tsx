@@ -301,12 +301,8 @@ export default function StockContent() {
       </h1>
 
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: 12,
-          marginBottom: 16,
-        }}
+        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+        style={{ marginBottom: 16 }}
       >
         {statCards.map((c) => (
           <div

@@ -130,7 +130,7 @@ export default function TasksContent() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
         <StatCard title="Total Tasks" value={isLoading ? "..." : tasks.length} icon={<CheckSquare size={20} />} />
         <StatCard title="In Progress" value={isLoading ? "..." : inProgress} icon={<Clock size={20} />} active />
         <StatCard title="Completed" value={isLoading ? "..." : completed} icon={<CheckCheck size={20} />} />

@@ -50,13 +50,7 @@ export default function EvSummaryCards({
           />
         )}
       </div>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: "12px",
-        }}
-      >
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           title="Box EV (Gross)"
           value={isLoading ? "..." : result ? `€${result.box_ev_gross.toFixed(2)}` : "—"}

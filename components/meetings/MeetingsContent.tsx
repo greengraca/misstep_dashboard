@@ -117,7 +117,7 @@ export default function MeetingsContent() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
         <StatCard title="Total Meetings" value={isLoading ? "..." : meetings.length} icon={<MessageCircle size={20} />} />
         <StatCard title="This Month" value={isLoading ? "..." : thisMonth} icon={<CalendarCheck size={20} />} active />
         <StatCard title="Attendees" value={isLoading ? "..." : totalAttendees} icon={<Users size={20} />} />
