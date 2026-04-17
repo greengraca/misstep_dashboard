@@ -8,6 +8,7 @@ import ShelfFrame from "./ShelfFrame";
 import Box3D, { type BoxData } from "./Box3D";
 import {
   SHELF_BOARD_Y,
+  SHELF_FRAME,
   BOX_DIMENSIONS,
   BOX_GAP,
   CAMERA_DEFAULTS,
@@ -57,7 +58,11 @@ export default function Shelf3D({
           let x = 0;
           return row.boxes.map((box, boxIdx) => {
             const boxDim = BOX_DIMENSIONS[box.type];
-            const position: [number, number, number] = [x, shelfY, 0];
+            // Flush boxes to the front (+Z side, toward the camera). Box
+            // origin is its back-left-floor corner, so we push it forward by
+            // (shelf_depth − box_depth) so its front face lands at Z = D.
+            const zFront = SHELF_FRAME.depth - boxDim.depth;
+            const position: [number, number, number] = [x, shelfY, zFront];
             x += boxDim.width + BOX_GAP;
             return (
               <Box3D

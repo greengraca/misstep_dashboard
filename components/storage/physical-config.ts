@@ -7,9 +7,9 @@ import type { BoxType } from "@/lib/storage";
 
 /** Total shelf frame dimensions (width × height × depth), in meters. */
 export const SHELF_FRAME = {
-  width: 1.85,
-  height: 2.20,
-  depth: 0.40,
+  width: 1.795,
+  height: 1.80,
+  depth: 0.60,
 } as const;
 
 /**
@@ -17,13 +17,20 @@ export const SHELF_FRAME = {
  * The array order maps to the `layout.shelfRows` array: index 0 is the top
  * shelf, index 1 is the middle, index 2 is the bottom.
  */
-export const SHELF_BOARD_Y: readonly number[] = [1.80, 1.25, 0.65];
+export const SHELF_BOARD_Y: readonly number[] = [1.47, 1.02, 0.53];
 
 /** Thickness of each shelf board, in meters. */
 export const SHELF_BOARD_THICKNESS = 0.02;
 
-/** Thickness of vertical frame rails. */
-export const FRAME_RAIL_THICKNESS = 0.04;
+/** Thickness of the 4 vertical corner posts (square cross-section). */
+export const FRAME_RAIL_THICKNESS = 0.0375;
+
+/**
+ * Vertical height of the horizontal crossbars that run between posts at the
+ * top of the unit and under each shelf level. The shelf board's top surface
+ * aligns with the top of the crossbar at that level.
+ */
+export const HORIZONTAL_RAIL_HEIGHT = 0.072;
 
 /**
  * Box dimensions per type, in meters. Order: width (across shelf, X axis),
@@ -55,7 +62,7 @@ export const ROW_CAPACITY_SLOTS = 125;
  * the user can see the box fronts without the shelf frame occluding them.
  */
 export const CAMERA_DEFAULTS = {
-  position: [0.925, 3.0, 2.8] as [number, number, number], // centered in front, tilted down
+  position: [0.8975, 2.6, 2.8] as [number, number, number], // centered in front, tilted down
   fov: 50,
-  target: [0.925, 1.1, 0.2] as [number, number, number],
+  target: [0.8975, 0.9, 0.3] as [number, number, number],
 };

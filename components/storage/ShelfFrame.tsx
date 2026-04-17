@@ -7,6 +7,7 @@ import {
   SHELF_BOARD_Y,
   SHELF_BOARD_THICKNESS,
   FRAME_RAIL_THICKNESS,
+  HORIZONTAL_RAIL_HEIGHT,
 } from "./physical-config";
 
 const FRAME_COLOR = "#2a2a2e";
@@ -17,6 +18,7 @@ export default function ShelfFrame() {
   const H = SHELF_FRAME.height;
   const D = SHELF_FRAME.depth;
   const R = FRAME_RAIL_THICKNESS;
+  const RH = HORIZONTAL_RAIL_HEIGHT;
 
   // Internal box area runs from X=0..W and Z=0..D. Corner posts sit OUTSIDE
   // that rectangle at X=-R/2 / X=W+R/2, Z=-R/2 / Z=D+R/2 so they never clip
@@ -43,36 +45,27 @@ export default function ShelfFrame() {
         </mesh>
       ))}
 
-      {/* Top rectangle: 4 horizontal crossbars at Y = H - R/2 connecting the
-          tops of the posts. Matches the flat surface visible on top of the
-          real shelf unit in the reference photos. */}
-      <mesh position={[cx, H - R / 2, -R / 2]}>
-        <boxGeometry args={[outerX, R, R]} />
+      {/* Top rectangle: 4 horizontal crossbars with their top surface at Y = H
+          connecting the tops of the posts. Matches the flat surface visible on
+          top of the real shelf unit in the reference photos. */}
+      <mesh position={[cx, H - RH / 2, -R / 2]}>
+        <boxGeometry args={[outerX, RH, R]} />
         <meshStandardMaterial color={FRAME_COLOR} />
       </mesh>
-      <mesh position={[cx, H - R / 2, D + R / 2]}>
-        <boxGeometry args={[outerX, R, R]} />
+      <mesh position={[cx, H - RH / 2, D + R / 2]}>
+        <boxGeometry args={[outerX, RH, R]} />
         <meshStandardMaterial color={FRAME_COLOR} />
       </mesh>
-      <mesh position={[-R / 2, H - R / 2, cz]}>
-        <boxGeometry args={[R, R, outerZ]} />
+      <mesh position={[-R / 2, H - RH / 2, cz]}>
+        <boxGeometry args={[R, RH, outerZ]} />
         <meshStandardMaterial color={FRAME_COLOR} />
       </mesh>
-      <mesh position={[W + R / 2, H - R / 2, cz]}>
-        <boxGeometry args={[R, R, outerZ]} />
+      <mesh position={[W + R / 2, H - RH / 2, cz]}>
+        <boxGeometry args={[R, RH, outerZ]} />
         <meshStandardMaterial color={FRAME_COLOR} />
       </mesh>
 
-      {/* Base rectangle at Y = R/2 (floor level) connecting the bottoms of
-          the posts. Frames the empty region below the lowest shelf. */}
-      <mesh position={[cx, R / 2, -R / 2]}>
-        <boxGeometry args={[outerX, R, R]} />
-        <meshStandardMaterial color={FRAME_COLOR} />
-      </mesh>
-      <mesh position={[cx, R / 2, D + R / 2]}>
-        <boxGeometry args={[outerX, R, R]} />
-        <meshStandardMaterial color={FRAME_COLOR} />
-      </mesh>
+      {/* No base frame rails — the unit sits on 4 legs only. */}
 
       {/* Shelf boards fill the full internal footprint (X 0..W, Z 0..D). The
           top surface of each board is exactly at SHELF_BOARD_Y[i], so boxes
@@ -87,19 +80,26 @@ export default function ShelfFrame() {
         </mesh>
       ))}
 
-      {/* Front + back crossbars UNDER each shelf board. These support the
-          board from below, as seen in the reference photo where a horizontal
-          metal strip runs along the front of each shelf level right under the
-          MDF surface. */}
+      {/* Crossbars on all 4 sides at each shelf level. Top surface is at
+          Y = y (same height as the board's top surface) — the tall rail runs
+          alongside the thinner board, matching the real unit. */}
       {SHELF_BOARD_Y.flatMap((y, i) => {
-        const crossY = y - SHELF_BOARD_THICKNESS - R / 2;
+        const crossY = y - RH / 2;
         return [
           <mesh key={`crossbar-f-${i}`} position={[cx, crossY, -R / 2]}>
-            <boxGeometry args={[outerX, R, R]} />
+            <boxGeometry args={[outerX, RH, R]} />
             <meshStandardMaterial color={FRAME_COLOR} />
           </mesh>,
           <mesh key={`crossbar-b-${i}`} position={[cx, crossY, D + R / 2]}>
-            <boxGeometry args={[outerX, R, R]} />
+            <boxGeometry args={[outerX, RH, R]} />
+            <meshStandardMaterial color={FRAME_COLOR} />
+          </mesh>,
+          <mesh key={`crossbar-l-${i}`} position={[-R / 2, crossY, cz]}>
+            <boxGeometry args={[R, RH, outerZ]} />
+            <meshStandardMaterial color={FRAME_COLOR} />
+          </mesh>,
+          <mesh key={`crossbar-r-${i}`} position={[W + R / 2, crossY, cz]}>
+            <boxGeometry args={[R, RH, outerZ]} />
             <meshStandardMaterial color={FRAME_COLOR} />
           </mesh>,
         ];
