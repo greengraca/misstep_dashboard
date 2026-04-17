@@ -17,13 +17,13 @@ interface TeamMember {
   email?: string;
 }
 
+const panelClass = "p-4 sm:p-6";
 const panelStyle = {
   background: "var(--surface-gradient)",
   backdropFilter: "var(--surface-blur)",
   border: "var(--surface-border)",
   boxShadow: "var(--surface-shadow)",
   borderRadius: "var(--radius)",
-  padding: "24px",
 };
 
 export default function SettingsContent() {
@@ -36,8 +36,8 @@ export default function SettingsContent() {
   const teamMembers = data?.teamMembers ?? [];
 
   return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
           Settings
         </h1>
@@ -63,6 +63,7 @@ export default function SettingsContent() {
       {/* Seed Stock progress link */}
       <Link
         href="/settings/seed-progress"
+        className={panelClass}
         style={{
           ...panelStyle,
           display: "flex",
@@ -87,7 +88,7 @@ export default function SettingsContent() {
         >
           <Radar size={20} />
         </div>
-        <div style={{ flex: 1 }}>
+        <div className="min-w-0" style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
             Seed Stock Progress
           </div>
@@ -102,6 +103,7 @@ export default function SettingsContent() {
       <a
         href="/api/ext/download"
         download
+        className={panelClass}
         style={{
           ...panelStyle,
           display: "flex",
@@ -126,7 +128,7 @@ export default function SettingsContent() {
         >
           <Download size={20} />
         </div>
-        <div style={{ flex: 1 }}>
+        <div className="min-w-0" style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
             Download Extension (v{LATEST_EXT_VERSION})
           </div>
@@ -138,7 +140,7 @@ export default function SettingsContent() {
       </a>
 
       {/* Team Members */}
-      <div style={panelStyle}>
+      <div className={panelClass} style={panelStyle}>
         <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
           Team Members
         </h2>
@@ -182,10 +184,20 @@ export default function SettingsContent() {
                 >
                   {member.name.charAt(0).toUpperCase()}
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{member.name}</div>
+                <div className="flex-1 min-w-0">
+                  <div
+                    className="truncate"
+                    style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}
+                  >
+                    {member.name}
+                  </div>
                   {member.email && (
-                    <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{member.email}</div>
+                    <div
+                      className="truncate"
+                      style={{ fontSize: "12px", color: "var(--text-muted)" }}
+                    >
+                      {member.email}
+                    </div>
                   )}
                 </div>
                 <span
@@ -207,7 +219,7 @@ export default function SettingsContent() {
       </div>
 
       {/* Environment Variables */}
-      <div style={panelStyle}>
+      <div className={panelClass} style={panelStyle}>
         <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
           Environment Variables
         </h2>
@@ -239,10 +251,16 @@ export default function SettingsContent() {
                 ) : (
                   <XCircle size={16} style={{ color: "var(--danger, #ef4444)", flexShrink: 0 }} />
                 )}
-                <span style={{ fontSize: "13px", fontFamily: "monospace", color: "var(--text-primary)", flex: 1 }}>
+                <span
+                  className="flex-1 min-w-0 truncate"
+                  style={{ fontSize: "13px", fontFamily: "monospace", color: "var(--text-primary)" }}
+                >
                   {ev.name}
                 </span>
-                <span style={{ fontSize: "13px", fontFamily: "monospace", color: "var(--text-muted)" }}>
+                <span
+                  className="shrink-0"
+                  style={{ fontSize: "13px", fontFamily: "monospace", color: "var(--text-muted)" }}
+                >
                   {ev.set ? (ev.masked ?? "••••••••") : "not set"}
                 </span>
               </div>

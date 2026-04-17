@@ -288,7 +288,7 @@ export default function StockContent() {
   }, []);
 
   return (
-    <div style={{ padding: "20px 24px", maxWidth: 1400, margin: "0 auto" }}>
+    <div>
       <h1
         style={{
           fontSize: 22,

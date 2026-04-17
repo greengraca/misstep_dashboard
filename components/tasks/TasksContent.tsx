@@ -105,8 +105,8 @@ export default function TasksContent() {
   const completed = tasks.filter(t => t.status === "done").length;
 
   return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
           Tasks
         </h1>
@@ -163,6 +163,49 @@ export default function TasksContent() {
         data={filtered}
         keyField="_id"
         defaultSortKey="dueDate"
+        renderMobileCard={(t) => (
+          <div
+            className="p-3"
+            style={{ borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p
+                className="text-sm font-medium min-w-0 break-words"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {t.title}
+              </p>
+              <span
+                className="shrink-0 text-xs font-semibold capitalize"
+                style={{
+                  color: PRIORITY_COLORS[t.priority],
+                  background: `${PRIORITY_COLORS[t.priority]}22`,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                }}
+              >
+                {t.priority}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-2 flex-wrap text-xs">
+              <span style={{ color: STATUS_COLORS[t.status], fontWeight: 500 }}>
+                {STATUS_LABELS[t.status]}
+              </span>
+              <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+              <span style={{ color: "var(--text-muted)" }}>
+                {t.assignee ?? "—"}
+              </span>
+              {t.dueDate && (
+                <>
+                  <span style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+                  <span style={{ color: "var(--text-muted)" }}>
+                    {new Date(t.dueDate).toLocaleDateString()}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       />
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Add Task">

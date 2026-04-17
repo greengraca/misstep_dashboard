@@ -104,12 +104,11 @@ export function PinLockScreen({ callbackUrl }: { callbackUrl: string }) {
         }
       `}</style>
 
-      <main style={{
+      <main className="p-4 sm:p-6" style={{
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "24px",
         background: "var(--bg-page)",
         position: "relative",
         overflow: "hidden",
@@ -129,13 +128,12 @@ export function PinLockScreen({ callbackUrl }: { callbackUrl: string }) {
         }} />
 
         {/* Card */}
-        <div style={{
+        <div className="p-8 sm:p-12 sm:px-10" style={{
           background: "var(--surface-gradient)",
           backdropFilter: "var(--surface-blur)",
           border: "var(--surface-border)",
           boxShadow: "var(--surface-shadow)",
           borderRadius: "var(--radius)",
-          padding: "48px 40px",
           maxWidth: "380px",
           width: "100%",
           position: "relative",
@@ -194,18 +192,14 @@ export function PinLockScreen({ callbackUrl }: { callbackUrl: string }) {
 
           {/* PIN inputs */}
           <div
-            style={{
-              display: "flex",
-              gap: "12px",
-              alignItems: "center",
-            }}
+            className="flex items-center gap-1.5 sm:gap-3"
             onPaste={handlePaste}
           >
             {digits.map((digit, i) => (
               <input
                 key={i}
                 ref={el => { inputRefs.current[i] = el; }}
-                className="pin-digit"
+                className="pin-digit w-10 h-12 sm:w-[52px] sm:h-[60px]"
                 type="password"
                 inputMode="numeric"
                 pattern="[0-9]"
@@ -217,8 +211,6 @@ export function PinLockScreen({ callbackUrl }: { callbackUrl: string }) {
                 autoFocus={i === 0}
                 autoComplete="off"
                 style={{
-                  width: "52px",
-                  height: "60px",
                   textAlign: "center",
                   fontSize: "24px",
                   fontWeight: 700,

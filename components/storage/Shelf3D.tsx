@@ -30,8 +30,7 @@ export default function Shelf3D({
 }: Shelf3DProps) {
   return (
     <div
-      className="w-full rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] overflow-hidden"
-      style={{ height: 600 }}
+      className="w-full rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] overflow-hidden h-[420px] sm:h-[600px]"
     >
       <Canvas
         camera={{ position: CAMERA_DEFAULTS.position, fov: CAMERA_DEFAULTS.fov }}

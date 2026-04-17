@@ -278,8 +278,8 @@ export default function CardmarketContent() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
             Cardmarket
           </h1>
@@ -377,7 +377,7 @@ export default function CardmarketContent() {
       {/* Orders */}
       <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
         {/* Direction toggle + Status tabs */}
-        <div className="flex items-center justify-between px-4 pt-4 pb-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-0">
           <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Orders</h2>
 
           {/* Sales / Purchases toggle */}
@@ -403,8 +403,8 @@ export default function CardmarketContent() {
 
         {/* Status tabs */}
         <div
-          className="flex gap-0 px-4 mt-3"
-          style={{ borderBottom: "1px solid var(--border)" }}
+          className="flex gap-0 px-4 mt-3 overflow-x-auto"
+          style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
         >
           {STATUS_TABS.map((tab) => {
             const count = getTabCount(tab.key);
@@ -413,7 +413,7 @@ export default function CardmarketContent() {
               <button
                 key={tab.key}
                 onClick={() => handleTabChange(tab.key)}
-                className="px-3 py-2 text-xs font-medium transition-all relative"
+                className="px-3 py-2 text-xs font-medium transition-all relative whitespace-nowrap shrink-0"
                 style={{
                   color: active ? "var(--accent)" : "var(--text-muted)",
                   borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
@@ -454,7 +454,8 @@ export default function CardmarketContent() {
         <div className="px-4 pb-4">
           {orders?.orders?.length ? (
             <>
-              <table className="w-full text-xs" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+              <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full text-xs min-w-[680px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
                     <th className="text-center py-2 px-1 font-medium w-6">#</th>
@@ -513,6 +514,7 @@ export default function CardmarketContent() {
                   })}
                 </tbody>
               </table>
+              </div>
 
               {/* Pagination */}
               {orders.total > 20 && (
@@ -745,7 +747,8 @@ function OrderRow({
                   )}
 
                   {/* Items table */}
-                  <table className="w-full text-[11px]">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-[11px] min-w-[480px]">
                     <thead>
                       <tr style={{ color: "var(--text-muted)" }}>
                         <th className="text-left py-1 font-medium">Card</th>
@@ -781,6 +784,7 @@ function OrderRow({
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </>
               ) : (
                 <p className="text-[11px] text-center py-2" style={{ color: "var(--text-muted)" }}>

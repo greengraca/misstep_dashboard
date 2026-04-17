@@ -110,6 +110,39 @@ export default function ActivityContent() {
         data={entries}
         keyField="_id"
         defaultSortKey="timestamp"
+        renderMobileCard={(e) => (
+          <div
+            className="p-3"
+            style={{ borderBottom: "1px solid var(--border-subtle)" }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span
+                className="text-sm font-medium truncate"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <span style={{ textTransform: "capitalize" }}>{e.action}</span>{" "}
+                <span style={{ color: "var(--text-muted)" }}>{e.entity_type}</span>
+              </span>
+              <span
+                className="shrink-0 text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {new Date(e.timestamp).toLocaleString("pt-PT", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+            <p
+              className="text-xs break-words"
+              style={{ color: "var(--text-muted)", margin: 0 }}
+            >
+              {e.user} · {e.details}
+            </p>
+          </div>
+        )}
       />
     </div>
   );

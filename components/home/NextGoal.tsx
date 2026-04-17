@@ -22,13 +22,12 @@ export default function NextGoal() {
   if (isLoading) {
     return (
       <div
-        className="rounded-xl"
+        className="rounded-xl p-4 sm:p-6"
         style={{
           background: "var(--surface-gradient)",
           backdropFilter: "var(--surface-blur)",
           border: "var(--surface-border)",
           boxShadow: "var(--surface-shadow)",
-          padding: "24px",
           minHeight: "120px",
         }}
       >
@@ -54,13 +53,12 @@ export default function NextGoal() {
 
   return (
     <div
-      className="rounded-xl"
+      className="rounded-xl p-4 sm:p-6"
       style={{
         background: "var(--surface-gradient)",
         backdropFilter: "var(--surface-blur)",
         border: "var(--surface-border)",
         boxShadow: "var(--surface-shadow)",
-        padding: "24px",
       }}
     >
       {/* Header */}
@@ -77,12 +75,15 @@ export default function NextGoal() {
       </div>
 
       {/* Title row */}
-      <div className="flex items-baseline justify-between mb-1">
-        <h2 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+      <div className="flex items-baseline justify-between gap-3 mb-1 flex-wrap">
+        <h2
+          className="min-w-0"
+          style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}
+        >
           {goal.name}
         </h2>
         <span
-          className="text-xl font-bold"
+          className="text-xl font-bold whitespace-nowrap"
           style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}
         >
           €{goal.current.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}
@@ -90,12 +91,12 @@ export default function NextGoal() {
       </div>
 
       {/* Description + target */}
-      <div className="flex items-baseline justify-between mb-4">
-        <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0 }}>
+      <div className="flex items-baseline justify-between gap-3 mb-4 flex-wrap">
+        <p className="min-w-0" style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0 }}>
           {goal.description}
         </p>
         <span
-          className="text-sm"
+          className="text-sm whitespace-nowrap"
           style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
         >
           / €{goal.target.toLocaleString("pt-PT")}
@@ -126,14 +127,14 @@ export default function NextGoal() {
       </div>
 
       {/* Breakdown */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           CM Balance:{" "}
           <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
             €{goal.breakdown.cmBalance.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}
           </span>
         </span>
-        <span className="text-xs" style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
+        <span className="text-xs hidden sm:inline" style={{ color: "rgba(255,255,255,0.15)" }}>·</span>
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           Treasury:{" "}
           <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>

@@ -96,7 +96,7 @@ export default function EvConfigModal({ open, onClose, config, onSave, saving, b
         </div>
 
         {/* Booster type tabs */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {boosterLabel ? (
             <span
               className="text-sm font-medium px-3 py-1.5 rounded-lg"
@@ -120,7 +120,7 @@ export default function EvConfigModal({ open, onClose, config, onSave, saving, b
             />
           )}
           {boosterConfig && (
-            <div className="flex gap-3 ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
+            <div className="flex flex-wrap gap-3 sm:ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
               <span>
                 Packs/box:{" "}
                 <input

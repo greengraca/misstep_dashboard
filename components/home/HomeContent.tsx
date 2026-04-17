@@ -65,13 +65,13 @@ export default function HomeContent() {
 
       {/* Pending Reimbursements */}
       <div
+        className="p-4 sm:p-6"
         style={{
           background: "var(--surface-gradient)",
           backdropFilter: "var(--surface-blur)",
           border: "var(--surface-border)",
           boxShadow: "var(--surface-shadow)",
           borderRadius: "var(--radius)",
-          padding: "24px",
         }}
       >
         <div className="flex items-center justify-between mb-4">

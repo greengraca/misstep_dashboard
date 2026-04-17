@@ -25,7 +25,7 @@ export default function EvContent() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
         <div className="skeleton" style={{ height: "48px", maxWidth: "400px" }} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px" }}>
           {[1, 2, 3, 4, 5, 6].map(i => (
@@ -37,7 +37,7 @@ export default function EvContent() {
   }
 
   return (
-    <div className="p-4 sm:p-6">
+    <>
       {selectedSet ? (
         <EvSetDetail
           set={selectedSet}
@@ -50,6 +50,6 @@ export default function EvContent() {
           onRefresh={handleRefreshSets}
         />
       )}
-    </div>
+    </>
   );
 }

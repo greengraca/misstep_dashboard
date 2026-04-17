@@ -30,9 +30,9 @@ export default function EvSlotBreakdown({ slots, boxEvGross }: EvSlotBreakdownPr
             const pct = boxEvGross > 0 ? (slot.slot_ev / boxEvGross) * 100 : 0;
             const barWidth = maxEv > 0 ? (slot.slot_ev / maxEv) * 100 : 0;
             return (
-              <div key={slot.slot_number} className="flex items-center gap-3">
+              <div key={slot.slot_number} className="flex items-center gap-2 sm:gap-3">
                 <span
-                  className="text-xs w-[140px] shrink-0 truncate"
+                  className="text-xs w-[100px] sm:w-[140px] shrink-0 truncate"
                   style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}
                 >
                   {slot.label}
@@ -47,13 +47,13 @@ export default function EvSlotBreakdown({ slots, boxEvGross }: EvSlotBreakdownPr
                   />
                 </div>
                 <span
-                  className="text-xs w-[70px] text-right shrink-0"
+                  className="text-xs w-[60px] sm:w-[70px] text-right shrink-0"
                   style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}
                 >
                   &euro;{slot.slot_ev.toFixed(2)}
                 </span>
                 <span
-                  className="text-xs w-[40px] text-right shrink-0"
+                  className="hidden sm:inline text-xs w-[40px] text-right shrink-0"
                   style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
                 >
                   {pct.toFixed(0)}%

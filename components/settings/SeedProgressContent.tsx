@@ -29,13 +29,13 @@ interface Lease {
   expiresAt: string;
 }
 
+const panelClass = "p-4 sm:p-6";
 const panelStyle = {
   background: "var(--surface-gradient)",
   backdropFilter: "var(--surface-blur)",
   border: "var(--surface-border)",
   boxShadow: "var(--surface-shadow)",
   borderRadius: "var(--radius)",
-  padding: "24px",
 };
 
 const statStyle = {
@@ -104,9 +104,9 @@ export default function SeedProgressContent() {
   };
 
   return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/settings"
             style={{
@@ -120,7 +120,10 @@ export default function SeedProgressContent() {
           >
             <ArrowLeft size={14} /> Settings
           </Link>
-          <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+          <h1
+            className="min-w-0 truncate"
+            style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}
+          >
             Seed Stock Progress
           </h1>
         </div>
@@ -144,7 +147,7 @@ export default function SeedProgressContent() {
       </div>
 
       {/* Integrity */}
-      <div style={panelStyle}>
+      <div className={panelClass} style={panelStyle}>
         <h2
           style={{
             fontSize: "16px",
@@ -223,7 +226,7 @@ export default function SeedProgressContent() {
       </div>
 
       {/* Active leases */}
-      <div style={panelStyle}>
+      <div className={panelClass} style={panelStyle}>
         <h2
           style={{
             fontSize: "16px",
@@ -246,34 +249,40 @@ export default function SeedProgressContent() {
             {leaseList.map((l) => (
               <div
                 key={l.memberName}
+                className="flex flex-col sm:grid sm:items-center gap-1 sm:gap-3 px-3 sm:px-4 py-2.5"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "140px 1fr 100px",
-                  gap: "12px",
-                  alignItems: "center",
-                  padding: "10px 14px",
+                  gridTemplateColumns: "140px 1fr 110px",
                   background: "var(--bg-card)",
                   border: "1px solid var(--border)",
                   borderRadius: "var(--radius)",
                 }}
               >
-                <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
-                  {l.memberName}
-                </span>
+                <div className="flex items-center justify-between sm:block">
+                  <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
+                    {l.memberName}
+                  </span>
+                  <span
+                    className="sm:hidden"
+                    style={{ fontSize: "11px", color: "var(--text-muted)" }}
+                  >
+                    expires {timeAgo(l.expiresAt).replace(" ago", "")}
+                  </span>
+                </div>
                 <span
+                  className="min-w-0 truncate"
                   style={{
                     fontFamily: "monospace",
                     fontSize: "12px",
                     color: "var(--text-secondary)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
                   }}
                   title={l.filterHash}
                 >
                   {l.filterLabel || l.filterHash || "(no filter)"}
                 </span>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", textAlign: "right" }}>
+                <span
+                  className="hidden sm:block text-right"
+                  style={{ fontSize: "11px", color: "var(--text-muted)" }}
+                >
                   expires {timeAgo(l.expiresAt).replace(" ago", "")}
                 </span>
               </div>
@@ -283,7 +292,7 @@ export default function SeedProgressContent() {
       </div>
 
       {/* Per-member progress */}
-      <div style={panelStyle}>
+      <div className={panelClass} style={panelStyle}>
         <h2
           style={{
             fontSize: "16px",
@@ -306,32 +315,35 @@ export default function SeedProgressContent() {
             {progressList.map((p) => (
               <div
                 key={p.memberName}
+                className="flex flex-col sm:grid sm:items-center gap-1 sm:gap-3 px-3 sm:px-4 py-2.5"
                 style={{
-                  display: "grid",
                   gridTemplateColumns: "140px 1fr 70px 100px",
-                  gap: "12px",
-                  alignItems: "center",
-                  padding: "10px 14px",
                   background: "var(--bg-card)",
                   border: "1px solid var(--border)",
                   borderRadius: "var(--radius)",
                 }}
               >
-                <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
-                  {p.memberName}
-                </span>
+                <div className="flex items-center justify-between sm:block">
+                  <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
+                    {p.memberName}
+                  </span>
+                  <span
+                    className="sm:hidden"
+                    style={{ fontSize: "11px", color: "var(--text-muted)" }}
+                  >
+                    {timeAgo(p.updatedAt)}
+                  </span>
+                </div>
                 <a
                   href={`https://www.cardmarket.com${p.lastFilterUrl}`}
                   target="_blank"
                   rel="noopener noreferrer"
+                  className="min-w-0 truncate"
                   style={{
                     fontFamily: "monospace",
                     fontSize: "12px",
                     color: "var(--text-secondary)",
                     textDecoration: "none",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
                   }}
                   title={p.lastFilterUrl}
                 >
@@ -340,7 +352,10 @@ export default function SeedProgressContent() {
                 <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
                   page {p.lastPage}
                 </span>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", textAlign: "right" }}>
+                <span
+                  className="hidden sm:block text-right"
+                  style={{ fontSize: "11px", color: "var(--text-muted)" }}
+                >
                   {timeAgo(p.updatedAt)}
                 </span>
               </div>

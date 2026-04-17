@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SWRConfig } from "swr";
 import Sidebar from "@/components/dashboard/sidebar";
 import { SensitiveDataProvider } from "@/contexts/SensitiveDataContext";
@@ -8,6 +8,12 @@ import { fetcher } from "@/lib/fetcher";
 
 export default function SidebarShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+      setCollapsed(true);
+    }
+  }, []);
 
   return (
     <SWRConfig

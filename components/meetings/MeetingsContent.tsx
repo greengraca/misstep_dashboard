@@ -92,8 +92,8 @@ export default function MeetingsContent() {
   ];
 
   return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
           Meetings
         </h1>
@@ -128,6 +128,63 @@ export default function MeetingsContent() {
         data={meetings}
         keyField="_id"
         defaultSortKey="date"
+        renderMobileCard={(m) => {
+          const isOpen = expandedId === m._id;
+          return (
+            <div
+              className="p-3"
+              style={{ borderBottom: "1px solid var(--border-subtle)" }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p
+                    className="text-sm font-medium truncate"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {m.title}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {new Date(m.date).toLocaleDateString()} ·{" "}
+                    {m.attendees?.length ?? 0} attendee
+                    {(m.attendees?.length ?? 0) !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                {m.notes && (
+                  <button
+                    onClick={() => setExpandedId(isOpen ? null : m._id)}
+                    className="shrink-0"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--accent)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 4,
+                    }}
+                  >
+                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Notes
+                  </button>
+                )}
+              </div>
+              {isOpen && m.notes && (
+                <div
+                  className="mt-2 p-2.5 text-xs whitespace-pre-wrap"
+                  style={{
+                    background: "var(--bg-card)",
+                    borderRadius: "var(--radius)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {m.notes}
+                </div>
+              )}
+            </div>
+          );
+        }}
       />
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Schedule Meeting">

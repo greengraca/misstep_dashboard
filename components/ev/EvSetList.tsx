@@ -144,33 +144,42 @@ export default function EvSetList({ sets, onSelectSet, onRefresh }: EvSetListPro
             <div
               key={set.code}
               onClick={() => onSelectSet(set.code)}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
+              className="flex items-center gap-2 sm:gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
               style={{ borderBottom: "1px solid var(--border-subtle)" }}
             >
               {set.icon_svg_uri && (
                 <img
                   src={set.icon_svg_uri}
                   alt={set.name}
-                  className="w-5 h-5"
+                  className="w-5 h-5 shrink-0"
                   style={{ filter: "invert(0.9)" }}
                 />
               )}
-              <span className="text-sm font-medium flex-1 truncate" style={{ color: "var(--text-primary)" }}>
+              <span
+                className="text-sm font-medium flex-1 min-w-0 truncate"
+                style={{ color: "var(--text-primary)" }}
+              >
                 {set.name}
               </span>
               <span
-                className="text-xs w-10 text-center"
+                className="text-xs w-10 text-center shrink-0"
                 style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
               >
                 {set.code.toUpperCase()}
               </span>
-              <span className="text-xs w-20 text-right" style={{ color: "var(--text-muted)" }}>
+              <span
+                className="hidden md:inline text-xs w-20 text-right shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              >
                 {new Date(set.released_at + "T00:00:00").toLocaleDateString("pt-PT")}
               </span>
-              <span className="text-xs w-16 text-right" style={{ color: "var(--text-muted)" }}>
+              <span
+                className="hidden sm:inline text-xs w-16 text-right shrink-0"
+                style={{ color: "var(--text-muted)" }}
+              >
                 {set.card_count} cards
               </span>
-              <div className="w-32 flex justify-end gap-1">
+              <div className="w-auto sm:w-32 flex justify-end gap-1 shrink-0">
                 {set.config_exists ? (
                   <>
                     {set.play_ev_net != null && (
@@ -187,7 +196,7 @@ export default function EvSetList({ sets, onSelectSet, onRefresh }: EvSetListPro
                     )}
                     {set.collector_ev_net != null && (
                       <span
-                        className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                        className="hidden sm:inline text-xs px-1.5 py-0.5 rounded-full font-medium"
                         style={{
                           background: "rgba(168, 85, 247, 0.15)",
                           color: "#a855f7",

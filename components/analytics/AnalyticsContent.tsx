@@ -21,13 +21,13 @@ import { BarChart3, Eye, TrendingUp, CalendarDays } from "lucide-react";
 
 const PIE_COLORS = ["var(--accent)", "var(--success)", "var(--warning, #f59e0b)", "var(--danger, #ef4444)"];
 
+const panelClass = "p-4 sm:p-6";
 const panelStyle = {
   background: "var(--surface-gradient)",
   backdropFilter: "var(--surface-blur)",
   border: "var(--surface-border)",
   boxShadow: "var(--surface-shadow)",
   borderRadius: "var(--radius)",
-  padding: "24px",
 };
 
 export default function AnalyticsContent() {
@@ -46,7 +46,7 @@ export default function AnalyticsContent() {
   const barData = data?.barData ?? [];
 
   return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
         Analytics
       </h1>
@@ -76,7 +76,7 @@ export default function AnalyticsContent() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "16px" }}>
-        <div style={panelStyle}>
+        <div className={panelClass} style={panelStyle}>
           <h2 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
             Views Over Time
           </h2>
@@ -98,7 +98,7 @@ export default function AnalyticsContent() {
           </ResponsiveContainer>
         </div>
 
-        <div style={panelStyle}>
+        <div className={panelClass} style={panelStyle}>
           <h2 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
             By Category
           </h2>
@@ -130,7 +130,7 @@ export default function AnalyticsContent() {
         </div>
       </div>
 
-      <div style={panelStyle}>
+      <div className={panelClass} style={panelStyle}>
         <h2 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
           Activity Breakdown
         </h2>

@@ -240,14 +240,14 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
 
       {/* Open Session + weights indicator */}
       <div
-        className="flex items-center gap-3 px-3 py-2 rounded-lg"
+        className="flex flex-wrap items-center gap-3 px-3 py-2 rounded-lg"
         style={{
           background: "rgba(234,179,8,0.06)",
           border: "1px solid rgba(234,179,8,0.2)",
         }}
       >
         <PackageOpen size={16} style={{ color: "#eab308" }} />
-        <div className="flex-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+        <div className="flex-1 min-w-0 text-xs" style={{ color: "var(--text-secondary)" }}>
           {result.weights_source === "empirical" ? (
             <>
               Using <span style={{ color: "#eab308", fontWeight: 600 }}>empirical weights</span>
@@ -302,7 +302,7 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
         <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
           EV per Theme ({filteredThemes.length})
         </h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
           {filteredThemes.map((theme) => {
             const key = themeKey(theme);
             const expanded = expandedTheme === key;
