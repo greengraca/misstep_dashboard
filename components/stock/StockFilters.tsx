@@ -1,6 +1,8 @@
 "use client";
 
 import { STOCK_CONDITIONS, type StockCondition } from "@/lib/stock-types";
+import SetCombobox from "./SetCombobox";
+import type { SetMap } from "./StockTable";
 
 export interface StockFilterState {
   name: string;
@@ -11,6 +13,7 @@ export interface StockFilterState {
   minPrice: string;
   maxPrice: string;
   minQty: string;
+  hasStock: boolean;
 }
 
 export const emptyStockFilters: StockFilterState = {
@@ -22,12 +25,16 @@ export const emptyStockFilters: StockFilterState = {
   minPrice: "",
   maxPrice: "",
   minQty: "",
+  hasStock: true,
 };
 
 interface StockFiltersProps {
   value: StockFilterState;
   onChange: (next: StockFilterState) => void;
   onClear: () => void;
+  setNames: string[];
+  setMap?: SetMap;
+  languages: string[];
 }
 
 const inputStyle: React.CSSProperties = {
@@ -40,7 +47,25 @@ const inputStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
-export default function StockFilters({ value, onChange, onClear }: StockFiltersProps) {
+const labelCol: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+
+const labelText: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--text-muted)",
+};
+
+export default function StockFilters({
+  value,
+  onChange,
+  onClear,
+  setNames,
+  setMap,
+  languages,
+}: StockFiltersProps) {
   const set = <K extends keyof StockFilterState>(key: K, v: StockFilterState[K]) =>
     onChange({ ...value, [key]: v });
 
@@ -58,8 +83,8 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
         alignItems: "end",
       }}
     >
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Name</span>
+      <label style={labelCol}>
+        <span style={labelText}>Name</span>
         <input
           style={inputStyle}
           value={value.name}
@@ -67,17 +92,17 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
           placeholder="card name"
         />
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Set</span>
-        <input
-          style={inputStyle}
+      <label style={labelCol}>
+        <span style={labelText}>Set</span>
+        <SetCombobox
           value={value.set}
-          onChange={(e) => set("set", e.target.value)}
-          placeholder="e.g. m10"
+          onChange={(v) => set("set", v)}
+          setMap={setMap}
+          setNames={setNames}
         />
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Condition</span>
+      <label style={labelCol}>
+        <span style={labelText}>Condition</span>
         <select
           style={inputStyle}
           value={value.condition}
@@ -91,8 +116,8 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
           ))}
         </select>
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Foil</span>
+      <label style={labelCol}>
+        <span style={labelText}>Foil</span>
         <select
           style={inputStyle}
           value={value.foil}
@@ -103,17 +128,23 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
           <option value="false">Non-foil</option>
         </select>
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Language</span>
-        <input
+      <label style={labelCol}>
+        <span style={labelText}>Language</span>
+        <select
           style={inputStyle}
           value={value.language}
           onChange={(e) => set("language", e.target.value)}
-          placeholder="e.g. English"
-        />
+        >
+          <option value="">All</option>
+          {languages.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Min €</span>
+      <label style={labelCol}>
+        <span style={labelText}>Min €</span>
         <input
           style={inputStyle}
           type="number"
@@ -123,8 +154,8 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
           onChange={(e) => set("minPrice", e.target.value)}
         />
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Max €</span>
+      <label style={labelCol}>
+        <span style={labelText}>Max €</span>
         <input
           style={inputStyle}
           type="number"
@@ -134,8 +165,8 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
           onChange={(e) => set("maxPrice", e.target.value)}
         />
       </label>
-      <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Min qty</span>
+      <label style={labelCol}>
+        <span style={labelText}>Min qty</span>
         <input
           style={inputStyle}
           type="number"
@@ -143,6 +174,24 @@ export default function StockFilters({ value, onChange, onClear }: StockFiltersP
           value={value.minQty}
           onChange={(e) => set("minQty", e.target.value)}
         />
+      </label>
+      <label
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 12,
+          color: "var(--text-secondary)",
+          whiteSpace: "nowrap",
+          height: 32,
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={value.hasStock}
+          onChange={(e) => set("hasStock", e.target.checked)}
+        />
+        In stock only
       </label>
       <button
         type="button"

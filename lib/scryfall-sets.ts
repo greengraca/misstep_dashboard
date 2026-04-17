@@ -19,6 +19,7 @@ interface ScryfallSetsResponse {
 
 let cache: {
   byNormalizedName: Map<string, ScryfallSetMeta>;
+  byCode: Map<string, ScryfallSetMeta>;
   loadedAt: number;
 } | null = null;
 
@@ -34,6 +35,7 @@ async function loadSets(): Promise<void> {
   const json = (await res.json()) as ScryfallSetsResponse;
 
   const byNormalizedName = new Map<string, ScryfallSetMeta>();
+  const byCode = new Map<string, ScryfallSetMeta>();
   for (const s of json.data) {
     const meta: ScryfallSetMeta = {
       code: s.code,
@@ -41,8 +43,9 @@ async function loadSets(): Promise<void> {
       iconSvgUri: s.icon_svg_uri,
     };
     byNormalizedName.set(normalize(s.name), meta);
+    byCode.set(s.code.toLowerCase(), meta);
   }
-  cache = { byNormalizedName, loadedAt: Date.now() };
+  cache = { byNormalizedName, byCode, loadedAt: Date.now() };
 }
 
 async function ensureCache(): Promise<void> {
@@ -60,6 +63,16 @@ export async function getSetByCardmarketName(
     return null;
   }
   return cache?.byNormalizedName.get(normalize(name)) ?? null;
+}
+
+export async function getSetNameByCode(code: string): Promise<string | null> {
+  if (!code) return null;
+  try {
+    await ensureCache();
+  } catch {
+    return null;
+  }
+  return cache?.byCode.get(code.toLowerCase())?.name ?? null;
 }
 
 export async function resolveStockSets(

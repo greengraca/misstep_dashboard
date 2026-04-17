@@ -33,8 +33,21 @@ export default function StockChart() {
   const points =
     data?.points.map((p) => ({
       ...p,
-      date: new Date(p.extractedAt).toLocaleDateString(),
+      ts: new Date(p.extractedAt).getTime(),
     })) || [];
+
+  const tickFormatter = (ms: number) =>
+    new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const labelFormatter = (label: unknown) => {
+    const n = typeof label === "number" ? label : Number(label);
+    if (!Number.isFinite(n)) return String(label);
+    return new Date(n).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
   return (
     <div
@@ -122,7 +135,11 @@ export default function StockChart() {
             <LineChart data={points}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
               <XAxis
-                dataKey="date"
+                dataKey="ts"
+                type="number"
+                scale="time"
+                domain={["dataMin", "dataMax"]}
+                tickFormatter={tickFormatter}
                 stroke="var(--text-muted)"
                 fontSize={11}
                 tickLine={false}
@@ -147,6 +164,8 @@ export default function StockChart() {
                   borderRadius: 6,
                   fontSize: 12,
                 }}
+                labelFormatter={labelFormatter}
+                cursor={{ stroke: "rgba(255,255,255,0.2)", strokeWidth: 1 }}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Line
@@ -158,16 +177,18 @@ export default function StockChart() {
                 strokeWidth={2}
                 dot={false}
                 connectNulls
+                isAnimationActive={false}
               />
               <Line
                 yAxisId="left"
                 type="monotone"
                 dataKey="distinctNameSet"
-                name="Listings"
+                name="Unique cards"
                 stroke="#a78bfa"
                 strokeWidth={2}
                 dot={false}
                 connectNulls
+                isAnimationActive={false}
               />
               <Line
                 yAxisId="right"
@@ -178,6 +199,7 @@ export default function StockChart() {
                 strokeWidth={2}
                 dot={false}
                 connectNulls
+                isAnimationActive={false}
               />
             </LineChart>
           </ResponsiveContainer>

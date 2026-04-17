@@ -1,6 +1,8 @@
+import type { Collection, Document } from "mongodb";
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 import type { CmStockListing, CmStockSnapshot } from "@/lib/types";
+import { getSetNameByCode } from "@/lib/scryfall-sets";
 import type {
   StockSortField,
   StockSearchParams,
@@ -21,13 +23,33 @@ function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function buildStockFilter(params: StockSearchParams): Record<string, unknown> {
+export async function buildStockFilter(
+  params: StockSearchParams
+): Promise<Record<string, unknown>> {
   const filter: Record<string, unknown> = {};
   if (params.name && params.name.trim()) {
     filter.name = { $regex: escapeRegex(params.name.trim()), $options: "i" };
   }
   if (params.set && params.set.trim()) {
-    filter.set = params.set.trim();
+    const raw = params.set.trim();
+    // Accept either the stored Cardmarket name (substring, case-insensitive)
+    // or a Scryfall set code (e.g. "J25"). For a short all-alphanumeric token
+    // we also look up the matching full name so code searches work.
+    const asName = { $regex: escapeRegex(raw), $options: "i" };
+    const looksLikeCode = raw.length <= 6 && /^[a-z0-9]+$/i.test(raw);
+    if (looksLikeCode) {
+      const mapped = await getSetNameByCode(raw);
+      if (mapped) {
+        filter.$or = [
+          { set: asName },
+          { set: { $regex: `^${escapeRegex(mapped)}$`, $options: "i" } },
+        ];
+      } else {
+        filter.set = asName;
+      }
+    } else {
+      filter.set = asName;
+    }
   }
   if (params.condition) {
     filter.condition = params.condition;
@@ -36,7 +58,7 @@ export function buildStockFilter(params: StockSearchParams): Record<string, unkn
     filter.foil = params.foil;
   }
   if (params.language && params.language.trim()) {
-    filter.language = params.language.trim();
+    filter.language = { $regex: escapeRegex(params.language.trim()), $options: "i" };
   }
   const priceRange: Record<string, number> = {};
   if (typeof params.minPrice === "number") priceRange.$gte = params.minPrice;
@@ -48,26 +70,64 @@ export function buildStockFilter(params: StockSearchParams): Record<string, unkn
   return filter;
 }
 
+async function computeFilteredAggregates<T extends Document>(
+  col: Collection<T>,
+  filter: Record<string, unknown>
+): Promise<{ total: number; totalQty: number; totalValue: number; distinctNameSet: number }> {
+  const pipeline: Record<string, unknown>[] = [];
+  if (Object.keys(filter).length > 0) pipeline.push({ $match: filter });
+  pipeline.push({
+    $facet: {
+      totals: [
+        {
+          $group: {
+            _id: null,
+            count: { $sum: 1 },
+            qty: { $sum: "$qty" },
+            value: { $sum: { $multiply: ["$qty", "$price"] } },
+          },
+        },
+      ],
+      distinct: [
+        { $group: { _id: { name: "$name", set: "$set" } } },
+        { $count: "count" },
+      ],
+    },
+  });
+  const aggResult = await col.aggregate(pipeline).toArray();
+  const totals = aggResult[0]?.totals?.[0] || {};
+  const distinct = aggResult[0]?.distinct?.[0]?.count || 0;
+  return {
+    total: totals.count || 0,
+    totalQty: totals.qty || 0,
+    totalValue: Math.round((totals.value || 0) * 100) / 100,
+    distinctNameSet: distinct,
+  };
+}
+
 export async function searchStock(params: StockSearchParams): Promise<StockSearchResult> {
   const db = await getDb();
   const col = db.collection<CmStockListing>(COL_STOCK);
-  const filter = buildStockFilter(params);
+  const filter = await buildStockFilter(params);
   const sortDir = params.dir === "asc" ? 1 : -1;
   const skip = (params.page - 1) * params.pageSize;
 
-  const [rows, total] = await Promise.all([
+  const [rows, aggs] = await Promise.all([
     col
       .find(filter)
       .sort({ [params.sort]: sortDir })
       .skip(skip)
       .limit(params.pageSize)
       .toArray(),
-    col.countDocuments(filter),
+    computeFilteredAggregates(col, filter),
   ]);
 
   return {
     rows: rows as unknown as CmStockListing[],
-    total,
+    total: aggs.total,
+    totalQty: aggs.totalQty,
+    totalValue: aggs.totalValue,
+    distinctNameSet: aggs.distinctNameSet,
     page: params.page,
     pageSize: params.pageSize,
   };
@@ -87,15 +147,7 @@ export async function computeStockCounts(): Promise<StockCounts> {
                 _id: null,
                 totalListings: { $sum: 1 },
                 totalQty: { $sum: "$qty" },
-                totalValue: {
-                  $sum: {
-                    $cond: [
-                      { $gt: ["$price", 0.25] },
-                      { $multiply: ["$qty", "$price"] },
-                      0,
-                    ],
-                  },
-                },
+                totalValue: { $sum: { $multiply: ["$qty", "$price"] } },
               },
             },
           ],
@@ -122,13 +174,15 @@ export async function computeStockCounts(): Promise<StockCounts> {
 export async function getStockTotals(): Promise<{
   totalQty: number;
   totalValue: number;
-  distinctListings: number;
+  totalListings: number;
+  distinctNameSet: number;
 }> {
   const counts = await computeStockCounts();
   return {
     totalQty: counts.totalQty,
     totalValue: counts.totalValue,
-    distinctListings: counts.distinctNameSet,
+    totalListings: counts.totalListings,
+    distinctNameSet: counts.distinctNameSet,
   };
 }
 
@@ -163,6 +217,15 @@ export async function getDistinctStockSets(): Promise<string[]> {
   const col = db.collection(COL_STOCK);
   const sets = await col.distinct("set");
   return (sets as unknown[])
+    .filter((s): s is string => typeof s === "string" && s.length > 0)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export async function getDistinctStockLanguages(): Promise<string[]> {
+  const db = await getDb();
+  const col = db.collection(COL_STOCK);
+  const langs = await col.distinct("language");
+  return (langs as unknown[])
     .filter((s): s is string => typeof s === "string" && s.length > 0)
     .sort((a, b) => a.localeCompare(b));
 }

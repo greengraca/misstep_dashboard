@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { Package, Coins, ListOrdered } from "lucide-react";
+import { Package, Coins, ListOrdered, Layers, Filter } from "lucide-react";
 import type { CmStockListing } from "@/lib/types";
 import type { StockSortField } from "@/lib/stock-types";
+import { STOCK_SORT_FIELDS } from "@/lib/stock-types";
 import StockFilters, {
   emptyStockFilters,
   type StockFilterState,
@@ -17,7 +19,8 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 interface SummaryResponse {
   totalQty: number;
   totalValue: number;
-  distinctListings: number;
+  totalListings: number;
+  distinctNameSet: number;
   coverage: {
     tracked: number;
     total: number | null;
@@ -28,6 +31,9 @@ interface SummaryResponse {
 interface SearchResponse {
   rows: CmStockListing[];
   total: number;
+  totalQty: number;
+  totalValue: number;
+  distinctNameSet: number;
   page: number;
   pageSize: number;
   error?: string;
@@ -40,6 +46,33 @@ function useDebounced<T>(value: T, ms: number): T {
     return () => clearTimeout(id);
   }, [value, ms]);
   return debounced;
+}
+
+function resolveMinQty(filters: StockFilterState): number | null {
+  const explicit = filters.minQty.trim()
+    ? Number(filters.minQty.trim())
+    : null;
+  const floor = filters.hasStock ? 1 : null;
+  if (explicit != null && Number.isFinite(explicit) && floor != null) {
+    return Math.max(explicit, floor);
+  }
+  if (explicit != null && Number.isFinite(explicit)) return explicit;
+  return floor;
+}
+
+function hasAnyFilter(filters: StockFilterState): boolean {
+  const base: StockFilterState = { ...emptyStockFilters, hasStock: filters.hasStock };
+  const k: (keyof StockFilterState)[] = [
+    "name",
+    "set",
+    "condition",
+    "foil",
+    "language",
+    "minPrice",
+    "maxPrice",
+    "minQty",
+  ];
+  return k.some((key) => filters[key] !== base[key]);
 }
 
 function buildQuery(
@@ -57,7 +90,8 @@ function buildQuery(
   if (filters.language.trim()) sp.set("language", filters.language.trim());
   if (filters.minPrice.trim()) sp.set("minPrice", filters.minPrice.trim());
   if (filters.maxPrice.trim()) sp.set("maxPrice", filters.maxPrice.trim());
-  if (filters.minQty.trim()) sp.set("minQty", filters.minQty.trim());
+  const minQty = resolveMinQty(filters);
+  if (minQty != null) sp.set("minQty", String(minQty));
   sp.set("sort", sort);
   sp.set("dir", dir);
   sp.set("page", String(page));
@@ -65,16 +99,84 @@ function buildQuery(
   return sp.toString();
 }
 
+function parseStateFromUrl(sp: URLSearchParams): {
+  filters: StockFilterState;
+  sort: StockSortField;
+  dir: "asc" | "desc";
+  page: number;
+  pageSize: number;
+} {
+  const filters: StockFilterState = {
+    name: sp.get("name") ?? "",
+    set: sp.get("set") ?? "",
+    condition:
+      (sp.get("condition") as StockFilterState["condition"]) ?? "",
+    foil: (sp.get("foil") as StockFilterState["foil"]) ?? "",
+    language: sp.get("language") ?? "",
+    minPrice: sp.get("minPrice") ?? "",
+    maxPrice: sp.get("maxPrice") ?? "",
+    minQty: sp.get("minQty") ?? "",
+    hasStock: sp.get("hasStock") !== "0",
+  };
+  const sortRaw = sp.get("sort") ?? "lastSeenAt";
+  const sort = (STOCK_SORT_FIELDS as readonly string[]).includes(sortRaw)
+    ? (sortRaw as StockSortField)
+    : "lastSeenAt";
+  const dirRaw = sp.get("dir");
+  const dir: "asc" | "desc" = dirRaw === "asc" ? "asc" : "desc";
+  const pageNum = Number(sp.get("page") ?? "1");
+  const page = Number.isFinite(pageNum) && pageNum > 0 ? Math.floor(pageNum) : 1;
+  const pageSizeNum = Number(sp.get("pageSize") ?? "50");
+  const pageSize =
+    Number.isFinite(pageSizeNum) && pageSizeNum > 0
+      ? Math.min(200, Math.floor(pageSizeNum))
+      : 50;
+  return { filters, sort, dir, page, pageSize };
+}
+
+function stateToUrl(
+  filters: StockFilterState,
+  sort: StockSortField,
+  dir: "asc" | "desc",
+  page: number,
+  pageSize: number
+): string {
+  const sp = new URLSearchParams();
+  if (filters.name.trim()) sp.set("name", filters.name.trim());
+  if (filters.set.trim()) sp.set("set", filters.set.trim());
+  if (filters.condition) sp.set("condition", filters.condition);
+  if (filters.foil) sp.set("foil", filters.foil);
+  if (filters.language.trim()) sp.set("language", filters.language.trim());
+  if (filters.minPrice.trim()) sp.set("minPrice", filters.minPrice.trim());
+  if (filters.maxPrice.trim()) sp.set("maxPrice", filters.maxPrice.trim());
+  if (filters.minQty.trim()) sp.set("minQty", filters.minQty.trim());
+  if (!filters.hasStock) sp.set("hasStock", "0");
+  if (sort !== "lastSeenAt") sp.set("sort", sort);
+  if (dir !== "desc") sp.set("dir", dir);
+  if (page !== 1) sp.set("page", String(page));
+  if (pageSize !== 50) sp.set("pageSize", String(pageSize));
+  return sp.toString();
+}
+
 export default function StockContent() {
-  const [filters, setFilters] = useState<StockFilterState>(emptyStockFilters);
-  const [sort, setSort] = useState<StockSortField>("lastSeenAt");
-  const [dir, setDir] = useState<"asc" | "desc">("desc");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const router = useRouter();
+  const pathname = usePathname();
+  const urlParams = useSearchParams();
+
+  const initial = useMemo(
+    () => parseStateFromUrl(urlParams),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
+  const [filters, setFilters] = useState<StockFilterState>(initial.filters);
+  const [sort, setSort] = useState<StockSortField>(initial.sort);
+  const [dir, setDir] = useState<"asc" | "desc">(initial.dir);
+  const [page, setPage] = useState(initial.page);
+  const [pageSize, setPageSize] = useState(initial.pageSize);
 
   const debouncedFilters = useDebounced(filters, 300);
 
-  // Reset to page 1 whenever filters change (but not on pagination changes).
   useEffect(() => {
     setPage(1);
   }, [debouncedFilters]);
@@ -83,6 +185,12 @@ export default function StockContent() {
     () => buildQuery(debouncedFilters, sort, dir, page, pageSize),
     [debouncedFilters, sort, dir, page, pageSize]
   );
+
+  useEffect(() => {
+    const qs = stateToUrl(debouncedFilters, sort, dir, page, pageSize);
+    const nextUrl = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(nextUrl, { scroll: false });
+  }, [debouncedFilters, sort, dir, page, pageSize, pathname, router]);
 
   const { data: summary } = useSWR<SummaryResponse>("/api/stock/summary", fetcher, {
     dedupingInterval: 60_000,
@@ -94,14 +202,47 @@ export default function StockContent() {
     { dedupingInterval: 60 * 60 * 1000 }
   );
 
+  const { data: languagesData } = useSWR<{ languages: string[] }>(
+    "/api/stock/languages",
+    fetcher,
+    { dedupingInterval: 60 * 60 * 1000 }
+  );
+
   const { data: search, isLoading } = useSWR<SearchResponse>(
     `/api/stock?${query}`,
     fetcher
   );
 
+  const filtered = hasAnyFilter(debouncedFilters);
+  const displayQty = filtered ? search?.totalQty : summary?.totalQty;
+  const displayValue = filtered ? search?.totalValue : summary?.totalValue;
+  const displayListings = filtered ? search?.total : summary?.totalListings;
+  const displayUnique = filtered
+    ? search?.distinctNameSet
+    : summary?.distinctNameSet;
+
+  const scopeTag = filtered ? (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 10,
+        color: "var(--text-muted)",
+        textTransform: "none",
+        letterSpacing: 0,
+        padding: "2px 6px",
+        borderRadius: 4,
+        background: "rgba(255,255,255,0.05)",
+      }}
+    >
+      <Filter size={10} /> filtered
+    </span>
+  ) : null;
+
   const coverageSubtitle = (() => {
     const c = summary?.coverage;
-    if (!c) return undefined;
+    if (!c || filtered) return undefined;
     if (c.total == null) return `${c.tracked.toLocaleString()} tracked`;
     const pct = c.percentage != null ? `${c.percentage}%` : "—";
     return `${c.tracked.toLocaleString()} of ${c.total.toLocaleString()} tracked (${pct})`;
@@ -110,23 +251,41 @@ export default function StockContent() {
   const statCards = [
     {
       label: "Total Stock",
-      value: summary ? summary.totalQty.toLocaleString() : "—",
+      value: displayQty != null ? displaySimple(displayQty) : "—",
       subtitle: coverageSubtitle,
       icon: <Package size={18} />,
     },
     {
       label: "Value",
-      value: summary ? `€${summary.totalValue.toFixed(2)}` : "—",
+      value: displayValue != null ? `€${displayValue.toFixed(2)}` : "—",
       subtitle: undefined as string | undefined,
       icon: <Coins size={18} />,
     },
     {
       label: "Listings",
-      value: summary ? summary.distinctListings.toLocaleString() : "—",
+      value: displayListings != null ? displaySimple(displayListings) : "—",
       subtitle: undefined as string | undefined,
       icon: <ListOrdered size={18} />,
     },
+    {
+      label: "Unique cards",
+      value: displayUnique != null ? displaySimple(displayUnique) : "—",
+      subtitle: undefined as string | undefined,
+      icon: <Layers size={18} />,
+    },
   ];
+
+  const sortedSetNames = useMemo(() => {
+    if (!setsData?.sets) return [] as string[];
+    return Object.keys(setsData.sets).sort((a, b) => a.localeCompare(b));
+  }, [setsData]);
+
+  const onClear = useCallback(() => {
+    setFilters(emptyStockFilters);
+    setSort("lastSeenAt");
+    setDir("desc");
+    setPage(1);
+  }, []);
 
   return (
     <div style={{ padding: "20px 24px", maxWidth: 1400, margin: "0 auto" }}>
@@ -175,6 +334,7 @@ export default function StockContent() {
             >
               {c.icon}
               {c.label}
+              {scopeTag}
             </div>
             <div
               style={{
@@ -205,7 +365,10 @@ export default function StockContent() {
       <StockFilters
         value={filters}
         onChange={setFilters}
-        onClear={() => setFilters(emptyStockFilters)}
+        onClear={onClear}
+        setNames={sortedSetNames}
+        setMap={setsData?.sets}
+        languages={languagesData?.languages ?? []}
       />
 
       <StockTable
@@ -230,4 +393,8 @@ export default function StockContent() {
       />
     </div>
   );
+}
+
+function displaySimple(n: number): string {
+  return n.toLocaleString();
 }

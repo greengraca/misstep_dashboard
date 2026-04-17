@@ -35,6 +35,9 @@ export interface StockSearchParams {
 export interface StockSearchResult {
   rows: CmStockListing[];
   total: number;
+  totalQty: number;
+  totalValue: number;
+  distinctNameSet: number;
   page: number;
   pageSize: number;
 }

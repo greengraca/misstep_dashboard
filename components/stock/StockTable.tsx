@@ -27,6 +27,18 @@ function SetCell({ setName, meta }: { setName: string; meta?: SetMeta }) {
         />
       )}
       <span>{setName}</span>
+      {meta?.code && (
+        <span
+          style={{
+            color: "var(--text-muted)",
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          · {meta.code}
+        </span>
+      )}
     </span>
   );
 }
