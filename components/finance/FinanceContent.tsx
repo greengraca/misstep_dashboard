@@ -361,7 +361,7 @@ export default function FinanceContent() {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <StatCard
           title="Income"
           value={isLoading ? "..." : `€${totalIncome.toFixed(2)}`}
@@ -458,13 +458,13 @@ export default function FinanceContent() {
 
       {/* Transaction table */}
       <div
+        className="p-4 sm:p-6"
         style={{
           background: "var(--surface-gradient)",
           backdropFilter: "var(--surface-blur)",
           border: "var(--surface-border)",
           boxShadow: "var(--surface-shadow)",
           borderRadius: "var(--radius)",
-          padding: "24px",
         }}
       >
         <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
@@ -479,21 +479,39 @@ export default function FinanceContent() {
           emptyMessage="No transactions this month."
           rowHover
           renderMobileCard={(t) => (
-            <div className="flex items-center justify-between p-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-              <div>
-                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{t.description}</p>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            <div
+              className="flex items-center justify-between gap-2 p-3"
+              style={{ borderBottom: "1px solid var(--border-subtle)" }}
+            >
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-sm font-medium truncate"
+                  style={{ color: "var(--text-primary)" }}
+                >
+                  {t.description}
+                </p>
+                <p
+                  className="text-xs truncate"
+                  style={{ color: "var(--text-muted)" }}
+                >
                   {new Date(t.date + "T00:00:00").toLocaleDateString("pt-PT")} · {t.category}
                   {t.paid_by && ` · ${t.paid_by}`}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {t.type === "expense" && t.paid_by && (
-                  <button onClick={() => toggleReimburse(t)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                    {t.reimbursed
-                      ? <CheckCircle size={14} style={{ color: "var(--success)" }} />
-                      : <Clock size={14} style={{ color: "var(--warning, #f59e0b)" }} />
-                    }
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleReimburse(t);
+                    }}
+                    style={{ background: "none", border: "none", cursor: "pointer" }}
+                  >
+                    {t.reimbursed ? (
+                      <CheckCircle size={14} style={{ color: "var(--success)" }} />
+                    ) : (
+                      <Clock size={14} style={{ color: "var(--warning, #f59e0b)" }} />
+                    )}
                   </button>
                 )}
                 <span
@@ -505,6 +523,16 @@ export default function FinanceContent() {
                 >
                   {t.type === "income" ? "+" : "-"}€{Math.abs(t.amount).toFixed(2)}
                 </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEdit(t);
+                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
+                  aria-label="Edit"
+                >
+                  <Pencil size={14} />
+                </button>
               </div>
             </div>
           )}

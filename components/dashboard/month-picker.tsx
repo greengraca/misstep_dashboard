@@ -90,7 +90,7 @@ export default function MonthPicker({
         <ChevronLeft className="w-4 h-4" />
       </button>
       <span
-        className="text-sm font-medium min-w-[140px] text-center px-3 py-1"
+        className="text-sm font-medium min-w-[110px] sm:min-w-[140px] text-center px-2 sm:px-3 py-1 whitespace-nowrap"
         style={{
           color: "var(--text-primary)",
           borderRadius: "16px",

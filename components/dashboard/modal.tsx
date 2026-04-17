@@ -44,7 +44,7 @@ export default function Modal({
       }}
     >
       <div
-        className={`modal-body w-full ${maxWidth} p-6`}
+        className={`modal-body w-full ${maxWidth} p-4 sm:p-6 max-h-[90vh] overflow-y-auto`}
         style={{
           background: "linear-gradient(135deg, #0f1419, #1a2030)",
           border: "1.5px solid rgba(255, 255, 255, 0.10)",
