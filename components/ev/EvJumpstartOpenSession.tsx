@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X, Search, Plus, Minus, Save, RotateCcw, Check, AlertTriangle, List, Layers, Copy } from "lucide-react";
+import { X, Search, Plus, Minus, Save, RotateCcw, Check, AlertTriangle, List, Layers, Copy, HelpCircle, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react";
 import type { EvJumpstartThemeResult } from "@/lib/types";
 
 const COLOR_STYLES: Record<string, { bg: string; color: string }> = {
@@ -19,8 +19,11 @@ const TIER_COLOR: Record<string, string> = {
   mythic: "#ef4444",
 };
 
-const COLORS = ["white", "blue", "black", "red", "green", "multi"] as const;
-const TIERS = ["common", "rare", "mythic"] as const;
+const TIER_LETTER: Record<string, string> = {
+  common: "C",
+  rare: "R",
+  mythic: "M",
+};
 
 interface Props {
   setCode: string;
@@ -54,8 +57,6 @@ function diffCardsByVariant(themes: EvJumpstartThemeResult[]) {
 
 export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSaved }: Props) {
   const [search, setSearch] = useState("");
-  const [colorFilter, setColorFilter] = useState<Set<string>>(new Set());
-  const [tierFilter, setTierFilter] = useState<Set<string>>(new Set());
   const [tally, setTally] = useState<Record<string, number>>({});
   const [history, setHistory] = useState<string[]>([]);
   const [view, setView] = useState<"themes" | "cards">("themes");
@@ -63,6 +64,9 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [cardSort, setCardSort] = useState<"name" | "total-desc" | "total-asc">("name");
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { searchRef.current?.focus(); }, []);
@@ -97,26 +101,19 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [themes, tally]);
 
-  // Search/filter logic
+  // Search logic — sorted alphabetically by theme name, then by variant
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return themes.filter((t) => {
-      if (colorFilter.size && !colorFilter.has(t.color)) return false;
-      if (tierFilter.size && !tierFilter.has(t.tier)) return false;
-      if (!q) return true;
-      if (t.name.toLowerCase().includes(q)) return true;
-      for (const c of t.cards) if (c.name.toLowerCase().includes(q)) return true;
-      return false;
-    });
-  }, [themes, search, colorFilter, tierFilter]);
+    return themes
+      .filter((t) => !q || t.name.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const byName = a.name.localeCompare(b.name);
+        if (byName !== 0) return byName;
+        return a.variant - b.variant;
+      });
+  }, [themes, search]);
 
   const displayed = filtered;
-
-  function toggleSet(s: Set<string>, v: string): Set<string> {
-    const n = new Set(s);
-    if (n.has(v)) n.delete(v); else n.add(v);
-    return n;
-  }
 
   function inc(key: string) {
     setTally((t) => ({ ...t, [key]: (t[key] ?? 0) + 1 }));
@@ -142,20 +139,32 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
     });
   }
   function reset() {
-    if (!confirm("Clear all tallies in this session?")) return;
-    setTally({});
-    setHistory([]);
-    setSaved(false);
-    setSaveError(null);
+    if (confirmingReset) {
+      setTally({});
+      setHistory([]);
+      setSaved(false);
+      setSaveError(null);
+      setConfirmingReset(false);
+    } else {
+      setConfirmingReset(true);
+      setTimeout(() => setConfirmingReset(false), 3000);
+    }
+  }
+
+  function switchView(next: "themes" | "cards") {
+    setView(next);
+    setSearch("");
+    searchRef.current?.focus();
   }
 
   function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Escape") setSearch("");
-    if (e.key === "Enter" && displayed.length > 0) {
+    if (e.key === "Enter" && displayed.length > 0 && view === "themes") {
       e.preventDefault();
       const top = displayed[0];
       if (e.shiftKey) dec(themeKey(top));
       else inc(themeKey(top));
+      setSearch("");
     }
   }
 
@@ -197,7 +206,6 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
   }
 
   const q = search.trim();
-  const totalByTier = { common: 80, rare: 30, mythic: 11 };  // not used directly but handy if future
 
   return (
     <div
@@ -206,7 +214,7 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
     >
       {/* Header */}
       <div
-        className="flex items-center gap-3 px-5 py-3"
+        className="flex items-center gap-3 px-5 py-3 flex-wrap"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -224,7 +232,7 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
             style={{ border: "1px solid var(--border)" }}
           >
             <button
-              onClick={() => setView("themes")}
+              onClick={() => switchView("themes")}
               className="flex items-center gap-1.5 px-2.5 py-1 text-xs"
               style={{
                 background: view === "themes" ? "rgba(255,255,255,0.08)" : "transparent",
@@ -234,7 +242,7 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
               <Layers size={12} /> Themes
             </button>
             <button
-              onClick={() => setView("cards")}
+              onClick={() => switchView("cards")}
               className="flex items-center gap-1.5 px-2.5 py-1 text-xs"
               style={{
                 background: view === "cards" ? "rgba(255,255,255,0.08)" : "transparent",
@@ -247,7 +255,59 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
             </button>
           </div>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <button
+              onClick={() => setShowShortcuts((s) => !s)}
+              className="p-1.5 rounded-lg"
+              style={{
+                background: showShortcuts ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
+                color: "var(--text-muted)",
+              }}
+              aria-label="Keyboard shortcuts"
+            >
+              <HelpCircle size={14} />
+            </button>
+            {showShortcuts && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowShortcuts(false)}
+                />
+                <div
+                  className="absolute right-0 top-full mt-1 z-50 rounded-lg p-3 text-xs flex flex-col gap-1.5"
+                  style={{
+                    background: "rgba(15, 18, 22, 0.98)",
+                    border: "1px solid var(--border)",
+                    minWidth: "240px",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                  }}
+                >
+                  <div className="font-semibold mb-1" style={{ color: "var(--text-primary)" }}>Keyboard shortcuts</div>
+                  {[
+                    ["Enter", "+1 to top match"],
+                    ["Shift + Enter", "−1 from top match"],
+                    ["Esc", "Clear search"],
+                  ].map(([key, desc]) => (
+                    <div key={key} className="flex items-center justify-between gap-3">
+                      <kbd
+                        className="px-1.5 py-0.5 rounded text-[10px]"
+                        style={{
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid var(--border)",
+                          color: "var(--text-secondary)",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {key}
+                      </kbd>
+                      <span style={{ color: "var(--text-muted)" }}>{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={undo}
             disabled={history.length === 0}
@@ -266,13 +326,13 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
             disabled={totalPacks === 0}
             className="px-3 py-1.5 rounded-lg text-xs"
             style={{
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--border)",
-              color: "var(--text-secondary)",
+              background: confirmingReset ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${confirmingReset ? "rgba(239,68,68,0.4)" : "var(--border)"}`,
+              color: confirmingReset ? "#ef4444" : "var(--text-secondary)",
               opacity: totalPacks === 0 ? 0.4 : 1,
             }}
           >
-            Reset
+            {confirmingReset ? "Confirm reset?" : "Reset"}
           </button>
           <button
             onClick={save}
@@ -307,75 +367,41 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
         </div>
       )}
 
-      {/* Search + filters */}
-      <div className="px-5 py-3 flex flex-col gap-2" style={{ borderBottom: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2">
-          <div
-            className="flex items-center gap-2 flex-1 px-3 py-2 rounded-lg"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}
-          >
-            <Search size={14} style={{ color: "var(--text-muted)" }} />
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={onKey}
-              placeholder="Search card or theme name…  (Enter = +top · Shift+Enter = −top · Esc = clear)"
-              className="flex-1 bg-transparent outline-none text-sm"
-              style={{ color: "var(--text-primary)" }}
-            />
-            {search && (
-              <button onClick={() => setSearch("")} style={{ color: "var(--text-muted)" }}>
-                <X size={14} />
-              </button>
-            )}
-          </div>
+      {/* Search */}
+      <div className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: "1px solid var(--border)" }}>
+        <div
+          className="flex items-center gap-2 flex-1 px-3 py-2 rounded-lg"
+          style={{
+            background: view === "cards" ? "rgba(96,165,250,0.04)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${view === "cards" ? "rgba(96,165,250,0.25)" : "var(--border)"}`,
+          }}
+        >
+          <Search size={14} style={{ color: view === "cards" ? "#60a5fa" : "var(--text-muted)" }} />
+          <input
+            ref={searchRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={onKey}
+            placeholder={
+              view === "themes"
+                ? "Search theme name…  (Enter = +top · Shift+Enter = −top)"
+                : "Search card name…"
+            }
+            className="flex-1 bg-transparent outline-none text-sm"
+            style={{ color: "var(--text-primary)" }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ color: "var(--text-muted)" }}>
+              <X size={14} />
+            </button>
+          )}
         </div>
-
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs mr-1" style={{ color: "var(--text-muted)" }}>Color:</span>
-          {COLORS.map((c) => {
-            const s = COLOR_STYLES[c];
-            const on = colorFilter.has(c);
-            return (
-              <button
-                key={c}
-                onClick={() => setColorFilter((x) => toggleSet(x, c))}
-                className="text-xs px-2 py-0.5 rounded-full capitalize"
-                style={{
-                  background: on ? s.color : s.bg,
-                  color: on ? "#000" : s.color,
-                  border: `1px solid ${on ? s.color : "transparent"}`,
-                }}
-              >
-                {c}
-              </button>
-            );
-          })}
-          <span className="text-xs ml-3 mr-1" style={{ color: "var(--text-muted)" }}>Tier:</span>
-          {TIERS.map((t) => {
-            const on = tierFilter.has(t);
-            const col = TIER_COLOR[t];
-            return (
-              <button
-                key={t}
-                onClick={() => setTierFilter((x) => toggleSet(x, t))}
-                className="text-xs px-2 py-0.5 rounded-full capitalize"
-                style={{
-                  background: on ? col : "rgba(255,255,255,0.03)",
-                  color: on ? "#000" : col,
-                  border: `1px solid ${on ? col : "var(--border)"}`,
-                }}
-              >
-                {t}
-              </button>
-            );
-          })}
-          <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
+        {view === "themes" && (
+          <span className="text-xs whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
             {displayed.length} / {themes.length} themes
           </span>
-        </div>
+        )}
       </div>
 
       {/* Results */}
@@ -391,16 +417,14 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
                 const key = themeKey(t);
                 const count = tally[key] ?? 0;
                 const cs = COLOR_STYLES[t.color] ?? COLOR_STYLES.multi;
-                const matches = q
-                  ? t.cards.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())).slice(0, 3)
-                  : [];
-                const diff = variantDiff[key] ?? [];
+                const diff = (variantDiff[key] ?? []).filter((n) => n !== t.lead_card);
                 const isTop = idx === 0 && q !== "";
+                const isHighEv = t.ev_net >= 1;
 
                 return (
                   <div
                     key={key}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg flex-wrap md:flex-nowrap"
                     style={{
                       background: count > 0 ? "rgba(34,197,94,0.06)" : "rgba(255,255,255,0.015)",
                       border: `1px solid ${isTop ? "rgba(234,179,8,0.35)" : count > 0 ? "rgba(34,197,94,0.2)" : "var(--border-subtle)"}`,
@@ -408,46 +432,49 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
                   >
                     <span className="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: cs.color }} />
                     <span
-                      className="text-[10px] px-1.5 py-0.5 rounded capitalize w-14 text-center flex-shrink-0"
+                      className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0"
                       style={{
                         background: `${TIER_COLOR[t.tier]}22`,
                         color: TIER_COLOR[t.tier],
                         fontFamily: "var(--font-mono)",
                       }}
                     >
-                      {t.tier}
+                      {TIER_LETTER[t.tier] ?? t.tier.charAt(0).toUpperCase()}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
                           {highlight(t.name, q)}
                         </span>
                         <span className="text-xs" style={{ color: "var(--text-muted)" }}>v{t.variant}</span>
-                        <span className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        <span
+                          className="text-xs"
+                          style={{
+                            color: isHighEv ? "var(--accent)" : "var(--text-muted)",
+                            fontFamily: "var(--font-mono)",
+                            fontWeight: isHighEv ? 600 : 400,
+                          }}
+                        >
                           €{t.ev_net.toFixed(2)}
                         </span>
                       </div>
-                      {(matches.length > 0 || diff.length > 0) && (
+                      {(t.lead_card || diff.length > 0) && (
                         <div className="text-[11px] mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5" style={{ color: "var(--text-muted)" }}>
-                          {matches.length > 0 && (
-                            <span>
-                              matches: {matches.map((c, i) => (
-                                <span key={i}>
-                                  {i > 0 && ", "}
-                                  <span style={{ color: "var(--text-secondary)" }}>{highlight(c.name, q)}</span>
-                                </span>
-                              ))}
-                            </span>
-                          )}
-                          {diff.length > 0 && (
-                            <span>
-                              unique: <span style={{ color: "#60a5fa" }}>{diff.join(" · ")}</span>
-                            </span>
-                          )}
+                          <span>
+                            {t.lead_card && (
+                              <span style={{ color: t.tier === "mythic" ? "#ef4444" : "#eab308", fontWeight: 600 }}>{t.lead_card}</span>
+                            )}
+                            {t.lead_card && diff.length > 0 && (
+                              <span style={{ color: "var(--text-muted)" }}> · </span>
+                            )}
+                            {diff.length > 0 && (
+                              <span style={{ color: "#60a5fa" }}>{diff.join(" · ")}</span>
+                            )}
+                          </span>
                         </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
                       <button
                         onClick={() => dec(key)}
                         disabled={count === 0}
@@ -489,9 +516,16 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
           /* Cards Pulled view */
           (() => {
             const cardQ = search.trim().toLowerCase();
-            const filteredCards = cardQ
+            const baseCards = cardQ
               ? pulledCards.filter((c) => c.name.toLowerCase().includes(cardQ))
               : pulledCards;
+            const filteredCards = cardSort === "name"
+              ? baseCards
+              : [...baseCards].sort((a, b) => {
+                  const ta = a.qty * a.price;
+                  const tb = b.qty * b.price;
+                  return cardSort === "total-desc" ? tb - ta : ta - tb;
+                });
             const totalCards = filteredCards.reduce((s, c) => s + c.qty, 0);
             const totalValue = filteredCards.reduce((s, c) => s + c.qty * c.price, 0);
 
@@ -503,7 +537,7 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
               <div className="flex flex-col gap-1.5">
                 {/* Summary bar */}
                 <div
-                  className="flex items-center gap-4 px-3 py-2 rounded-lg text-xs mb-1"
+                  className="flex items-center gap-4 px-3 py-2 rounded-lg text-xs mb-1 flex-wrap"
                   style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}
                 >
                   <span style={{ color: "var(--text-muted)" }}>
@@ -542,7 +576,30 @@ export default function EvJumpstartOpenSession({ setCode, themes, onClose, onSav
                   <span className="flex-1">Card Name</span>
                   <span className="w-12 text-center">Qty</span>
                   <span className="w-16 text-right">Price</span>
-                  <span className="w-16 text-right">Total</span>
+                  <button
+                    onClick={() => {
+                      setCardSort((s) =>
+                        s === "name" ? "total-desc"
+                          : s === "total-desc" ? "total-asc"
+                          : "name"
+                      );
+                    }}
+                    className="w-16 text-right uppercase tracking-wider flex items-center justify-end gap-1 hover:opacity-100"
+                    style={{
+                      color: cardSort === "name" ? "var(--text-muted)" : "var(--accent)",
+                      fontSize: "inherit",
+                    }}
+                    title="Click to sort by total value"
+                  >
+                    Total
+                    {cardSort === "total-desc" ? (
+                      <ChevronDown size={10} />
+                    ) : cardSort === "total-asc" ? (
+                      <ChevronUp size={10} />
+                    ) : (
+                      <ArrowUpDown size={10} style={{ opacity: 0.5 }} />
+                    )}
+                  </button>
                 </div>
 
                 {filteredCards.map((c) => {
