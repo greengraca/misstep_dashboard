@@ -314,7 +314,14 @@ export default function CardmarketContent() {
             const s = status?.trusteeSentValue || 0;
             const t = (status?.currentBalance ?? 0) + u + p + s;
             const r = (n: number) => `€${Math.round(n)}`;
-            return <>{`U: ${r(u)} \u00B7 P: ${r(p)} \u00B7 S: ${r(s)} \u00B7 `}<span style={{ color: "var(--text-secondary)" }}>{`T: ${r(t)}`}</span></>;
+            return (
+              <>
+                {`U: ${r(u)} \u00B7 P: ${r(p)} \u00B7 S: ${r(s)}`}
+                <br className="sm:hidden" />
+                <span className="hidden sm:inline">{" \u00B7 "}</span>
+                <span style={{ color: "var(--text-secondary)" }}>{`T: ${r(t)}`}</span>
+              </>
+            );
           })()}
           icon={<DollarSign size={18} style={{ color: "var(--accent)" }} />}
         />
@@ -348,9 +355,9 @@ export default function CardmarketContent() {
 
       {/* Balance History */}
       {balance?.history?.length > 0 && (
-        <div className="p-4 rounded-xl" style={surfaceStyle}>
+        <div className="p-4 rounded-xl overflow-hidden" style={surfaceStyle}>
           <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Balance History</h2>
-          <div className="flex items-end gap-1" style={{ height: "80px" }}>
+          <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
             {balance.history.map((snap: { balance: number; extractedAt: string }, i: number) => {
               const min = Math.min(...balance.history.map((s: { balance: number }) => s.balance));
               const max = Math.max(...balance.history.map((s: { balance: number }) => s.balance));
@@ -359,12 +366,11 @@ export default function CardmarketContent() {
               return (
                 <div
                   key={i}
-                  className="flex-1 rounded-t"
+                  className="flex-1 min-w-0 rounded-t"
                   style={{
                     height: `${h}%`,
                     background: "var(--accent)",
                     opacity: 0.6 + (i / balance.history.length) * 0.4,
-                    minWidth: "2px",
                   }}
                   title={`${formatEur(snap.balance)} — ${new Date(snap.extractedAt).toLocaleDateString("pt-PT")}`}
                 />
