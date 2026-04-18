@@ -99,14 +99,16 @@ export default function SetCombobox({
     <div ref={rootRef} style={{ position: "relative" }}>
       <input
         style={{
-          background: "rgba(255,255,255,0.04)",
+          background: "var(--surface-gradient)",
+          backdropFilter: "var(--surface-blur)",
           border: "1px solid rgba(255,255,255,0.10)",
-          borderRadius: 6,
+          borderRadius: 8,
           color: "var(--text-primary)",
-          padding: "6px 8px",
-          fontSize: 13,
+          padding: "4px 8px",
+          fontSize: 14,
           minWidth: 0,
           width: "100%",
+          outline: "none",
         }}
         value={query}
         onChange={(e) => {
@@ -144,16 +146,18 @@ export default function SetCombobox({
         <div
           style={{
             position: "absolute",
-            top: "calc(100% + 2px)",
+            top: "calc(100% + 4px)",
             left: 0,
             right: 0,
             maxHeight: 280,
             overflowY: "auto",
-            background: "#111",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 6,
+            background: "linear-gradient(135deg, rgba(15, 20, 25, 0.95), rgba(26, 32, 48, 0.95))",
+            border: "1px solid rgba(255, 255, 255, 0.10)",
+            borderRadius: 8,
             zIndex: 60,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+            animation: "menuSlideIn 0.15s ease",
           }}
         >
           {filtered.map((o, i) => (
@@ -168,12 +172,12 @@ export default function SetCombobox({
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                padding: "6px 10px",
-                fontSize: 12,
+                padding: "8px 12px",
+                fontSize: 14,
                 cursor: "pointer",
-                background:
-                  i === highlight ? "rgba(255,255,255,0.08)" : "transparent",
+                background: i === highlight ? "var(--bg-hover)" : "transparent",
                 color: "var(--text-primary)",
+                transition: "background 0.1s",
               }}
             >
               {o.iconSvgUri && (

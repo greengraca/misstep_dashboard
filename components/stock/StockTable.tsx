@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { CmStockListing } from "@/lib/types";
 import type { StockSortField } from "@/lib/stock-types";
+import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
 
 export interface SetMeta {
@@ -258,26 +259,17 @@ export default function StockTable({
           Page {page} of {totalPages} · {total} results
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             Page size
-            <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.10)",
-                borderRadius: 6,
-                color: "var(--text-primary)",
-                padding: "4px 6px",
-                fontSize: 12,
-              }}
-            >
-              {[25, 50, 100, 200].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+            <Select
+              size="sm"
+              value={String(pageSize)}
+              onChange={(v) => onPageSizeChange(Number(v))}
+              options={[25, 50, 100, 200].map((n) => ({
+                value: String(n),
+                label: String(n),
+              }))}
+            />
           </label>
           <button
             type="button"

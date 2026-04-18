@@ -1,6 +1,7 @@
 "use client";
 
 import { STOCK_CONDITIONS, type StockCondition } from "@/lib/stock-types";
+import Select from "@/components/dashboard/select";
 import SetCombobox from "./SetCombobox";
 import type { SetMap } from "./StockTable";
 
@@ -38,13 +39,15 @@ interface StockFiltersProps {
 }
 
 const inputStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.04)",
+  background: "var(--surface-gradient)",
+  backdropFilter: "var(--surface-blur)",
   border: "1px solid rgba(255,255,255,0.10)",
-  borderRadius: 6,
+  borderRadius: 8,
   color: "var(--text-primary)",
-  padding: "6px 8px",
-  fontSize: 13,
+  padding: "4px 8px",
+  fontSize: 14,
   minWidth: 0,
+  outline: "none",
 };
 
 const labelCol: React.CSSProperties = {
@@ -103,45 +106,40 @@ export default function StockFilters({
       </label>
       <label style={labelCol}>
         <span style={labelText}>Condition</span>
-        <select
-          style={inputStyle}
+        <Select
+          size="sm"
           value={value.condition}
-          onChange={(e) => set("condition", e.target.value as StockCondition | "")}
-        >
-          <option value="">All</option>
-          {STOCK_CONDITIONS.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => set("condition", v as StockCondition | "")}
+          options={[
+            { value: "", label: "All" },
+            ...STOCK_CONDITIONS.map((c) => ({ value: c, label: c })),
+          ]}
+        />
       </label>
       <label style={labelCol}>
         <span style={labelText}>Foil</span>
-        <select
-          style={inputStyle}
+        <Select
+          size="sm"
           value={value.foil}
-          onChange={(e) => set("foil", e.target.value as "" | "true" | "false")}
-        >
-          <option value="">Any</option>
-          <option value="true">Foil</option>
-          <option value="false">Non-foil</option>
-        </select>
+          onChange={(v) => set("foil", v as "" | "true" | "false")}
+          options={[
+            { value: "", label: "Any" },
+            { value: "true", label: "Foil" },
+            { value: "false", label: "Non-foil" },
+          ]}
+        />
       </label>
       <label style={labelCol}>
         <span style={labelText}>Language</span>
-        <select
-          style={inputStyle}
+        <Select
+          size="sm"
           value={value.language}
-          onChange={(e) => set("language", e.target.value)}
-        >
-          <option value="">All</option>
-          {languages.map((l) => (
-            <option key={l} value={l}>
-              {l}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => set("language", v)}
+          options={[
+            { value: "", label: "All" },
+            ...languages.map((l) => ({ value: l, label: l })),
+          ]}
+        />
       </label>
       <label style={labelCol}>
         <span style={labelText}>Min €</span>
@@ -180,10 +178,10 @@ export default function StockFilters({
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
-          fontSize: 12,
+          fontSize: 13,
           color: "var(--text-secondary)",
           whiteSpace: "nowrap",
-          height: 32,
+          height: 30,
         }}
       >
         <input
@@ -197,14 +195,15 @@ export default function StockFilters({
         type="button"
         onClick={onClear}
         style={{
-          background: "rgba(255,255,255,0.04)",
+          background: "var(--surface-gradient)",
+          backdropFilter: "var(--surface-blur)",
           border: "1px solid rgba(255,255,255,0.10)",
-          borderRadius: 6,
+          borderRadius: 8,
           color: "var(--text-secondary)",
-          padding: "6px 12px",
-          fontSize: 13,
+          padding: "4px 12px",
+          fontSize: 14,
           cursor: "pointer",
-          height: 32,
+          height: 30,
         }}
       >
         Clear

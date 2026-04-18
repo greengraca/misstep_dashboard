@@ -109,6 +109,11 @@ button, [role="button"], summary {
   100% { background-position: -200% 0; }
 }
 
+@keyframes menuSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .skeleton {
   background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
   background-size: 200% 100%;
