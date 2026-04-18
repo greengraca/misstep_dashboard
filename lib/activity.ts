@@ -15,6 +15,12 @@ async function ensureIndexes() {
       { entity_type: 1, timestamp: -1 },
       { name: "entity_type_timestamp" }
     );
+    // 90-day TTL — timestamp is an ISO string (queryable), created_at is a
+    // Date so MongoDB's background reaper can expire old rows.
+    await col.createIndex(
+      { created_at: 1 },
+      { expireAfterSeconds: 90 * 24 * 60 * 60, name: "ttl_90d" }
+    );
     indexesEnsured = true;
   } catch {
     // Indexes may already exist — that's fine
@@ -47,6 +53,7 @@ export function logActivity(
         user_id: userId,
         user_name: userName,
         timestamp: new Date().toISOString(),
+        created_at: new Date(),
       });
     } catch (err) {
       console.error("Failed to log activity:", err);

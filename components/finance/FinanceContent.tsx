@@ -24,7 +24,6 @@ import {
   Trash2,
 } from "lucide-react";
 
-const TEAM_MEMBERS = ["Graça", "Bezugas", "Mil"];
 const CATEGORIES = [
   { value: "shipping", label: "Shipping" },
   { value: "operational", label: "Operational" },
@@ -35,10 +34,6 @@ const TYPE_OPTIONS = [
   { value: "expense", label: "Expense" },
   { value: "income", label: "Income" },
   { value: "withdrawal", label: "Withdrawal" },
-];
-const PAID_BY_OPTIONS = [
-  { value: "", label: "None" },
-  ...TEAM_MEMBERS.map((m) => ({ value: m, label: m })),
 ];
 
 function getCurrentMonth() {
@@ -96,6 +91,19 @@ export default function FinanceContent() {
     `/api/ext/revenue?month=${month}`, fetcher
   );
   const cmRev = cmRevData?.data;
+
+  // Team members (dynamic, sourced from DB so renames / additions flow through
+  // without a code edit). Falls back to [] while loading — the Paid By select
+  // just shows only "None" until the fetch lands.
+  const { data: teamData } = useSWR<{ data: Array<{ _id: string; name: string }> }>(
+    "/api/team",
+    fetcher
+  );
+  const teamMembers = teamData?.data ?? [];
+  const paidByOptions = [
+    { value: "", label: "None" },
+    ...teamMembers.map((m) => ({ value: m.name, label: m.name })),
+  ];
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -665,7 +673,7 @@ export default function FinanceContent() {
               <Select
                 value={formPaidBy}
                 onChange={setFormPaidBy}
-                options={PAID_BY_OPTIONS}
+                options={paidByOptions}
                 className="w-full"
                 placeholder="Select member..."
               />

@@ -95,12 +95,27 @@ const thStyle: React.CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.05em",
   color: "var(--text-muted)",
-  padding: "10px 12px",
+  padding: 0, // padding moved to inner <button> so the full cell is clickable
   borderBottom: "1px solid rgba(255,255,255,0.10)",
   background: "rgba(255,255,255,0.03)",
-  cursor: "pointer",
   userSelect: "none",
   whiteSpace: "nowrap",
+};
+
+const sortButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  width: "100%",
+  padding: "10px 12px",
+  background: "transparent",
+  border: "none",
+  color: "inherit",
+  font: "inherit",
+  textTransform: "inherit",
+  letterSpacing: "inherit",
+  cursor: "pointer",
+  textAlign: "left",
 };
 
 const tdStyle: React.CSSProperties = {
@@ -147,26 +162,39 @@ export default function StockTable({
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, cursor: "default", width: 40 }} />
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  style={{ ...thStyle, textAlign: col.align || "left" }}
-                  onClick={() => toggleSort(col.key)}
-                >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
+              <th style={{ ...thStyle, padding: "10px 12px", width: 40 }} />
+              {columns.map((col) => {
+                const isActive = sort === col.key;
+                const align = col.align || "left";
+                return (
+                  <th
+                    key={col.key}
+                    style={{ ...thStyle, textAlign: align }}
                   >
-                    {col.label}
-                    {sort === col.key &&
-                      (dir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
-                  </span>
-                </th>
-              ))}
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(col.key)}
+                      aria-sort={
+                        isActive ? (dir === "asc" ? "ascending" : "descending") : "none"
+                      }
+                      style={{
+                        ...sortButtonStyle,
+                        justifyContent: align === "right" ? "flex-end" : "flex-start",
+                        textAlign: align,
+                        color: isActive ? "var(--text-primary)" : "inherit",
+                      }}
+                    >
+                      <span>{col.label}</span>
+                      {isActive &&
+                        (dir === "asc" ? (
+                          <ChevronUp size={12} />
+                        ) : (
+                          <ChevronDown size={12} />
+                        ))}
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

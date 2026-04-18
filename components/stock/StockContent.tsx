@@ -13,6 +13,7 @@ import StockFilters, {
 } from "./StockFilters";
 import StockTable, { type SetMap } from "./StockTable";
 import StockChart from "./StockChart";
+import StockGhostGap from "./StockGhostGap";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -355,6 +356,8 @@ export default function StockContent() {
           </div>
         ))}
       </div>
+
+      <StockGhostGap />
 
       <StockChart />
 

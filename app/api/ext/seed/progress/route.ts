@@ -5,18 +5,15 @@ import { COLLECTION_PREFIX } from "@/lib/constants";
 
 const COL_PROGRESS = `${COLLECTION_PREFIX}ext_seed_progress`;
 
-export const GET = withExtAuthRead(async (req) => {
-  const rawMember = req.headers.get("x-member-name") || "";
-  let memberName = rawMember;
-  try { memberName = decodeURIComponent(rawMember); } catch { /* keep raw */ }
+export const GET = withExtAuthRead(async (_req, identity) => {
   const db = await getDb();
   const col = db.collection(COL_PROGRESS);
 
-  // Scope query to the caller's memberName when provided (extension path);
-  // if a dashboard session hits this with no header we return the full
-  // list so a future admin view can render everyone's state.
-  if (memberName) {
-    const doc = await col.findOne({ memberName });
+  // Extension path: scope to caller's own progress. Identity comes from the
+  // token's member name, not the trivially-spoofable x-member-name header.
+  // Dashboard path: return everyone so a future admin view can render.
+  if (identity.memberName) {
+    const doc = await col.findOne({ memberName: identity.memberName });
     return { data: doc || null };
   }
 

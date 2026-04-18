@@ -1,17 +1,17 @@
 import { withAuthRead } from "@/lib/api-helpers";
+import { getTeamMembers } from "@/lib/team";
 
-const TRACKED_VARS = [
-  "MONGODB_URI",
-  "NEXTAUTH_SECRET",
-  "NEXTAUTH_URL",
-  "R2_ACCOUNT_ID",
-  "R2_ACCESS_KEY_ID",
-  "R2_SECRET_ACCESS_KEY",
-  "R2_BUCKET_NAME",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
-  "GITHUB_CLIENT_ID",
-  "GITHUB_CLIENT_SECRET",
+// Vars that are actually read somewhere in this codebase. Grouped by role
+// so the Settings panel can explain why each one matters.
+const TRACKED_VARS: { name: string; required: boolean }[] = [
+  { name: "MONGODB_URI", required: true },
+  { name: "MONGODB_DB_NAME", required: false },
+  { name: "APP_PIN", required: true },
+  { name: "NEXTAUTH_SECRET", required: true },
+  { name: "GITHUB_TOKEN", required: false },
+  { name: "EXT_REPO", required: false },
+  { name: "EXT_DOWNLOAD_URL", required: false },
+  { name: "HUNTINGGROUNDS_MONGODB_URI", required: false },
 ];
 
 function maskValue(val: string): string {
@@ -20,17 +20,17 @@ function maskValue(val: string): string {
 }
 
 export const GET = withAuthRead(async () => {
-  const envVars = TRACKED_VARS.map(name => {
+  const envVars = TRACKED_VARS.map(({ name, required }) => {
     const val = process.env[name];
     return {
       name,
+      required,
       set: Boolean(val),
       masked: val ? maskValue(val) : undefined,
     };
-  }).filter(ev => ev.set || TRACKED_VARS.includes(ev.name));
+  });
 
-  // Placeholder team members — replace with actual auth-provider logic
-  const teamMembers: Array<{ name: string; role: string; email?: string }> = [];
+  const teamMembers = await getTeamMembers();
 
   return { envVars, teamMembers };
 }, "settings-get");

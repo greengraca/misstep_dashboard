@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
+import { logError } from "@/lib/error-log";
 import type {
   CmBalanceSnapshot,
   CmOrder,
@@ -29,34 +30,65 @@ const COL = {
 
 let indexesEnsured = false;
 
+/**
+ * Ensure all cardmarket indexes exist. Each index is built independently
+ * so a single failure (e.g. a unique index blocked by pre-existing
+ * duplicates) doesn't prevent the others. Failures are logged — the
+ * previous version swallowed them silently, leaving stale state invisible.
+ */
 async function ensureIndexes() {
   if (indexesEnsured) return;
-  try {
-    const db = await getDb();
-    await Promise.all([
-      db.collection(COL.balance).createIndex({ extractedAt: -1 }),
-      db.collection(COL.orders).createIndex({ orderId: 1 }, { unique: true }),
-      db.collection(COL.orders).createIndex({ status: 1, direction: 1 }),
-      db.collection(COL.orders).createIndex({ orderDate: -1 }),
-      db.collection(COL.orderItems).createIndex({ orderId: 1 }),
-      db.collection(COL.stock).createIndex({ dedupKey: 1 }, { unique: true }),
-      db.collection(COL.stock).createIndex({ source: 1 }),
-      db.collection(COL.stock).createIndex({ lastSeenAt: -1 }),
-      db.collection(COL.stock).createIndex({ name: 1 }),
-      db.collection(COL.stock).createIndex({ set: 1, condition: 1 }),
-      db.collection(COL.stock).createIndex({ price: 1 }),
-      db.collection(COL.stock).createIndex(
-        { articleId: 1 },
-        { unique: true, sparse: true }
-      ),
-      db.collection(COL.stockSnapshots).createIndex({ extractedAt: -1 }),
-      db.collection(COL.transactions).createIndex({ dedupKey: 1 }, { unique: true }),
-      db.collection(COL.syncLog).createIndex({ receivedAt: -1 }),
-    ]);
-    indexesEnsured = true;
-  } catch {
-    indexesEnsured = true;
+  const db = await getDb();
+
+  type Spec = {
+    col: string;
+    key: Record<string, 1 | -1>;
+    options?: { unique?: boolean; sparse?: boolean; name?: string };
+  };
+
+  const specs: Spec[] = [
+    { col: COL.balance, key: { extractedAt: -1 } },
+    { col: COL.orders, key: { orderId: 1 }, options: { unique: true } },
+    { col: COL.orders, key: { status: 1, direction: 1 } },
+    { col: COL.orders, key: { orderDate: -1 } },
+    { col: COL.orderItems, key: { orderId: 1 } },
+    { col: COL.stock, key: { dedupKey: 1 }, options: { unique: true, name: "dedupKey_1" } },
+    { col: COL.stock, key: { source: 1 } },
+    { col: COL.stock, key: { lastSeenAt: -1 } },
+    { col: COL.stock, key: { name: 1 } },
+    { col: COL.stock, key: { set: 1, condition: 1 } },
+    { col: COL.stock, key: { price: 1 } },
+    { col: COL.stock, key: { articleId: 1 }, options: { unique: true, sparse: true } },
+    { col: COL.stockSnapshots, key: { extractedAt: -1 } },
+    { col: COL.transactions, key: { dedupKey: 1 }, options: { unique: true } },
+    { col: COL.syncLog, key: { receivedAt: -1 } },
+  ];
+
+  const results = await Promise.allSettled(
+    specs.map(async (s) => {
+      try {
+        await db.collection(s.col).createIndex(s.key, s.options ?? {});
+      } catch (err) {
+        // Rethrow so Promise.allSettled marks this spec as rejected;
+        // we'll log the failure below rather than silently ignoring.
+        throw new Error(
+          `${s.col} ${JSON.stringify(s.key)}${s.options?.unique ? " unique" : ""}: ${(err as Error).message}`
+        );
+      }
+    })
+  );
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      // Non-fatal — rest of the module still works without this index.
+      // Surfaces into error log so we can spot silent index failures
+      // (e.g. a unique index blocked by pre-existing duplicates).
+      console.warn("[cardmarket indexes]", r.reason);
+      logError("warn", "cardmarket-indexes", String(r.reason), null);
+    }
   }
+
+  indexesEnsured = true;
 }
 
 // ── Rate limiting (in-memory) ───────────────────────────────────────
@@ -242,6 +274,148 @@ async function processBalance(
 
 const STATUS_ORDER = ["shopping_cart", "unpaid", "paid", "sent", "arrived"];
 
+// Items that could not be matched against any stock row when we tried to
+// remove them on paid-transition. Exposed for logging so the sync_log
+// details line can surface diagnostic info ("3 of 5 items matched").
+interface SoldItemLike {
+  articleId?: string;
+  name: string;
+  set: string;
+  condition: string;
+  foil: boolean;
+  language?: string;
+  qty?: number;
+}
+
+/**
+ * Decrement stock for sold items. Matching strategy:
+ *   1. Exact match by articleId when present (authoritative — product_page
+ *      entries carry it).
+ *   2. Fallback match by { name, set, condition, foil, language } — NOT
+ *      price, since prices on a listing change over time.
+ * Decrements qty by item.qty (default 1); deletes the stock row only when
+ * the resulting qty is ≤ 0. Returns counts so the caller can log them.
+ */
+async function removeSoldItemsFromStock(
+  items: SoldItemLike[]
+): Promise<{ matched: number; unmatched: SoldItemLike[]; decremented: number; deleted: number }> {
+  if (!items.length) {
+    return { matched: 0, unmatched: [], decremented: 0, deleted: 0 };
+  }
+  const db = await getDb();
+  const col = db.collection(COL.stock);
+  const unmatched: SoldItemLike[] = [];
+  let matched = 0;
+  let decremented = 0;
+  let deleted = 0;
+  const now = new Date().toISOString();
+
+  for (const item of items) {
+    // Try articleId first — exact match when the ext has synced the
+    // product page for this listing.
+    let stockRow = null;
+    if (item.articleId) {
+      stockRow = await col.findOne({ articleId: item.articleId });
+    }
+    // Fall back to tuple match — stock_page entries don't have articleId
+    // until a product_page sync claims them.
+    if (!stockRow) {
+      const tupleFilter: Record<string, unknown> = {
+        name: item.name,
+        set: item.set,
+        condition: item.condition,
+        foil: item.foil,
+      };
+      if (item.language) tupleFilter.language = item.language;
+      stockRow = await col.findOne(tupleFilter);
+    }
+    if (!stockRow) {
+      unmatched.push(item);
+      continue;
+    }
+
+    matched++;
+    const soldQty = Math.max(1, item.qty ?? 1);
+    const currentQty = Number(stockRow.qty) || 0;
+    const remaining = currentQty - soldQty;
+
+    if (remaining <= 0) {
+      await col.deleteOne({ _id: stockRow._id });
+      deleted++;
+    } else {
+      await col.updateOne(
+        { _id: stockRow._id },
+        { $set: { qty: remaining, lastSeenAt: now } }
+      );
+      decremented++;
+    }
+  }
+
+  return { matched, unmatched, decremented, deleted };
+}
+
+/**
+ * Restock items from a cancelled order. Inverse of removeSoldItemsFromStock —
+ * increments qty on a matching row, or re-inserts when the row is gone.
+ * Used only on cancellations of orders that had already passed paid.
+ */
+async function restockCancelledItems(
+  items: CmOrderItem[]
+): Promise<{ incremented: number; reinserted: number }> {
+  if (!items.length) return { incremented: 0, reinserted: 0 };
+  const db = await getDb();
+  const col = db.collection(COL.stock);
+  const now = new Date().toISOString();
+  let incremented = 0;
+  let reinserted = 0;
+
+  for (const item of items) {
+    let stockRow = null;
+    if (item.articleId) {
+      stockRow = await col.findOne({ articleId: item.articleId });
+    }
+    if (!stockRow) {
+      stockRow = await col.findOne({
+        name: item.name,
+        set: item.set,
+        condition: item.condition,
+        foil: !!item.foil,
+        language: item.language,
+      });
+    }
+    const addQty = Math.max(1, item.qty || 1);
+    if (stockRow) {
+      const current = Number(stockRow.qty) || 0;
+      await col.updateOne(
+        { _id: stockRow._id },
+        { $set: { qty: current + addQty, lastSeenAt: now } }
+      );
+      incremented++;
+    } else {
+      const dedupKey = item.articleId
+        ? `article:${item.articleId}`
+        : `${item.name}|${addQty}|${item.price || 0}|${item.condition}|${!!item.foil}|${item.set}`;
+      await col.insertOne({
+        articleId: item.articleId || undefined,
+        name: item.name,
+        set: item.set,
+        qty: addQty,
+        price: item.price || 0,
+        condition: item.condition,
+        language: item.language || "English",
+        foil: !!item.foil,
+        dedupKey,
+        source: item.articleId ? "product_page" : "stock_page",
+        firstSeenAt: now,
+        lastSeenAt: now,
+      });
+      reinserted++;
+    }
+  }
+
+  return { incremented, reinserted };
+}
+
 async function processOrders(
   submittedBy: string,
   data: Record<string, unknown>
@@ -345,18 +519,24 @@ async function processOrders(
     const items = await db.collection(COL.orderItems)
       .find({ orderId: { $in: newlyPaidIds } }).toArray();
     if (items.length) {
-      const removeOps = items.map(item => ({
-        deleteOne: {
-          filter: {
-            name: item.name as string,
-            condition: item.condition as string,
-            foil: item.foil as boolean,
-            set: item.set as string,
-            source: "stock_page",
-          },
-        },
+      const soldItems: SoldItemLike[] = items.map((i) => ({
+        articleId: i.articleId as string | undefined,
+        name: i.name as string,
+        set: i.set as string,
+        condition: i.condition as string,
+        foil: !!i.foil,
+        language: i.language as string | undefined,
+        qty: Number(i.qty) || 1,
       }));
-      await db.collection(COL.stock).bulkWrite(removeOps, { ordered: false });
+      const removal = await removeSoldItemsFromStock(soldItems);
+      if (removal.unmatched.length) {
+        logError(
+          "warn",
+          "ext-sync-sold-cleanup",
+          `Unmatched sold items during orders sync: ${removal.unmatched.length} of ${items.length}`,
+          { unmatched: removal.unmatched.slice(0, 20), orderIds: newlyPaidIds }
+        );
+      }
     }
   }
 
@@ -378,17 +558,36 @@ async function processOrderDetail(
   const orderId = detail.orderId;
   let added = 0, updated = 0;
 
-  // Cancelled orders: delete from DB entirely (they shouldn't count toward anything)
-  if (detail.status === "cancelled") {
-    const deleted = await db.collection(COL.orders).deleteOne({ orderId });
-    await db.collection(COL.orderItems).deleteMany({ orderId });
-    return { added: 0, updated: 0, skipped: deleted.deletedCount ? 0 : 1 };
-  }
-
   // Check status change — allow both advance and correction (regression)
   const PAID_INDEX = STATUS_ORDER.indexOf("paid");
   const existing = await db.collection(COL.orders).findOne({ orderId }, { projection: { status: 1, direction: 1 } });
   const existingIdx = existing ? STATUS_ORDER.indexOf(existing.status as string) : -1;
+
+  // Cancelled orders: delete from DB entirely (they shouldn't count toward anything).
+  // If the order had already been advanced past paid, its items were removed from
+  // stock — restock them on cancellation to keep inventory honest.
+  if (detail.status === "cancelled") {
+    if (existingIdx >= PAID_INDEX) {
+      const prevItems = (await db
+        .collection(COL.orderItems)
+        .find({ orderId })
+        .toArray()) as unknown as CmOrderItem[];
+      if (prevItems.length) {
+        const restock = await restockCancelledItems(prevItems);
+        logError(
+          "info",
+          "ext-sync-cancel-restock",
+          `Cancelled order ${orderId} was past paid; restocked ${
+            restock.incremented + restock.reinserted
+          } items`,
+          { orderId, ...restock }
+        );
+      }
+    }
+    const deleted = await db.collection(COL.orders).deleteOne({ orderId });
+    await db.collection(COL.orderItems).deleteMany({ orderId });
+    return { added: 0, updated: 0, skipped: deleted.deletedCount ? 0 : 1 };
+  }
   const newIdx = detail.status ? STATUS_ORDER.indexOf(detail.status) : -1;
   const statusAdvanced = detail.status ? newIdx > existingIdx : false;
   const statusChanged = detail.status ? newIdx !== existingIdx : false;
@@ -439,18 +638,24 @@ async function processOrderDetail(
     // Remove sold items from stock only on FIRST transition to paid/sent/arrived.
     // This prevents re-deleting restocked items on subsequent re-syncs.
     if (statusAdvanced && existingIdx < PAID_INDEX && newIdx >= PAID_INDEX) {
-      const removeOps = detail.items.map(item => ({
-        deleteOne: {
-          filter: {
-            name: item.name,
-            condition: item.condition,
-            foil: item.foil,
-            set: item.set,
-            source: "stock_page",
-          },
-        },
+      const soldItems: SoldItemLike[] = detail.items.map((i) => ({
+        articleId: i.articleId,
+        name: i.name,
+        set: i.set,
+        condition: i.condition,
+        foil: !!i.foil,
+        language: i.language,
+        qty: i.qty || 1,
       }));
-      await db.collection(COL.stock).bulkWrite(removeOps, { ordered: false });
+      const removal = await removeSoldItemsFromStock(soldItems);
+      if (removal.unmatched.length) {
+        logError(
+          "warn",
+          "ext-sync-sold-cleanup",
+          `Unmatched sold items during order_detail sync: ${removal.unmatched.length} of ${detail.items.length}`,
+          { unmatched: removal.unmatched.slice(0, 20), orderId }
+        );
+      }
     }
     added += detail.items.length;
   }
@@ -458,8 +663,16 @@ async function processOrderDetail(
   return { added, updated, skipped: 0 };
 }
 
-// ── Stock (upsert by dedupKey) ──────────────────────────────────────
+// ── Stock (upsert by visual tuple, not just dedupKey) ────────────────
 
+/**
+ * Match a stock_page listing against any existing row with the same visual
+ * fields (name, set, condition, foil, language, qty, price) — regardless
+ * of source or articleId. This is the tuple a user would read off the row;
+ * if a product_page row already exists for this listing, we refresh it
+ * instead of creating a sibling stock_page row (avoids soft duplicates
+ * when the product page was scraped first).
+ */
 async function processStock(
   submittedBy: string,
   data: Record<string, unknown>
@@ -469,32 +682,107 @@ async function processStock(
   const listings = data.listings as CmStockListing[];
   const now = new Date().toISOString();
 
-  const ops = listings.map(listing => {
-    const dedupKey = listing.dedupKey ||
+  if (!listings.length) return { added: 0, updated: 0, skipped: 0 };
+
+  // Pre-fetch every row that matches any listing tuple so we can decide
+  // insert vs. refresh without per-listing roundtrips.
+  const tupleFilters = listings.map((l) => ({
+    name: l.name,
+    set: l.set,
+    condition: l.condition,
+    foil: l.foil || false,
+    language: l.language || "English",
+    qty: l.qty,
+    price: l.price,
+  }));
+  const existingRows = await col.find({ $or: tupleFilters }).toArray();
+  const byTupleKey = new Map<string, { _id: unknown }>();
+  const tupleKey = (t: {
+    name: string;
+    set: string;
+    condition: string;
+    foil: boolean;
+    language: string;
+    qty: number;
+    price: number;
+  }) =>
+    `${t.name}\u241F${t.set}\u241F${t.condition}\u241F${t.foil}\u241F${t.language}\u241F${t.qty}\u241F${t.price}`;
+  for (const r of existingRows) {
+    byTupleKey.set(
+      tupleKey({
+        name: r.name as string,
+        set: r.set as string,
+        condition: r.condition as string,
+        foil: !!r.foil,
+        language: (r.language as string) || "English",
+        qty: Number(r.qty),
+        price: Number(r.price),
+      }),
+      { _id: r._id }
+    );
+  }
+
+  let added = 0;
+  let updated = 0;
+  type StockBulkOp = Parameters<typeof col.bulkWrite>[0][number];
+  const updateOps: StockBulkOp[] = [];
+
+  for (const listing of listings) {
+    const t = {
+      name: listing.name,
+      set: listing.set,
+      condition: listing.condition,
+      foil: listing.foil || false,
+      language: listing.language || "English",
+      qty: listing.qty,
+      price: listing.price,
+    };
+    const hit = byTupleKey.get(tupleKey(t));
+    if (hit) {
+      // Row already exists (product_page or prior stock_page) — just
+      // refresh its lastSeenAt so it stays fresh.
+      updateOps.push({
+        updateOne: {
+          filter: { _id: hit._id as never },
+          update: { $set: { lastSeenAt: now, submittedBy } },
+        },
+      });
+      updated++;
+      continue;
+    }
+    const dedupKey =
+      listing.dedupKey ||
       `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}`;
-    return {
+    updateOps.push({
       updateOne: {
         filter: { dedupKey },
         update: {
           $set: { lastSeenAt: now, submittedBy },
           $setOnInsert: {
-            name: listing.name, qty: listing.qty, price: listing.price,
-            condition: listing.condition, language: listing.language || "English",
-            foil: listing.foil || false, set: listing.set, dedupKey,
-            source: "stock_page" as const, firstSeenAt: now,
+            name: listing.name,
+            qty: listing.qty,
+            price: listing.price,
+            condition: listing.condition,
+            language: listing.language || "English",
+            foil: listing.foil || false,
+            set: listing.set,
+            dedupKey,
+            source: "stock_page" as const,
+            firstSeenAt: now,
           },
         },
         upsert: true,
       },
-    };
-  });
+    });
+    added++;
+  }
 
-  if (!ops.length) return { added: 0, updated: 0, skipped: 0 };
-  const result = await col.bulkWrite(ops, { ordered: false });
+  if (!updateOps.length) return { added: 0, updated: 0, skipped: 0 };
+  const result = await col.bulkWrite(updateOps, { ordered: false });
   return {
     added: result.upsertedCount || 0,
-    updated: result.modifiedCount || 0,
-    skipped: listings.length - (result.upsertedCount || 0) - (result.modifiedCount || 0),
+    updated: (result.modifiedCount || 0) + updated,
+    skipped: Math.max(0, listings.length - added - updated),
   };
 }
 
@@ -538,15 +826,31 @@ async function processProductStock(
       continue;
     }
 
-    // Check if a stock_page entry exists for this card — claim it by adding articleId
-    const stockPageMatch = await col.findOne({
-      name: listing.name, condition: listing.condition,
-      foil: listing.foil || false, set: listing.set, source: "stock_page",
+    // Claim any unclaimed row for this card — regardless of source. Matches
+    // by name/set/condition/foil/language only (not qty/price) because the
+    // stock_page row's qty/price may be mid-sync and we want to reconcile
+    // both sources to a single authoritative product_page entry.
+    const unclaimedMatch = await col.findOne({
+      name: listing.name,
+      condition: listing.condition,
+      foil: listing.foil || false,
+      set: listing.set,
+      language: listing.language || "English",
+      articleId: { $exists: false },
     });
-    if (stockPageMatch) {
+    if (unclaimedMatch) {
       await col.updateOne(
-        { _id: stockPageMatch._id },
-        { $set: { articleId: listing.articleId, qty: listing.qty, price: listing.price, lastSeenAt: now, submittedBy, source: "product_page" as const } }
+        { _id: unclaimedMatch._id },
+        {
+          $set: {
+            articleId: listing.articleId,
+            qty: listing.qty,
+            price: listing.price,
+            lastSeenAt: now,
+            submittedBy,
+            source: "product_page" as const,
+          },
+        }
       );
       updated++;
       continue;
