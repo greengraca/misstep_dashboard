@@ -241,6 +241,18 @@ export interface EvCard {
   ev_contribution?: number;
 }
 
+// Price history snapshots — stored with short field names to keep the
+// high-volume collection compact on free-tier MongoDB (see
+// `lib/ev-price-history.ts`). One doc per (scryfall_id, date) but only
+// inserted when the price actually changed vs the previous snapshot.
+export interface EvCardPriceSnapshot {
+  _id?: string;
+  s: string;          // scryfall_id
+  d: Date;            // snapshot date (used for TTL)
+  e: number | null;   // price_eur
+  f: number | null;   // price_eur_foil
+}
+
 export interface EvCardFilter {
   rarity?: string[];
   treatment?: string[];

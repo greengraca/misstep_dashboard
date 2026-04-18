@@ -1,0 +1,37 @@
+name: Scryfall price sync
+
+# Runs the full Scryfall bulk sync (refreshAllScryfall) every 3 days and
+# records a price-history snapshot. Executes the script directly on the
+# runner so the sync isn't constrained by Vercel function duration limits.
+#
+# Required GitHub repo secrets:
+#   MONGODB_URI       — production MongoDB connection string
+#   MONGODB_DB_NAME   — production DB name (usually "misstep")
+#
+# Manual trigger: Actions → Scryfall price sync → Run workflow.
+
+on:
+  schedule:
+    # 03:00 UTC on days 1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31 of each month.
+    - cron: "0 3 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run refreshAllScryfall
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB_NAME: ${{ secrets.MONGODB_DB_NAME }}
+        run: npx tsx scripts/sync-scryfall-all.ts

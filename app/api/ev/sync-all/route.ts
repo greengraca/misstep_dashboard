@@ -9,7 +9,7 @@ export const POST = withAuth(async (_req, session) => {
     "sync",
     "ev_cards",
     "all",
-    `sets=${result.setsUpserted} cards=${result.cardsProcessed} durationMs=${result.durationMs}`,
+    `sets=${result.setsUpserted} cards=${result.cardsProcessed} snapshots=${result.priceSnapshotsWritten} durationMs=${result.durationMs}`,
     "system",
     session.user?.name ?? "unknown"
   );

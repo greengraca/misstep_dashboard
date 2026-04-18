@@ -1623,11 +1623,18 @@ import {
   findDefaultCardsEntry,
   streamBulkCards,
 } from "@/lib/scryfall-bulk";
+import {
+  ensureIndexes as ensurePriceHistoryIndexes,
+  getInScopeScryfallIds,
+  getLastSnapshotMap,
+  insertSnapshotsOnChange,
+} from "@/lib/ev-price-history";
 
 export async function refreshAllScryfall(): Promise<{
   setsUpserted: number;
   cardsProcessed: number;
   cardsWritten: number;
+  priceSnapshotsWritten: number;
   durationMs: number;
 }> {
   const started = Date.now();
@@ -1651,10 +1658,15 @@ export async function refreshAllScryfall(): Promise<{
   }
   const body = fileRes.body;
 
-  // 4. Stream-parse and bulk-upsert
+  // 4. Stream-parse and bulk-upsert, and snapshot in-scope prices to history
   const db = await getDb();
   const col = db.collection(COL_CARDS);
+  await ensurePriceHistoryIndexes(db);
+  const inScope = await getInScopeScryfallIds(db);
+  const lastSnapshots = await getLastSnapshotMap(db, inScope);
+  const snapshotDate = new Date();
   let cardsWritten = 0;
+  let priceSnapshotsWritten = 0;
 
   const { processed: cardsProcessed } = await streamBulkCards(body, {
     batchSize: 1000,
@@ -1668,6 +1680,20 @@ export async function refreshAllScryfall(): Promise<{
       }));
       const result = await col.bulkWrite(ops, { ordered: false });
       cardsWritten += (result.upsertedCount ?? 0) + (result.modifiedCount ?? 0);
+
+      const historyBatch = batch
+        .filter((c) => inScope.has(c.scryfall_id))
+        .map((c) => ({
+          scryfall_id: c.scryfall_id,
+          e: c.price_eur,
+          f: c.price_eur_foil,
+        }));
+      priceSnapshotsWritten += await insertSnapshotsOnChange(
+        db,
+        historyBatch,
+        snapshotDate,
+        lastSnapshots
+      );
     },
   });
 
@@ -1675,6 +1701,7 @@ export async function refreshAllScryfall(): Promise<{
     setsUpserted,
     cardsProcessed,
     cardsWritten,
+    priceSnapshotsWritten,
     durationMs: Date.now() - started,
   };
 }
