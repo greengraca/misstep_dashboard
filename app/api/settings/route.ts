@@ -12,6 +12,12 @@ const TRACKED_VARS: { name: string; required: boolean }[] = [
   { name: "EXT_REPO", required: false },
   { name: "EXT_DOWNLOAD_URL", required: false },
   { name: "HUNTINGGROUNDS_MONGODB_URI", required: false },
+  // Storage hardware — read by the upcoming /api/storage/light publisher.
+  // Not required until the ESP32/MQTT stack is online; tracked here so
+  // Settings surfaces whether they're configured.
+  { name: "MQTT_BROKER_URL", required: false },
+  { name: "MQTT_USERNAME", required: false },
+  { name: "MQTT_PASSWORD", required: false },
 ];
 
 function maskValue(val: string): string {
