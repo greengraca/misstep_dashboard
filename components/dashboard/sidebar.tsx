@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Activity, Calculator, CheckSquare, ChevronLeft, LayoutDashboard, Library, LogOut, Menu, MessageCircle, Package, Settings, ShoppingBag, Wallet, X } from "lucide-react";
+import { Activity, Calculator, CheckSquare, ChevronLeft, HardHat, LayoutDashboard, Library, LogOut, Menu, MessageCircle, Package, Settings, ShoppingBag, Wallet, X } from "lucide-react";
 
 const navSections = [
   { label: "OVERVIEW", items: [
@@ -22,6 +22,7 @@ const navSections = [
   ]},
   { label: "SYSTEM", items: [
     { href: "/activity", label: "Activity", icon: Activity },
+    { href: "/system/storage-setup", label: "Storage Setup", icon: HardHat },
   ]},
 ];
 const bottomItems = [{ href: "/settings", label: "Settings", icon: Settings }];
