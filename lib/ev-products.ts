@@ -206,7 +206,7 @@ export async function deleteProduct(slug: string): Promise<{ deleted: boolean }>
  * Reads the latest `play_ev_net` snapshot for each booster set referenced
  * by products. Used to populate `boosterEvBySet` for the "opened" valuation.
  */
-async function latestPlayEvBySet(codes: string[]): Promise<Record<string, number>> {
+export async function latestPlayEvBySet(codes: string[]): Promise<Record<string, number>> {
   if (codes.length === 0) return {};
   const db = await getDb();
   const docs = await db
@@ -224,7 +224,7 @@ async function latestPlayEvBySet(codes: string[]): Promise<Record<string, number
   return out;
 }
 
-async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPriceRef[]> {
+export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPriceRef[]> {
   if (ids.length === 0) return [];
   const db = await getDb();
   const docs = await db
@@ -242,7 +242,7 @@ async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPriceRef[]>
   }));
 }
 
-async function getFeeRate(): Promise<number> {
+export async function getFeeRate(): Promise<number> {
   const db = await getDb();
   const cfg = await db.collection("dashboard_ev_config").findOne({}, { projection: { fee_rate: 1 } });
   return (cfg?.fee_rate as number | undefined) ?? 0.05;
