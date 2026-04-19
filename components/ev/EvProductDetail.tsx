@@ -1,10 +1,63 @@
 "use client";
 
-import useSWR from "swr";
+import { useState } from "react";
+import useSWR, { mutate } from "swr";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
 import type { EvProduct, EvProductResult } from "@/lib/types";
+
+function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const countOn = product.count_basic_lands === true;
+
+  async function toggle() {
+    setSaving(true);
+    setError(null);
+    try {
+      const { _id, seeded_at, ...rest } = product;
+      void _id;
+      void seeded_at;
+      const payload = { ...rest, count_basic_lands: !countOn, overwrite: true };
+      const res = await fetch("/api/ev/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      // Regenerate the latest snapshot so the Products tab grid reflects the change.
+      await fetch(`/api/ev/products/${product.slug}/snapshot`, { method: "POST" });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mb-3 flex items-center gap-2 text-sm">
+      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={countOn}
+          onChange={toggle}
+          disabled={saving}
+          className="accent-[var(--accent)]"
+        />
+        <span style={{ color: "var(--text-muted)" }}>
+          Count basic lands {countOn ? "(on)" : "(off — default)"}
+        </span>
+      </label>
+      {saving && <span style={{ color: "var(--text-muted)" }}>saving…</span>}
+      {error && <span style={{ color: "var(--error)" }}>{error}</span>}
+    </div>
+  );
+}
 
 interface Props {
   slug: string;
@@ -185,9 +238,10 @@ export default function EvProductDetail({ slug }: Props) {
             className="text-sm font-normal"
             style={{ color: "var(--text-muted)" }}
           >
-            ({ev.card_count_total})
+            ({ev.card_count_total} cards)
           </span>
         </h2>
+        <BasicLandToggle product={product} onChanged={() => mutate(`/api/ev/products/${slug}`)} />
         <div style={{ overflowX: "auto" }}>
           <table
             style={{
