@@ -12,6 +12,7 @@ type ProductWithSnap = EvProduct & {
     ev_net_opened: number | null;
   } | null;
   parent_set_icon?: string | null;
+  parent_set_name?: string | null;
 };
 
 export default function EvProductList() {

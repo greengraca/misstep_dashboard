@@ -11,22 +11,37 @@ interface Props {
       ev_net_opened: number | null;
     } | null;
     parent_set_icon?: string | null;
+    parent_set_name?: string | null;
   };
 }
 
 const TYPE_LABEL: Record<EvProduct["product_type"], string> = {
-  planeswalker_deck: "Planeswalker Deck",
-  commander: "Commander Deck",
-  starter: "Starter Deck",
-  welcome: "Welcome Deck",
-  duel: "Duel Deck",
-  challenger: "Challenger Deck",
+  planeswalker_deck: "PW Deck",
+  commander: "Commander",
+  starter: "Starter",
+  welcome: "Welcome",
+  duel: "Duel",
+  challenger: "Challenger",
   other: "Product",
 };
 
 function fmt(eur: number | null | undefined): string {
   if (eur == null) return "—";
   return `€${eur.toFixed(2)}`;
+}
+
+/**
+ * Shortens a product name for the grid card. Replaces the parent set name
+ * with the uppercase code and "Planeswalker" with "PW" so the title fits on
+ * one line at the small font size.
+ */
+function shortenProductName(name: string, parentSetName: string | null | undefined, parentSetCode: string | null | undefined): string {
+  let out = name;
+  if (parentSetName && parentSetCode) {
+    out = out.replace(parentSetName, parentSetCode.toUpperCase());
+  }
+  out = out.replace(/Planeswalker/g, "PW");
+  return out;
 }
 
 export default function EvProductCard({ product }: Props) {
@@ -62,17 +77,17 @@ export default function EvProductCard({ product }: Props) {
         )}
         <div className="min-w-0 flex-1">
           <p
-            className="text-sm font-semibold truncate"
+            className="text-[13px] font-semibold leading-tight truncate"
             style={{ color: "var(--text-primary)" }}
+            title={product.name}
           >
-            {product.name}
+            {shortenProductName(product.name, product.parent_set_name, product.parent_set_code)}
           </p>
           <p
-            className="text-xs"
+            className="text-xs mt-0.5"
             style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
           >
             {TYPE_LABEL[product.product_type]} &middot; {product.release_year}
-            {product.parent_set_code && ` · ${product.parent_set_code.toUpperCase()}`}
           </p>
         </div>
       </div>
