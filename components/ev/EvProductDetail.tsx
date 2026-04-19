@@ -25,9 +25,21 @@ function fmt(eur: number | null | undefined): string {
   return `€${eur.toFixed(2)}`;
 }
 
+// Cardmarket slugifies set and card names by collapsing runs of non-alphanumeric
+// chars to a single dash. Same pattern as components/stock/StockTable.tsx.
+function cardmarketSlug(input: string): string {
+  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function cardmarketUrl(setName: string | undefined, cardName: string, isFoil: boolean): string | null {
+  if (!setName) return null;
+  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(setName)}/${cardmarketSlug(cardName)}`;
+  return isFoil ? `${base}?isFoil=Y` : base;
+}
+
 export default function EvProductDetail({ slug }: Props) {
   const { data, isLoading, error } = useSWR<{
-    data: { product: EvProduct; ev: EvProductResult };
+    data: { product: EvProduct; ev: EvProductResult; set_names?: Record<string, string> };
   }>(`/api/ev/products/${slug}`, fetcher);
 
   if (isLoading) {
@@ -203,7 +215,13 @@ export default function EvProductDetail({ slug }: Props) {
               </tr>
             </thead>
             <tbody>
-              {ev.card_breakdown.map((c) => (
+              {ev.card_breakdown.map((c) => {
+                const cmUrl = cardmarketUrl(
+                  data.data.set_names?.[c.set_code],
+                  c.name,
+                  c.is_foil
+                );
+                return (
                 <tr
                   key={c.scryfall_id + (c.is_foil ? "-f" : "")}
                   style={{ borderBottom: "1px solid var(--border-subtle)" }}
@@ -220,7 +238,20 @@ export default function EvProductDetail({ slug }: Props) {
                   <td
                     style={{ padding: "8px", color: "var(--text-primary)" }}
                   >
-                    {c.name}
+                    {cmUrl ? (
+                      <a
+                        href={cmUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="transition-colors no-underline hover:underline hover:text-[var(--accent)]"
+                        style={{ color: "var(--text-primary)" }}
+                        title="Open on Cardmarket"
+                      >
+                        {c.name}
+                      </a>
+                    ) : (
+                      c.name
+                    )}
                     {c.role && (
                       <span
                         className="ml-1.5 text-[11px]"
@@ -269,7 +300,8 @@ export default function EvProductDetail({ slug }: Props) {
                     {fmt(c.line_total)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
