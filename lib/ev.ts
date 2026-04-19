@@ -727,6 +727,83 @@ export function getDefaultJumpstartBoosterConfig(): EvBoosterConfig {
   };
 }
 
+// ── Draft Booster 2017–2023 Default Config ────────────────────
+//
+// The draft booster format used by every premier expansion from Amonkhet
+// (2017) through the end of 2023. Replaced by the 15-card Play Booster in
+// early 2024. Structure:
+//   - 9 plain commons
+//   - 1 common slot that is replaced by a foil in ~1/6 packs (standard MTG
+//     foil rate, ≈1 foil per 67 cards = 6 per 36-pack box)
+//   - 3 uncommons
+//   - 1 rare/mythic (87.5% rare, 12.5% mythic — standard 1:8 ratio)
+//   - 1 basic land / checklist card (no EV contribution)
+//   Plus: a separate token/marketing card slot that isn't counted.
+//
+// Known approximations:
+//   - The "10th common" foil swap uses is_foil:false on the slot so the calc
+//     prices foil outcomes from price_eur, NOT price_eur_foil. This
+//     underestimates foil EV by ~2–4x. Outcome-level is_foil would fix it.
+//   - Masterpieces (Invocations / Inventions / Expeditions) aren't modelled;
+//     they live in separate Scryfall sets (e.g. mp2 for Amonkhet
+//     Invocations) and today's calc can't reach cross-set pools. Material
+//     miss for Kaladesh / Aether Revolt / Amonkhet / Hour of Devastation.
+
+export function getDefaultDraftBoosterConfig(): EvBoosterConfig {
+  return {
+    packs_per_box: 36,
+    cards_per_pack: 15,
+    slots: [
+      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 7, label: "Common 7", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 8, label: "Common 8", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 9, label: "Common 9", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      {
+        // 10th common replaced by a foil 1/6 packs. Foil rarity split
+        // (conditional on foil): 49% common / 32% uncommon / 16% rare / 3%
+        // mythic — standard 1/12 + 1/18 + 1/36 + 1/216 distribution.
+        slot_number: 10, label: "Common / Foil wildcard", is_foil: false,
+        outcomes: [
+          { probability: 0.8333, filter: { rarity: ["common"], treatment: ["normal"] } },
+          { probability: 0.0811, filter: { rarity: ["common"], finishes: ["foil"] } },
+          { probability: 0.0541, filter: { rarity: ["uncommon"], finishes: ["foil"] } },
+          { probability: 0.0270, filter: { rarity: ["rare"], finishes: ["foil"] } },
+          { probability: 0.0045, filter: { rarity: ["mythic"], finishes: ["foil"] } },
+        ],
+      },
+      { slot_number: 11, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
+      { slot_number: 12, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
+      { slot_number: 13, label: "Uncommon 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
+      {
+        slot_number: 14, label: "Rare / Mythic", is_foil: false,
+        outcomes: [
+          { probability: 0.875, filter: { rarity: ["rare"], treatment: ["normal"] } },
+          { probability: 0.125, filter: { rarity: ["mythic"], treatment: ["normal"] } },
+        ],
+      },
+      { slot_number: 15, label: "Basic Land / Checklist", is_foil: false, outcomes: [] },
+    ],
+  };
+}
+
+/**
+ * Returns true when the set falls in the draft-booster era (roughly
+ * Amonkhet 2017 through end of 2023, before Play Boosters rolled out in
+ * early 2024). Saved configs always override this.
+ */
+export function isDraftBoosterEra(set: { set_type?: string; released_at?: string } | null | undefined): boolean {
+  if (!set) return false;
+  if (set.set_type !== "expansion" && set.set_type !== "core" && set.set_type !== "masters") return false;
+  const d = set.released_at;
+  if (!d) return false;
+  return d >= "2017-01-01" && d < "2024-01-01";
+}
+
 // ── Mystery Booster 2 Default Config ──────────────────────────
 
 const MB2_NON_FUTURE_FRAMES = ["2015", "2003", "1997", "1993"];
@@ -1575,6 +1652,13 @@ async function getDefaultConfigForSet(setCode: string): Promise<EvConfig | null>
       _id: "", set_code: setCode, updated_at: "", updated_by: "",
       sift_floor: 0.25, fee_rate: 0.05,
       play_booster: getDefaultMB2BoosterConfig(), collector_booster: null,
+    };
+  }
+  if (isDraftBoosterEra(set)) {
+    return {
+      _id: "", set_code: setCode, updated_at: "", updated_by: "",
+      sift_floor: 0.25, fee_rate: 0.05,
+      play_booster: getDefaultDraftBoosterConfig(), collector_booster: null,
     };
   }
   return null;

@@ -1,5 +1,5 @@
 import { withAuthReadParams } from "@/lib/api-helpers";
-import { getConfig, getSetByCode, getCardsForSet, calculateEv, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig } from "@/lib/ev";
+import { getConfig, getSetByCode, getCardsForSet, calculateEv, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig, getDefaultDraftBoosterConfig, isDraftBoosterEra } from "@/lib/ev";
 
 export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
   const boosterType = (req.nextUrl.searchParams.get("booster") || "play") as "play" | "collector";
@@ -14,8 +14,12 @@ export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
     const set = await getSetByCode(params.code);
     const isMB2 = set?.name?.toLowerCase().includes("mystery booster 2");
     const isJumpstart = !isMB2 && (set?.set_type === "draft_innovation" || set?.name?.toLowerCase().includes("jumpstart"));
+    const isDraftEra = !isMB2 && !isJumpstart && isDraftBoosterEra(set);
     boosterConfig = boosterType === "play"
-      ? (isMB2 ? getDefaultMB2BoosterConfig() : isJumpstart ? getDefaultJumpstartBoosterConfig() : getDefaultPlayBoosterConfig())
+      ? (isMB2 ? getDefaultMB2BoosterConfig()
+        : isJumpstart ? getDefaultJumpstartBoosterConfig()
+        : isDraftEra ? getDefaultDraftBoosterConfig()
+        : getDefaultPlayBoosterConfig())
       : getDefaultCollectorBoosterConfig();
   }
 
