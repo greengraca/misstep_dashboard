@@ -1205,8 +1205,10 @@ export function calculateEv(
   // not Jumpstart or other sealed products.
   const boosterCards = cards;
 
-  // Track per-card EV contributions
-  const cardEvMap = new Map<string, { card: EvCard; ev: number; pullRate: number }>();
+  // Track per-card EV contributions. is_foil split via the key — same card
+  // pulled foil vs nonfoil are separate entries because they have different
+  // prices and the breakdown table needs to surface both.
+  const cardEvMap = new Map<string, { card: EvCard; isFoil: boolean; ev: number; pullRate: number }>();
   const slotBreakdown: EvCalculationResult["slot_breakdown"] = [];
 
   for (const slot of config.slots) {
@@ -1243,7 +1245,7 @@ export function calculateEv(
           existing.ev += ev;
           existing.pullRate += pullsPerBox;
         } else {
-          cardEvMap.set(key, { card, ev, pullRate: pullsPerBox });
+          cardEvMap.set(key, { card, isFoil: outcomeIsFoil, ev, pullRate: pullsPerBox });
         }
       }
     }
@@ -1273,7 +1275,7 @@ export function calculateEv(
     .filter((e) => e.ev > 0)
     .sort((a, b) => getCardPrice(b.card, false, 0) - getCardPrice(a.card, false, 0));
 
-  const mapToTopCard = (e: { card: EvCard; ev: number; pullRate: number }, i: number) => ({
+  const mapToTopCard = (e: { card: EvCard; isFoil: boolean; ev: number; pullRate: number }, i: number) => ({
     // uid: same card can appear in multiple slot outcomes (rare + wildcard,
     // etc.), so scryfall_id alone isn't unique. Suffix the list index.
     uid: `${e.card.scryfall_id}-${i}`,
@@ -1283,7 +1285,11 @@ export function calculateEv(
     collector_number: e.card.collector_number,
     rarity: e.card.rarity,
     treatment: e.card.treatment,
-    price: getCardPrice(e.card, false, 0),
+    is_foil: e.isFoil,
+    // Use the foil price when the contribution came from a foil slot —
+    // otherwise foil-only outcomes (e.g. Masterpieces) would display nonfoil
+    // prices that don't exist for those cards.
+    price: getCardPrice(e.card, e.isFoil, 0),
     pull_rate_per_box: Math.round(e.pullRate * 10000) / 10000,
     ev_contribution: Math.round(e.ev * 100) / 100,
     image_uri: e.card.image_uri,

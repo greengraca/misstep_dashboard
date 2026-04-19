@@ -389,6 +389,8 @@ export interface EvTopCard {
   collector_number: string;
   rarity: string;
   treatment: string;
+  /** True when this contribution came from a foil slot/outcome. */
+  is_foil: boolean;
   price: number;
   pull_rate_per_box: number;
   ev_contribution: number;

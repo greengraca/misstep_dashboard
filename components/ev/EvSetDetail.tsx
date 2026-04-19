@@ -24,6 +24,12 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
   const boosterLabel = isJumpstart ? "Jumpstart Booster" : isMB2 ? "Mystery Booster" : undefined;
   const [boosterType, setBoosterType] = useState<"play" | "collector">("play");
   const [siftFloor, setSiftFloor] = useState(0.25);
+  // Sets that combine with a Masterpiece subset (Zendikar Expeditions /
+  // Kaladesh Inventions / Amonkhet Invocations). Mirrors masterpieceRefFor
+  // in lib/ev.ts.
+  const HAS_MASTERPIECES = ["bfz", "ogw", "kld", "aer", "akh", "hou"];
+  const setHasMasterpieces = HAS_MASTERPIECES.includes(set.code.toLowerCase());
+  const [includeMasterpieces, setIncludeMasterpieces] = useState(true);
   const [configOpen, setConfigOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -31,8 +37,9 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
   const [snapshotting, setSnapshotting] = useState(false);
 
   // SWR hooks
-  const { data: calcData, isLoading: calcLoading } = useSWR<{ data: EvCalculationResult }>(
-    `/api/ev/calculate/${set.code}?booster=${boosterType}&floor=${siftFloor}`,
+  const masterpiecesParam = setHasMasterpieces && !includeMasterpieces ? "&masterpieces=off" : "";
+  const { data: calcData, isLoading: calcLoading } = useSWR<{ data: EvCalculationResult; set_names?: Record<string, string> }>(
+    `/api/ev/calculate/${set.code}?booster=${boosterType}&floor=${siftFloor}${masterpiecesParam}`,
     fetcher
   );
   const { data: configData, mutate: mutateConfig } = useSWR<{ data: EvConfig }>(
@@ -179,12 +186,14 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
             boosterLabel={boosterLabel}
             packsPerBox={boosterType === "play" ? config?.play_booster?.packs_per_box : config?.collector_booster?.packs_per_box}
             cardsPerPack={boosterType === "play" ? config?.play_booster?.cards_per_pack : config?.collector_booster?.cards_per_pack}
+            masterpiecesEnabled={setHasMasterpieces ? includeMasterpieces : undefined}
+            onMasterpiecesChange={setHasMasterpieces ? setIncludeMasterpieces : undefined}
           />
           {calcResult && (
             <EvSlotBreakdown slots={calcResult.slot_breakdown} boxEvGross={calcResult.box_ev_gross} />
           )}
-          <EvCardTable cards={calcResult?.top_ev_cards ?? []} isLoading={calcLoading} />
-          <EvCardTable cards={calcResult?.top_price_cards ?? []} isLoading={calcLoading} title="Biggest Pulls" defaultSortKey="price" />
+          <EvCardTable cards={calcResult?.top_ev_cards ?? []} isLoading={calcLoading} setNames={calcData?.set_names} />
+          <EvCardTable cards={calcResult?.top_price_cards ?? []} isLoading={calcLoading} title="Biggest Pulls" defaultSortKey="price" setNames={calcData?.set_names} />
           <EvSimulationPanel
             setCode={set.code}
             boosterType={boosterType}

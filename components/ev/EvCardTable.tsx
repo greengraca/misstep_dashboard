@@ -5,15 +5,28 @@ import DataTable, { type Column } from "@/components/dashboard/data-table";
 import type { EvTopCard } from "@/lib/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
+// Cardmarket slug pattern matches StockTable.tsx — collapse non-alphanumerics.
+function cardmarketSlug(input: string): string {
+  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function cardmarketUrl(setName: string | undefined, cardName: string, isFoil: boolean): string | null {
+  if (!setName) return null;
+  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(setName)}/${cardmarketSlug(cardName)}`;
+  return isFoil ? `${base}?isFoil=Y` : base;
+}
+
 interface EvCardTableProps {
   cards: EvTopCard[];
   isLoading: boolean;
   title?: string;
   defaultSortKey?: string;
   defaultExpanded?: boolean;
+  /** Map of set_code → set name, used to build per-card Cardmarket links. */
+  setNames?: Record<string, string>;
 }
 
-export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", defaultSortKey = "ev_contribution", defaultExpanded = false }: EvCardTableProps) {
+export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", defaultSortKey = "ev_contribution", defaultExpanded = false, setNames }: EvCardTableProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   if (isLoading) {
     return <div className="skeleton" style={{ height: "300px" }} />;
@@ -24,7 +37,9 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       key: "name",
       label: "Card",
       sortable: true,
-      render: (row) => (
+      render: (row) => {
+        const cmUrl = cardmarketUrl(setNames?.[row.set], row.name, row.is_foil);
+        return (
         <div className="flex items-center gap-2">
           {row.image_uri && (
             <img
@@ -35,9 +50,23 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
             />
           )}
           <div>
-            <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-              {row.name}
-            </p>
+            {cmUrl ? (
+              <a
+                href={cmUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium no-underline hover:underline transition-colors"
+                style={{ color: "var(--text-primary)" }}
+                title="Open on Cardmarket"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {row.name}
+              </a>
+            ) : (
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                {row.name}
+              </p>
+            )}
             <a
               href={`https://scryfall.com/card/${row.set === "mb2-list" ? "plst" : row.set}/${row.collector_number}`}
               target="_blank"
@@ -47,10 +76,14 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
               onClick={(e) => e.stopPropagation()}
             >
               #{row.collector_number}
+              {row.is_foil && (
+                <span className="ml-1.5" style={{ color: "var(--accent)" }}>foil</span>
+              )}
             </a>
           </div>
         </div>
-      ),
+        );
+      },
     },
     {
       key: "rarity",
@@ -107,7 +140,10 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       sortValue: (row) => row.pull_rate_per_box,
       className: "text-right",
       render: (row) => (
-        <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+        <span
+          style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}
+          title={row.pull_rate_per_box.toFixed(4)}
+        >
           {row.pull_rate_per_box.toFixed(2)}
         </span>
       ),

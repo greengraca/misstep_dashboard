@@ -13,6 +13,9 @@ interface EvSummaryCardsProps {
   boosterLabel?: string;
   packsPerBox?: number;
   cardsPerPack?: number;
+  /** When defined, renders a checkbox to include/exclude Masterpieces. */
+  masterpiecesEnabled?: boolean;
+  onMasterpiecesChange?: (v: boolean) => void;
 }
 
 export default function EvSummaryCards({
@@ -23,6 +26,8 @@ export default function EvSummaryCards({
   boosterLabel,
   packsPerBox,
   cardsPerPack,
+  masterpiecesEnabled,
+  onMasterpiecesChange,
 }: EvSummaryCardsProps) {
   return (
     <div>
@@ -48,6 +53,20 @@ export default function EvSummaryCards({
             ]}
             size="sm"
           />
+        )}
+        {masterpiecesEnabled !== undefined && onMasterpiecesChange && (
+          <label
+            className="inline-flex items-center gap-2 text-sm select-none cursor-pointer"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <input
+              type="checkbox"
+              checked={masterpiecesEnabled}
+              onChange={(e) => onMasterpiecesChange(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Include Masterpieces
+          </label>
         )}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
