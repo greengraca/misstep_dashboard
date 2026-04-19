@@ -54,37 +54,38 @@ export default function EvContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      {/* Discount toggle — global, persists across pages via localStorage */}
-      <div className="flex justify-end">
-        <DiscountToggle />
-      </div>
-
-      {/* Tab strip — hidden when a set detail is open */}
+      {/* Tab strip — hidden when a set detail is open. Undercut toggle
+          lives inline on the right side so it doesn't add a new row. */}
       {!selectedSet && (
         <div
-          className="flex gap-2"
+          className="flex items-center justify-between gap-3 flex-wrap"
           style={{ borderBottom: "1px solid var(--border)" }}
         >
-          {(["sets", "products"] as TabKey[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setTab(k)}
-              className="px-4 py-2 text-sm capitalize transition-colors"
-              style={{
-                background: "none",
-                border: "none",
-                borderBottom:
-                  tab === k ? "2px solid var(--accent)" : "2px solid transparent",
-                color: tab === k ? "var(--text-primary)" : "var(--text-muted)",
-                fontWeight: tab === k ? 600 : 400,
-                cursor: "pointer",
-                marginBottom: "-1px",
-              }}
-            >
-              {k}
-            </button>
-          ))}
+          <div className="flex gap-2">
+            {(["sets", "products"] as TabKey[]).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setTab(k)}
+                className="px-4 py-2 text-sm capitalize transition-colors"
+                style={{
+                  background: "none",
+                  border: "none",
+                  borderBottom:
+                    tab === k ? "2px solid var(--accent)" : "2px solid transparent",
+                  color: tab === k ? "var(--text-primary)" : "var(--text-muted)",
+                  fontWeight: tab === k ? 600 : 400,
+                  cursor: "pointer",
+                  marginBottom: "-1px",
+                }}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+          <div className="pb-2">
+            <DiscountToggle />
+          </div>
         </div>
       )}
 

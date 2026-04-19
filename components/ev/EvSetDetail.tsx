@@ -11,6 +11,7 @@ import EvSimulationPanel from "./EvSimulationPanel";
 import EvHistoryChart from "./EvHistoryChart";
 import EvConfigModal from "./EvConfigModal";
 import EvJumpstartThemes from "./EvJumpstartThemes";
+import DiscountToggle from "@/components/dashboard/discount-toggle";
 import { ArrowLeft, Settings, RefreshCw, Camera } from "lucide-react";
 
 interface EvSetDetailProps {
@@ -142,7 +143,8 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
         <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-muted)" }}>
           {set.code.toUpperCase()}
         </span>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <DiscountToggle />
           <button
             onClick={handleGenerateSnapshot}
             disabled={snapshotting}
