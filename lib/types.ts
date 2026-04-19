@@ -373,16 +373,21 @@ export interface EvSimulationResult {
 }
 
 export interface EvSnapshot {
-  _id: string;
+  _id?: string;
   date: string;
-  set_code: string;
-  play_ev_gross: number | null;
-  play_ev_net: number | null;
-  collector_ev_gross: number | null;
-  collector_ev_net: number | null;
-  card_count_total: number;
-  card_count_priced: number;
-  sift_floor: number;
+  set_code?: string;                // one of set_code/product_slug is set per doc
+  product_slug?: string;            // product path (new)
+  play_ev_gross?: number | null;
+  play_ev_net?: number | null;
+  collector_ev_gross?: number | null;
+  collector_ev_net?: number | null;
+  ev_net_sealed?: number;           // products only
+  ev_net_opened?: number;           // products only
+  ev_net_cards_only?: number;       // products only
+  card_count_total?: number;
+  card_count_priced?: number;
+  sift_floor?: number;
+  fee_rate?: number;
   created_at: string;
 }
 
@@ -444,4 +449,81 @@ export interface EvJumpstartSessionSubmit {
   tier_counts: { common: number; rare: number; mythic: number };
   theme_counts: Record<string, number>;
   packs: number;
+}
+
+// ── EV Products (fixed-pool products — PW decks, precons, etc.) ─────
+
+export type EvProductType =
+  | "planeswalker_deck"
+  | "commander"
+  | "starter"
+  | "welcome"
+  | "duel"
+  | "challenger"
+  | "other";
+
+export type EvProductCardRole =
+  | "foil_premium_pw"
+  | "commander"
+  | "key_card";
+
+export interface EvProductCard {
+  scryfall_id: string;
+  name: string;
+  set_code: string;
+  count: number;
+  is_foil: boolean;
+  role?: EvProductCardRole;
+}
+
+export interface IncludedBooster {
+  set_code: string;
+  count: number;
+  sealed_price_eur?: number;
+}
+
+export interface EvProduct {
+  _id?: string;
+  slug: string;
+  name: string;
+  product_type: EvProductType;
+  release_year: number;
+  parent_set_code?: string;
+  cards: EvProductCard[];
+  included_boosters?: IncludedBooster[];
+  image_uri?: string;
+  notes?: string;
+  seeded_at: Date;
+}
+
+export interface EvProductCardBreakdown extends EvProductCard {
+  unit_price: number | null;
+  line_total: number;
+}
+
+export interface EvProductBoosterBreakdown extends IncludedBooster {
+  opened_unit_ev: number | null;
+}
+
+export interface EvProductResult {
+  slug: string;
+  name: string;
+  product_type: EvProductType;
+  card_count_total: number;
+  unique_card_count: number;
+  cards_subtotal_gross: number;
+  boosters: {
+    count_total: number;
+    sealed: { available: boolean; gross: number; net: number };
+    opened: { available: boolean; gross: number; net: number };
+  } | null;
+  totals: {
+    sealed: { gross: number; net: number } | null;
+    opened: { gross: number; net: number } | null;
+    cards_only: { gross: number; net: number };
+  };
+  fee_rate: number;
+  card_breakdown: EvProductCardBreakdown[];
+  booster_breakdown: EvProductBoosterBreakdown[];
+  missing_scryfall_ids: string[];
 }
