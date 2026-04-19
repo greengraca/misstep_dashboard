@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, PenLine } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageSquare, PenLine } from "lucide-react";
 import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
@@ -113,7 +113,8 @@ function cardmarketSlug(input: string): string {
 }
 
 function CardmarketLink({ row }: { row: StockListingWithTrend }) {
-  const href = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(row.set)}/${cardmarketSlug(row.name)}`;
+  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(row.set)}/${cardmarketSlug(row.name)}`;
+  const href = row.foil ? `${base}?isFoil=Y` : base;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       <a
@@ -128,11 +129,20 @@ function CardmarketLink({ row }: { row: StockListingWithTrend }) {
       </a>
       {row.signed && (
         <span
-          title={row.signedComment || "Signed"}
+          title={row.comment || "Signed"}
           style={{ display: "inline-flex", color: "var(--accent)" }}
-          aria-label={row.signedComment || "Signed"}
+          aria-label={row.comment || "Signed"}
         >
           <PenLine size={12} />
+        </span>
+      )}
+      {!row.signed && row.comment && (
+        <span
+          title={row.comment}
+          style={{ display: "inline-flex", color: "var(--text-muted)" }}
+          aria-label={row.comment}
+        >
+          <MessageSquare size={12} />
         </span>
       )}
     </span>

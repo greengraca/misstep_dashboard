@@ -131,9 +131,12 @@ export interface CmStockListing {
   foil: boolean;
   set: string;
   // Signed listings carry a huge legitimate premium over the Scryfall trend.
-  // Captured by the ext (v1.7.0+); older ext versions omit the fields.
+  // `signed` is the structured boolean for filtering; `comment` is the
+  // free-form seller note ("Signed by X", "color misprint", binder slot,
+  // etc.) that explains off-trend pricing. Captured by the ext (v1.7.0+
+  // for signed, v1.7.2+ for comment).
   signed?: boolean;
-  signedComment?: string | null;
+  comment?: string | null;
   // Cardmarket productId — the specific art variant's product ID (matches
   // ev_cards.cardmarket_id). Needed to pick the right ev_cards doc when
   // multiple printings share (name, set) — basic lands, reprints. Captured
@@ -190,7 +193,7 @@ export interface CmProductStockListing {
   language: string;
   foil: boolean;
   signed?: boolean;
-  signedComment?: string | null;
+  comment?: string | null;
   productId?: number | null;
 }
 

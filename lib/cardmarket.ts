@@ -744,7 +744,7 @@ async function processStock(
       // v1.7.0 and may now be present on previously-unsigned rows).
       const refreshSet: Record<string, unknown> = { lastSeenAt: now, submittedBy };
       if (typeof listing.signed === "boolean") refreshSet.signed = listing.signed;
-      if (listing.signedComment !== undefined) refreshSet.signedComment = listing.signedComment;
+      if (listing.comment !== undefined) refreshSet.comment = listing.comment;
       if (typeof listing.productId === "number") refreshSet.productId = listing.productId;
       updateOps.push({
         updateOne: {
@@ -771,7 +771,7 @@ async function processStock(
       firstSeenAt: now,
     };
     if (typeof listing.signed === "boolean") setOnInsert.signed = listing.signed;
-    if (listing.signedComment !== undefined) setOnInsert.signedComment = listing.signedComment;
+    if (listing.comment !== undefined) setOnInsert.comment = listing.comment;
     if (typeof listing.productId === "number") setOnInsert.productId = listing.productId;
     updateOps.push({
       updateOne: {
@@ -826,7 +826,7 @@ async function processProductStock(
 
     const signedFields: Record<string, unknown> = {};
     if (typeof listing.signed === "boolean") signedFields.signed = listing.signed;
-    if (listing.signedComment !== undefined) signedFields.signedComment = listing.signedComment;
+    if (listing.comment !== undefined) signedFields.comment = listing.comment;
     if (typeof listing.productId === "number") signedFields.productId = listing.productId;
 
     // First check if we already track this by articleId
