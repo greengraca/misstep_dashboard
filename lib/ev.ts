@@ -1123,6 +1123,7 @@ export function calculateEv(
     .sort((a, b) => getCardPrice(b.card, false, 0) - getCardPrice(a.card, false, 0));
 
   const mapToTopCard = (e: { card: EvCard; ev: number; pullRate: number }) => ({
+    scryfall_id: e.card.scryfall_id,
     name: e.card.name,
     set: e.card.set,
     collector_number: e.card.collector_number,
