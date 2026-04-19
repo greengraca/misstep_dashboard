@@ -1,12 +1,15 @@
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
+import { effectivePriceValue, effectivePriceWithFallback } from "@/lib/ev-prices";
 import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
+import { generateAllProductSnapshots, COL_EV_SNAPSHOTS as COL_SNAPSHOTS } from "./ev-products";
 import type {
   EvSet,
   EvCard,
   EvCardFilter,
   EvSlotDefinition,
+  EvSlotOutcome,
   EvBoosterConfig,
   EvConfig,
   EvConfigInput,
@@ -29,7 +32,6 @@ const JUMPSTART_SEED_DATA: Record<string, EvJumpstartTheme[]> = {
 const COL_SETS = "dashboard_ev_sets";
 const COL_CARDS = "dashboard_ev_cards";
 const COL_CONFIG = "dashboard_ev_config";
-const COL_SNAPSHOTS = "dashboard_ev_snapshots";
 const COL_JUMPSTART_THEMES = "dashboard_ev_jumpstart_themes";
 const COL_JUMPSTART_WEIGHTS = "dashboard_ev_jumpstart_weights";
 
@@ -55,6 +57,17 @@ async function ensureIndexes(): Promise<void> {
   if (indexesEnsured) return;
   try {
     const db = await getDb();
+
+    // Auto-heal: drop the legacy snapshot unique index if it still exists.
+    // Without this, product snapshots collide on the second-ever product per day
+    // because the legacy index enforces unique (set_code, date) and products
+    // leave set_code as null.
+    try {
+      await db.collection(COL_SNAPSHOTS).dropIndex("set_code_date_unique");
+    } catch {
+      // Not present (already migrated, or fresh DB) — fine.
+    }
+
     await Promise.all([
       db.collection(COL_SETS).createIndex({ code: 1 }, { unique: true, name: "code_unique" }),
       db.collection(COL_SETS).createIndex({ released_at: -1 }, { name: "released_desc" }),
@@ -65,8 +78,12 @@ async function ensureIndexes(): Promise<void> {
       db.collection(COL_CARDS).createIndex({ set: 1, name: 1 }, { name: "set_name" }),
       db.collection(COL_CONFIG).createIndex({ set_code: 1 }, { unique: true, name: "set_code_unique" }),
       db.collection(COL_SNAPSHOTS).createIndex(
-        { set_code: 1, date: -1 },
-        { unique: true, name: "set_code_date_unique" }
+        { set_code: 1, product_slug: 1, date: 1 },
+        { unique: true, name: "set_code_product_slug_date_unique" }
+      ),
+      db.collection(COL_SNAPSHOTS).createIndex(
+        { product_slug: 1, date: -1 },
+        { name: "product_slug_date" }
       ),
       db.collection(COL_JUMPSTART_THEMES).createIndex({ set_code: 1 }, { name: "jst_set_code" }),
       db.collection(COL_JUMPSTART_WEIGHTS).createIndex({ set_code: 1 }, { unique: true, name: "jsw_set_code_unique" }),
@@ -190,19 +207,85 @@ export async function syncSets(): Promise<{ added: number; updated: number }> {
   return { added, updated };
 }
 
+/**
+ * Sync a single Scryfall set by code (bypasses the MIN_RELEASE_YEAR UI filter
+ * and the BOOSTER_SET_TYPES gate — meant for ad-hoc admin syncing, e.g.
+ * pulling in a pre-2020 parent set when seeding a fixed-pool product).
+ *
+ * Use this alongside `syncCards(code)` to populate both sets and cards for one code.
+ */
+export async function syncOneSet(code: string): Promise<{ added: number; updated: number }> {
+  await ensureIndexes();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = (await scryfallGet(`/sets/${code}`)) as any;
+  const db = await getDb();
+  const col = db.collection(COL_SETS);
+  const now = new Date().toISOString();
+  const result = await col.updateOne(
+    { code: s.code },
+    {
+      $set: {
+        name: s.name,
+        released_at: s.released_at,
+        card_count: s.card_count,
+        icon_svg_uri: s.icon_svg_uri,
+        set_type: s.set_type,
+        scryfall_id: s.id,
+        parent_set_code: s.parent_set_code ?? null,
+        digital: s.digital ?? false,
+        synced_at: now,
+      },
+    },
+    { upsert: true }
+  );
+  return {
+    added: result.upsertedCount ? 1 : 0,
+    updated: result.modifiedCount && !result.upsertedCount ? 1 : 0,
+  };
+}
+
 export async function getSets(): Promise<EvSet[]> {
   await ensureIndexes();
   const db = await getDb();
 
+  // Collect set codes referenced by any EvProduct (parent_set_code or
+  // included_boosters[].set_code). These get included in the UI list even
+  // if they predate MIN_RELEASE_YEAR — otherwise pre-2020 parent sets for
+  // Planeswalker Decks / Commander precons can't be configured or snapshotted.
+  const productSets = await db
+    .collection("dashboard_ev_products")
+    .aggregate([
+      {
+        $project: {
+          codes: {
+            $setUnion: [
+              { $cond: [{ $ifNull: ["$parent_set_code", false] }, ["$parent_set_code"], []] },
+              { $ifNull: ["$included_boosters.set_code", []] },
+            ],
+          },
+        },
+      },
+      { $unwind: "$codes" },
+      { $group: { _id: "$codes" } },
+    ])
+    .toArray();
+  const productReferencedCodes = productSets.map((d) => d._id as string).filter(Boolean);
+
   // Read-time filter: EV calculator UI only wants booster sets released in 2020+,
   // excluding digital-only. The underlying collection may contain every Scryfall set
   // (since refreshAllScryfall populates the full catalog for canonical sort).
+  // Product-referenced sets bypass the year filter via $or.
   const sets = await db
     .collection(COL_SETS)
     .find({
-      set_type: { $in: Array.from(BOOSTER_SET_TYPES) },
-      released_at: { $gte: `${MIN_RELEASE_YEAR}-01-01` },
-      $or: [{ digital: { $ne: true } }, { digital: { $exists: false } }],
+      $or: [
+        {
+          set_type: { $in: Array.from(BOOSTER_SET_TYPES) },
+          released_at: { $gte: `${MIN_RELEASE_YEAR}-01-01` },
+          $or: [{ digital: { $ne: true } }, { digital: { $exists: false } }],
+        },
+        ...(productReferencedCodes.length > 0 ? [{ code: { $in: productReferencedCodes } }] : []),
+      ],
     })
     .sort({ released_at: -1 })
     .toArray();
@@ -242,7 +325,18 @@ export async function getSets(): Promise<EvSet[]> {
       ...s,
       _id: s._id.toString(),
       card_count: s.code === "mb2" && mb2ListCount > 0 ? s.card_count + mb2ListCount : s.card_count,
-      config_exists: configSet.has(s.code) || jumpstartSet.has(s.code) || s.code in JUMPSTART_SEED_DATA || s.code === "mb2",
+      // "Configured" = we've actually iterated on this set's EV. That means
+      // a saved config, a Jumpstart theme list, the special MB2 case, OR an
+      // existing snapshot (we wouldn't have generated one without manual
+      // attention). Just having a default config available isn't enough —
+      // draft-booster-era expansions all share defaults but only the ones
+      // we've snapshotted should read as configured.
+      config_exists:
+        configSet.has(s.code) ||
+        jumpstartSet.has(s.code) ||
+        s.code in JUMPSTART_SEED_DATA ||
+        s.code === "mb2" ||
+        snapMap.has(s.code),
       play_ev_net: snap?.play_ev_net ?? null,
       collector_ev_net: snap?.collector_ev_net ?? null,
     } as EvSet;
@@ -484,38 +578,38 @@ export function getDefaultPlayBoosterConfig(): EvBoosterConfig {
     packs_per_box: 36,
     cards_per_pack: 14,
     slots: [
-      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
+      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
       {
         slot_number: 7, label: "Common / SPG", is_foil: false,
         outcomes: [
-          { probability: 0.96875, filter: { rarity: ["common"], treatment: ["normal"] } },
+          { probability: 0.96875, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } },
           { probability: 0.03125, filter: { promo_types: ["spg"] } },
         ],
       },
-      { slot_number: 8, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
-      { slot_number: 9, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
-      { slot_number: 10, label: "Uncommon 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
+      { slot_number: 8, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
+      { slot_number: 9, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
+      { slot_number: 10, label: "Uncommon 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
       {
         slot_number: 11, label: "Rare / Mythic Wildcard", is_foil: false,
         outcomes: [
-          { probability: 0.780, filter: { rarity: ["rare"], treatment: ["normal"] } },
-          { probability: 0.128, filter: { rarity: ["mythic"], treatment: ["normal"] } },
-          { probability: 0.077, filter: { rarity: ["rare"], border_color: ["borderless"] } },
-          { probability: 0.015, filter: { rarity: ["mythic"], border_color: ["borderless"] } },
+          { probability: 0.780, filter: { rarity: ["rare"], treatment: ["normal"], booster: true } },
+          { probability: 0.128, filter: { rarity: ["mythic"], treatment: ["normal"], booster: true } },
+          { probability: 0.077, filter: { rarity: ["rare"], border_color: ["borderless"], booster: true } },
+          { probability: 0.015, filter: { rarity: ["mythic"], border_color: ["borderless"], booster: true } },
         ],
       },
       {
         slot_number: 12, label: "Foil Wildcard", is_foil: true,
         outcomes: [
-          { probability: 0.667, filter: { rarity: ["common"] } },
-          { probability: 0.250, filter: { rarity: ["uncommon"] } },
-          { probability: 0.069, filter: { rarity: ["rare"] } },
-          { probability: 0.014, filter: { rarity: ["mythic"] } },
+          { probability: 0.667, filter: { rarity: ["common"], booster: true, type_line_not_contains: "Basic Land" } },
+          { probability: 0.250, filter: { rarity: ["uncommon"], booster: true } },
+          { probability: 0.069, filter: { rarity: ["rare"], booster: true } },
+          { probability: 0.014, filter: { rarity: ["mythic"], booster: true } },
         ],
       },
       {
@@ -645,19 +739,155 @@ export function getDefaultJumpstartBoosterConfig(): EvBoosterConfig {
   };
 }
 
+// ── Draft Booster 2017–2023 Default Config ────────────────────
+//
+// The draft booster format used by every premier expansion from Amonkhet
+// (2017) through the end of 2023. Replaced by the 15-card Play Booster in
+// early 2024. Structure:
+//   - 9 plain commons
+//   - 1 common slot that is replaced by a foil in ~1/6 packs, or by a
+//     Masterpiece in ~1/129 packs (Kaladesh-block only). Standard MTG foil
+//     rate is ≈1 foil per 67 cards = 6 per 36-pack box.
+//   - 3 uncommons
+//   - 1 rare/mythic (87.5% rare, 12.5% mythic — standard 1:8 ratio)
+//   - 1 basic land / checklist card (no EV contribution)
+//   Plus: a separate token/marketing card slot that isn't counted.
+//
+// Foil prices: slot 10's foil outcomes use outcome-level is_foil:true so the
+// calc reads price_eur_foil. Masterpieces are a cross-set pool (separate
+// Scryfall set code) and require the caller to pass masterpieceSetCode.
+
+/**
+ * Reference to the Masterpiece subset pulled by a parent expansion's
+ * boosters. Masterpiece Series sets combine the batches from two parent
+ * expansions in a single Scryfall set, discriminated by collector number:
+ *   - Zendikar Expeditions (`exp`): 1-25 BFZ, 26-45 OGW.
+ *   - Kaladesh Inventions (`mps`):  1-30 KLD, 31-54 AER.
+ *   - Amonkhet Invocations (`mp2`): 1-30 AKH, 31-54 HOU.
+ * Without a collector-number range, the calc would pool ALL masterpieces
+ * and overestimate EV roughly 2x.
+ */
+export interface MasterpieceRef {
+  set_code: string;
+  collector_number_min?: number;
+  collector_number_max?: number;
+}
+
+export function masterpieceRefFor(setCode: string): MasterpieceRef | undefined {
+  switch (setCode.toLowerCase()) {
+    case "bfz": return { set_code: "exp", collector_number_max: 25 };
+    case "ogw": return { set_code: "exp", collector_number_min: 26 };
+    case "kld": return { set_code: "mps", collector_number_max: 30 };
+    case "aer": return { set_code: "mps", collector_number_min: 31 };
+    case "akh": return { set_code: "mp2", collector_number_max: 30 };
+    case "hou": return { set_code: "mp2", collector_number_min: 31 };
+    default: return undefined;
+  }
+}
+
+export function getDefaultDraftBoosterConfig(options: { masterpiece?: MasterpieceRef } = {}): EvBoosterConfig {
+  const { masterpiece } = options;
+  // Probability budget for slot 10 (non-foil common vs foil wildcard vs
+  // Masterpiece). Masterpieces REPLACE foils when they hit, so they eat
+  // into the foil probability mass, not the plain-common mass.
+  const pMasterpiece = masterpiece ? 1 / 129 : 0;          // ~1:1935 cards, 15 cards/pack
+  const pFoilAny = 1 / 6 - pMasterpiece;                    // ~1 foil per 6 packs
+  const pCommonPlain = 1 - 1 / 6;                           // 5/6 of packs have no foil
+
+  // Conditional foil rarity distribution (1/12 + 1/18 + 1/36 + 1/216 = 37/216):
+  //   common 18/37, uncommon 12/37, rare 6/37, mythic 1/37.
+  const pFoilCommon = pFoilAny * (18 / 37);
+  const pFoilUncommon = pFoilAny * (12 / 37);
+  const pFoilRare = pFoilAny * (6 / 37);
+  const pFoilMythic = pFoilAny * (1 / 37);
+
+  const slot10Outcomes: EvSlotOutcome[] = [
+    { probability: pCommonPlain, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } },
+    { probability: pFoilCommon, is_foil: true, filter: { rarity: ["common"], finishes: ["foil"], booster: true, type_line_not_contains: "Basic Land" } },
+    { probability: pFoilUncommon, is_foil: true, filter: { rarity: ["uncommon"], finishes: ["foil"], booster: true } },
+    { probability: pFoilRare, is_foil: true, filter: { rarity: ["rare"], finishes: ["foil"], booster: true } },
+    { probability: pFoilMythic, is_foil: true, filter: { rarity: ["mythic"], finishes: ["foil"], booster: true } },
+  ];
+  if (masterpiece) {
+    slot10Outcomes.push({
+      probability: pMasterpiece,
+      is_foil: true,
+      filter: {
+        set_codes: [masterpiece.set_code],
+        ...(masterpiece.collector_number_min !== undefined ? { collector_number_min: masterpiece.collector_number_min } : {}),
+        ...(masterpiece.collector_number_max !== undefined ? { collector_number_max: masterpiece.collector_number_max } : {}),
+      },
+    });
+  }
+
+  return {
+    packs_per_box: 36,
+    cards_per_pack: 15,
+    slots: [
+      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 7, label: "Common 7", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 8, label: "Common 8", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 9, label: "Common 9", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 10, label: masterpiece ? "Common / Foil / Masterpiece" : "Common / Foil wildcard", is_foil: false, outcomes: slot10Outcomes },
+      { slot_number: 11, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
+      { slot_number: 12, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
+      { slot_number: 13, label: "Uncommon 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
+      {
+        slot_number: 14, label: "Rare / Mythic", is_foil: false,
+        outcomes: [
+          { probability: 0.875, filter: { rarity: ["rare"], treatment: ["normal"], booster: true } },
+          { probability: 0.125, filter: { rarity: ["mythic"], treatment: ["normal"], booster: true } },
+        ],
+      },
+      {
+        // 1 basic land per pack, equal probability across all printed basic
+        // arts in the set. Modern full-art / desert basics (e.g. Amonkhet)
+        // have meaningful market value and contribute real EV here.
+        slot_number: 15, label: "Basic Land", is_foil: false,
+        outcomes: [
+          { probability: 1, filter: { type_line_contains: "Basic Land", booster: true } },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Returns true when the set falls in the draft-booster era (roughly
+ * Amonkhet 2017 through end of 2023, before Play Boosters rolled out in
+ * early 2024). Saved configs always override this.
+ */
+export function isDraftBoosterEra(set: { set_type?: string; released_at?: string } | null | undefined): boolean {
+  if (!set) return false;
+  if (set.set_type !== "expansion" && set.set_type !== "core" && set.set_type !== "masters") return false;
+  const d = set.released_at;
+  if (!d) return false;
+  return d >= "2017-01-01" && d < "2024-01-01";
+}
+
 // ── Mystery Booster 2 Default Config ──────────────────────────
 
 const MB2_NON_FUTURE_FRAMES = ["2015", "2003", "1997", "1993"];
 
 export function getDefaultMB2BoosterConfig(): EvBoosterConfig {
-  const base: Omit<EvCardFilter, "colors"> = { rarity: ["common", "uncommon"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: true };
+  // NOTE: do NOT add `booster: true` here. Mystery Booster 2 cards in
+  // Scryfall are flagged `booster: false` (because they only appear in this
+  // sealed product, not regular boosters), so a booster:true filter would
+  // match zero cards. The slot config relies on border / frame / finishes /
+  // colors to constrain the pool instead.
+  const base: Omit<EvCardFilter, "colors"> = { rarity: ["common", "uncommon"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], mono_color: true };
   const cuW: EvCardFilter = { ...base, colors: ["W"] };
   const cuU: EvCardFilter = { ...base, colors: ["U"] };
   const cuB: EvCardFilter = { ...base, colors: ["B"] };
   const cuR: EvCardFilter = { ...base, colors: ["R"] };
   const cuG: EvCardFilter = { ...base, colors: ["G"] };
-  const rmFilter: EvCardFilter = { rarity: ["rare", "mythic"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: true };
-  const slot11Filter: EvCardFilter = { border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: false };
+  const rmFilter: EvCardFilter = { rarity: ["rare", "mythic"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], mono_color: true };
+  const slot11Filter: EvCardFilter = { border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], mono_color: false };
 
   return {
     packs_per_box: 24,
@@ -930,8 +1160,33 @@ export function weightsToOverride(w: EvJumpstartWeights | null): JumpstartWeight
 
 // ── Card Matching ──────────────────────────────────────────────
 
+/**
+ * Collect extra Scryfall set codes referenced by any outcome's `set_codes`
+ * filter in a booster config, excluding the primary setCode. Callers use
+ * this to pre-fetch cross-set card pools (e.g. Masterpieces from `mp2`
+ * alongside Amonkhet cards from `akh`).
+ */
+export function collectExtraSetCodes(config: EvBoosterConfig, primarySetCode: string): string[] {
+  const extras = new Set<string>();
+  for (const slot of config.slots) {
+    for (const outcome of slot.outcomes) {
+      for (const code of outcome.filter.set_codes ?? []) {
+        if (code && code !== primarySetCode) extras.add(code);
+      }
+    }
+  }
+  return [...extras];
+}
+
 export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCard[] {
   return cards.filter((c) => {
+    if (filter.set_codes?.length && !filter.set_codes.includes(c.set)) return false;
+    if (filter.collector_number_min !== undefined || filter.collector_number_max !== undefined) {
+      const n = parseInt(c.collector_number, 10);
+      if (!Number.isFinite(n)) return false;
+      if (filter.collector_number_min !== undefined && n < filter.collector_number_min) return false;
+      if (filter.collector_number_max !== undefined && n > filter.collector_number_max) return false;
+    }
     if (filter.rarity?.length && !filter.rarity.includes(c.rarity)) return false;
     if (filter.treatment?.length && !filter.treatment.includes(c.treatment)) return false;
     if (filter.border_color?.length && !filter.border_color.includes(c.border_color)) return false;
@@ -955,7 +1210,11 @@ export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCar
 // ── EV Calculation (Deterministic) ─────────────────────────────
 
 function getCardPrice(card: EvCard, isFoil: boolean, siftFloor: number): number {
-  const price = isFoil ? (card.price_eur_foil ?? card.price_eur ?? 0) : (card.price_eur ?? card.price_eur_foil ?? 0);
+  // Pull the freshest EUR we have for this variant (Scryfall bulk vs CM-ext
+  // scrape, picked by timestamp). Fall back to the other variant if the
+  // requested one is missing — matches the pre-effective-price behaviour
+  // of `card.price_eur_foil ?? card.price_eur ?? 0`.
+  const price = effectivePriceWithFallback(card, isFoil);
   return price >= siftFloor ? price : 0;
 }
 
@@ -970,8 +1229,15 @@ export function calculateEv(
   // not Jumpstart or other sealed products.
   const boosterCards = cards;
 
-  // Track per-card EV contributions
-  const cardEvMap = new Map<string, { card: EvCard; ev: number; pullRate: number }>();
+  // Track per-card EV contributions. is_foil split via the key — same card
+  // pulled foil vs nonfoil are separate entries because they have different
+  // prices and the breakdown table needs to surface both.
+  const cardEvMap = new Map<string, { card: EvCard; isFoil: boolean; ev: number; pullRate: number }>();
+  // Unique scryfall_ids that match at least one outcome's filter (i.e.,
+  // actually pullable). Used for the "X / Y" counter instead of raw pool
+  // size, which would include excluded cards like PW-deck exclusives or
+  // off-subset Masterpieces that get imported but never hit.
+  const eligibleCardIds = new Set<string>();
   const slotBreakdown: EvCalculationResult["slot_breakdown"] = [];
 
   for (const slot of config.slots) {
@@ -989,9 +1255,12 @@ export function calculateEv(
 
       const probPerCard = outcome.probability / matching.length;
       const pullsPerBox = probPerCard * config.packs_per_box;
+      // Outcome-level is_foil takes precedence over the slot default.
+      const outcomeIsFoil = outcome.is_foil ?? slot.is_foil;
 
       for (const card of matching) {
-        const price = getCardPrice(card, slot.is_foil, siftFloor);
+        eligibleCardIds.add(card.scryfall_id);
+        const price = getCardPrice(card, outcomeIsFoil, siftFloor);
         const ev = price * pullsPerBox;
         slotEv += ev;
 
@@ -1000,13 +1269,13 @@ export function calculateEv(
         }
 
         // Aggregate per card
-        const key = `${card.scryfall_id}_${slot.is_foil ? "foil" : "nonfoil"}`;
+        const key = `${card.scryfall_id}_${outcomeIsFoil ? "foil" : "nonfoil"}`;
         const existing = cardEvMap.get(key);
         if (existing) {
           existing.ev += ev;
           existing.pullRate += pullsPerBox;
         } else {
-          cardEvMap.set(key, { card, ev, pullRate: pullsPerBox });
+          cardEvMap.set(key, { card, isFoil: outcomeIsFoil, ev, pullRate: pullsPerBox });
         }
       }
     }
@@ -1029,20 +1298,32 @@ export function calculateEv(
     .filter((e) => e.ev > 0)
     .sort((a, b) => b.ev - a.ev);
 
-  const cardsAboveFloor = allCardEvs.length;
+  // Count unique cards (not foil/nonfoil tuples) above the floor, so the
+  // "X / Y" counter matches what a user would count by hand.
+  const uniqueAboveFloor = new Set<string>();
+  for (const e of allCardEvs) uniqueAboveFloor.add(e.card.scryfall_id);
+  const cardsAboveFloor = uniqueAboveFloor.size;
 
   // Biggest pulls — sorted by raw price (most expensive cards you could open)
   const allCardsByPrice = Array.from(cardEvMap.values())
     .filter((e) => e.ev > 0)
     .sort((a, b) => getCardPrice(b.card, false, 0) - getCardPrice(a.card, false, 0));
 
-  const mapToTopCard = (e: { card: EvCard; ev: number; pullRate: number }) => ({
+  const mapToTopCard = (e: { card: EvCard; isFoil: boolean; ev: number; pullRate: number }, i: number) => ({
+    // uid: same card can appear in multiple slot outcomes (rare + wildcard,
+    // etc.), so scryfall_id alone isn't unique. Suffix the list index.
+    uid: `${e.card.scryfall_id}-${i}`,
+    scryfall_id: e.card.scryfall_id,
     name: e.card.name,
     set: e.card.set,
     collector_number: e.card.collector_number,
     rarity: e.card.rarity,
     treatment: e.card.treatment,
-    price: getCardPrice(e.card, false, 0),
+    is_foil: e.isFoil,
+    // Use the foil price when the contribution came from a foil slot —
+    // otherwise foil-only outcomes (e.g. Masterpieces) would display nonfoil
+    // prices that don't exist for those cards.
+    price: getCardPrice(e.card, e.isFoil, 0),
     pull_rate_per_box: Math.round(e.pullRate * 10000) / 10000,
     ev_contribution: Math.round(e.ev * 100) / 100,
     image_uri: e.card.image_uri,
@@ -1056,7 +1337,9 @@ export function calculateEv(
     box_ev_net: Math.round(boxEvNet * 100) / 100,
     fee_rate: feeRate,
     sift_floor: siftFloor,
-    cards_counted: boosterCards.length,
+    packs_per_box: config.packs_per_box,
+    cards_per_pack: config.cards_per_pack,
+    cards_counted: eligibleCardIds.size,
     cards_above_floor: cardsAboveFloor,
     cards_total: cards.length,
     slot_breakdown: slotBreakdown,
@@ -1088,8 +1371,9 @@ function buildSlotPools(
       cumProb += outcome.probability;
       cumulativeProbs.push(cumProb);
       const matching = matchCardsToFilter(boosterCards, outcome.filter);
+      const outcomeIsFoil = outcome.is_foil ?? slot.is_foil;
       cardPrices.push(
-        matching.map((c) => getCardPrice(c, slot.is_foil, siftFloor))
+        matching.map((c) => getCardPrice(c, outcomeIsFoil, siftFloor))
       );
     }
 
@@ -1255,7 +1539,7 @@ export function calculateJumpstartEv(
 
     for (const cardName of theme.cards) {
       const card = cardByName.get(cardName.toLowerCase());
-      const price = card?.price_eur ?? 0;
+      const price = card ? effectivePriceValue(card, false) : 0;
       const effectivePrice = price >= siftFloor ? price : 0;
       themeEvGross += effectivePrice;
 
@@ -1350,7 +1634,7 @@ export function simulateJumpstartBox(
     let ev = 0;
     for (const name of theme.cards) {
       const card = cardByName.get(name.toLowerCase());
-      const price = card?.price_eur ?? 0;
+      const price = card ? effectivePriceValue(card, false) : 0;
       if (price >= siftFloor) ev += price;
     }
     return { tier: theme.tier, evGross: ev, key: themeKey(theme.name, theme.variant) };
@@ -1487,6 +1771,14 @@ async function getDefaultConfigForSet(setCode: string): Promise<EvConfig | null>
       play_booster: getDefaultMB2BoosterConfig(), collector_booster: null,
     };
   }
+  if (isDraftBoosterEra(set)) {
+    return {
+      _id: "", set_code: setCode, updated_at: "", updated_by: "",
+      sift_floor: 0.25, fee_rate: 0.05,
+      play_booster: getDefaultDraftBoosterConfig({ masterpiece: masterpieceRefFor(setCode) }),
+      collector_booster: null,
+    };
+  }
   return null;
 }
 
@@ -1497,10 +1789,24 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
   const { cards } = await getCardsForSet(setCode, { boosterOnly: false, limit: 10000 });
   const today = new Date().toISOString().slice(0, 10);
 
+  // Pre-load cross-set pools referenced by the effective config (e.g. mp2
+  // Masterpieces merged into an akh booster). Has to happen before calculateEv
+  // reads `cards`, and we check both play and collector configs.
+  const tentativeConfig = (await getConfig(setCode)) ?? (await getDefaultConfigForSet(setCode));
+  const extraCodes = new Set<string>();
+  if (tentativeConfig?.play_booster) for (const c of collectExtraSetCodes(tentativeConfig.play_booster, setCode)) extraCodes.add(c);
+  if (tentativeConfig?.collector_booster) for (const c of collectExtraSetCodes(tentativeConfig.collector_booster, setCode)) extraCodes.add(c);
+  for (const extra of extraCodes) {
+    const { cards: extraCards } = await getCardsForSet(extra, { boosterOnly: false, limit: 10000 });
+    cards.push(...extraCards);
+  }
+
   let playEvGross: number | null = null;
   let playEvNet: number | null = null;
+  let playPackEvNet: number | null = null;
   let collectorEvGross: number | null = null;
   let collectorEvNet: number | null = null;
+  let collectorPackEvNet: number | null = null;
 
   // Check if this is a Jumpstart set with theme data
   const jumpstartThemes = await getJumpstartThemes(setCode);
@@ -1534,6 +1840,7 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
       });
       playEvGross = result.box_ev_gross;
       playEvNet = result.box_ev_net;
+      playPackEvNet = Math.round((result.box_ev_net / result.packs_per_box) * 100) / 100;
     }
 
     if (effectiveConfig.collector_booster) {
@@ -1545,6 +1852,7 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
       });
       collectorEvGross = result.box_ev_gross;
       collectorEvNet = result.box_ev_net;
+      collectorPackEvNet = Math.round((result.box_ev_net / result.packs_per_box) * 100) / 100;
     }
   }
 
@@ -1554,8 +1862,10 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     set_code: setCode,
     play_ev_gross: playEvGross,
     play_ev_net: playEvNet,
+    play_pack_ev_net: playPackEvNet,
     collector_ev_gross: collectorEvGross,
     collector_ev_net: collectorEvNet,
+    collector_pack_ev_net: collectorPackEvNet,
     card_count_total: cards.length,
     card_count_priced: cards.filter((c) => c.price_eur !== null || c.price_eur_foil !== null).length,
     sift_floor: config?.sift_floor ?? 0.25,
@@ -1598,6 +1908,11 @@ export async function generateAllSnapshots(): Promise<{ generated: number; error
       errors.push(`${code}: ${String(err)}`);
     }
   }
+
+  // Products: run AFTER sets so latestPlayEvBySet picks up fresh snapshots
+  const productRes = await generateAllProductSnapshots();
+  generated += productRes.generated;
+  errors.push(...productRes.errors);
 
   return { generated, errors };
 }

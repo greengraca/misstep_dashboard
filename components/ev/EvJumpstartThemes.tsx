@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import StatCard from "@/components/dashboard/stat-card";
+import { useDiscount } from "@/lib/discount";
 import type { EvJumpstartResult, EvJumpstartThemeResult, EvSimulationResult } from "@/lib/types";
 import { DollarSign, TrendingUp, Package, ChevronDown, ChevronRight, Layers, FlaskConical, Dices, PackageOpen } from "lucide-react";
 import EvJumpstartOpenSession from "./EvJumpstartOpenSession";
@@ -24,6 +25,7 @@ interface EvJumpstartThemesProps {
 }
 
 export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThemesProps) {
+  const { apply } = useDiscount();
   const [expandedTheme, setExpandedTheme] = useState<string | null>(null);
   const [colorFilter, setColorFilter] = useState<string | null>(null);
   const [showPullData, setShowPullData] = useState(false);
@@ -70,18 +72,18 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           title="Box EV (Gross)"
-          value={`€${result.box_ev_gross.toFixed(2)}`}
+          value={`€${apply(result.box_ev_gross).toFixed(2)}`}
           icon={<DollarSign size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
           title="Box EV (Net)"
-          value={`€${result.box_ev_net.toFixed(2)}`}
+          value={`€${apply(result.box_ev_net).toFixed(2)}`}
           subtitle={`After ${(result.fee_rate * 100).toFixed(0)}% fee`}
           icon={<TrendingUp size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
           title="Avg Theme EV"
-          value={`€${result.avg_theme_ev_net.toFixed(2)}`}
+          value={`€${apply(result.avg_theme_ev_net).toFixed(2)}`}
           subtitle={`${result.theme_count} themes`}
           icon={<Package size={18} style={{ color: "var(--accent)" }} />}
         />
@@ -337,7 +339,7 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                         : "var(--accent)",
                     }}
                   >
-                    &euro;{theme.ev_net.toFixed(2)}
+                    &euro;{apply(theme.ev_net).toFixed(2)}
                   </span>
                 </div>
 
@@ -383,7 +385,7 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                               fontFamily: "var(--font-mono)",
                             }}
                           >
-                            &euro;{card.price.toFixed(2)}
+                            &euro;{apply(card.price).toFixed(2)}
                           </span>
                         </div>
                       ))}
@@ -393,10 +395,10 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                       style={{ borderTop: "1px solid var(--border-subtle)" }}
                     >
                       <span style={{ color: "var(--text-muted)" }}>
-                        Gross: &euro;{theme.ev_gross.toFixed(2)}
+                        Gross: &euro;{apply(theme.ev_gross).toFixed(2)}
                       </span>
                       <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
-                        Net: &euro;{theme.ev_net.toFixed(2)}
+                        Net: &euro;{apply(theme.ev_net).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -501,11 +503,11 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                 style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}
               >
                 {[
-                  { label: "Mean", value: `€${simResult.mean.toFixed(2)}`, tip: "Average box value across all simulations. The expected value you'd get if you opened many boxes." },
-                  { label: "Median", value: `€${simResult.median.toFixed(2)}`, tip: "The middle value — 50% of boxes are worth more, 50% less. More representative than mean when distribution is skewed." },
-                  { label: "Std Dev", value: `€${simResult.stddev.toFixed(2)}`, tip: "Standard deviation — measures how spread out box values are. Higher means more variance between boxes." },
-                  { label: "Min", value: `€${simResult.min.toFixed(2)}`, tip: "Worst box in the simulation — the floor of what you might get." },
-                  { label: "Max", value: `€${simResult.max.toFixed(2)}`, tip: "Best box in the simulation — the ceiling with perfect luck." },
+                  { label: "Mean", value: `€${apply(simResult.mean).toFixed(2)}`, tip: "Average box value across all simulations. The expected value you'd get if you opened many boxes." },
+                  { label: "Median", value: `€${apply(simResult.median).toFixed(2)}`, tip: "The middle value — 50% of boxes are worth more, 50% less. More representative than mean when distribution is skewed." },
+                  { label: "Std Dev", value: `€${apply(simResult.stddev).toFixed(2)}`, tip: "Standard deviation — measures how spread out box values are. Higher means more variance between boxes." },
+                  { label: "Min", value: `€${apply(simResult.min).toFixed(2)}`, tip: "Worst box in the simulation — the floor of what you might get." },
+                  { label: "Max", value: `€${apply(simResult.max).toFixed(2)}`, tip: "Best box in the simulation — the ceiling with perfect luck." },
                   { label: "Time", value: `${simResult.duration_ms}ms`, tip: `Time to simulate ${simResult.iterations.toLocaleString()} box openings.` },
                 ].map((s) => (
                   <div
@@ -587,11 +589,11 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
               <div className="flex flex-wrap gap-4 text-[10px]" style={{ color: "var(--text-muted)" }}>
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(99,102,241,0.5)" }} />
-                  Likely range (68%): €{simResult.percentiles.p16.toFixed(0)}–€{simResult.percentiles.p84.toFixed(0)}
+                  Likely range (68%): €{apply(simResult.percentiles.p16).toFixed(0)}–€{apply(simResult.percentiles.p84).toFixed(0)}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(234,179,8,0.3)" }} />
-                  Almost certain (95%): €{simResult.percentiles.p2_5.toFixed(0)}–€{simResult.percentiles.p97_5.toFixed(0)}
+                  Almost certain (95%): €{apply(simResult.percentiles.p2_5).toFixed(0)}–€{apply(simResult.percentiles.p97_5).toFixed(0)}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(255,255,255,0.6)" }} />
@@ -609,39 +611,44 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                 )}
               </div>
 
-              {/* ROI */}
-              {simResult.roi && (
+              {/* ROI — recomputed against the discounted mean so undercut
+                  flows through to profit/loss numbers. Box cost is unchanged. */}
+              {simResult.roi && (() => {
+                const profitPerBox = apply(simResult.mean) - simResult.roi.box_cost;
+                const totalProfit = profitPerBox * simResult.roi.quantity;
+                const roiPercent = simResult.roi.box_cost > 0 ? (profitPerBox / simResult.roi.box_cost) * 100 : 0;
+                return (
                 <div
                   className="p-3 rounded-lg flex flex-wrap gap-4"
                   style={{
-                    background: simResult.roi.profit_per_box >= 0
+                    background: profitPerBox >= 0
                       ? "rgba(34, 197, 94, 0.08)"
                       : "rgba(239, 68, 68, 0.08)",
-                    border: `1px solid ${simResult.roi.profit_per_box >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
+                    border: `1px solid ${profitPerBox >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
                   }}
                 >
                   <div className="flex items-center gap-2">
-                    <TrendingUp size={16} style={{ color: simResult.roi.profit_per_box >= 0 ? "var(--success)" : "var(--error)" }} />
+                    <TrendingUp size={16} style={{ color: profitPerBox >= 0 ? "var(--success)" : "var(--error)" }} />
                     <div>
                       <p className="text-xs" style={{ color: "var(--text-muted)" }}>ROI</p>
                       <p className="text-sm font-bold" style={{
-                        color: simResult.roi.roi_percent >= 0 ? "var(--success)" : "var(--error)",
+                        color: roiPercent >= 0 ? "var(--success)" : "var(--error)",
                         fontFamily: "var(--font-mono)",
                       }}>
-                        {simResult.roi.roi_percent >= 0 ? "+" : ""}{simResult.roi.roi_percent.toFixed(1)}%
+                        {roiPercent >= 0 ? "+" : ""}{roiPercent.toFixed(1)}%
                       </p>
                     </div>
                   </div>
                   <div>
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>Profit / Box</p>
                     <p className="text-sm font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                      {simResult.roi.profit_per_box >= 0 ? "+" : ""}&euro;{simResult.roi.profit_per_box.toFixed(2)}
+                      {profitPerBox >= 0 ? "+" : ""}&euro;{profitPerBox.toFixed(2)}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>Total ({simResult.roi.quantity} boxes)</p>
                     <p className="text-sm font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                      {simResult.roi.total_profit >= 0 ? "+" : ""}&euro;{simResult.roi.total_profit.toFixed(2)}
+                      {totalProfit >= 0 ? "+" : ""}&euro;{totalProfit.toFixed(2)}
                     </p>
                   </div>
                   <div>
@@ -651,7 +658,8 @@ export default function EvJumpstartThemes({ setCode, siftFloor }: EvJumpstartThe
                     </p>
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </div>

@@ -227,6 +227,22 @@ export interface EvSet {
   config_exists?: boolean;
 }
 
+// Per-variant market-price snapshot captured by the extension's card_prices
+// sync. One branch per variant under `cm_prices`. `trend` is Cardmarket's
+// Trend Price at the time we last visited the product page; `updatedAt` lets
+// downstream code compare against the Scryfall bulk (`prices_updated_at`)
+// and use whichever is fresher (see lib/ev-prices.ts#getEffectivePrice).
+export interface EvCardCmPriceSnapshot {
+  from?: number;
+  trend?: number;
+  avg30d?: number;
+  avg7d?: number;
+  avg1d?: number;
+  available?: number;
+  chart?: Array<{ date: string; avg_sell: number }>;
+  updatedAt: string;
+}
+
 export interface EvCard {
   _id: string;
   scryfall_id: string;
@@ -253,6 +269,10 @@ export interface EvCard {
   released_at: string;
   layout: string;
   frame: string;
+  cm_prices?: {
+    nonfoil?: EvCardCmPriceSnapshot;
+    foil?: EvCardCmPriceSnapshot;
+  } | null;
   pull_rate_per_box?: number;
   ev_contribution?: number;
 }
@@ -279,6 +299,23 @@ export interface EvCardFilter {
   type_line_contains?: string;
   type_line_not_contains?: string;
   finishes?: string[];
+  /**
+   * Restrict this outcome's pool to cards from these Scryfall set codes.
+   * Used for cross-set pools like Masterpieces (e.g. ["mp2"] for Amonkhet
+   * Invocations while the rest of the booster pulls from "akh"). When
+   * omitted, all in-scope cards match (no set restriction at the filter
+   * level — callers pre-filter to the intended set).
+   */
+  set_codes?: string[];
+  /**
+   * Inclusive lower bound on collector_number (parsed as integer). Used to
+   * segment Masterpiece sets that span multiple parent expansions — e.g.
+   * mp2 collector numbers 31-54 are Hour of Devastation Invocations; 1-30
+   * are Amonkhet. Cards with non-numeric collector_numbers fail the bound.
+   */
+  collector_number_min?: number;
+  /** Inclusive upper bound on collector_number (parsed as integer). See collector_number_min. */
+  collector_number_max?: number;
   booster?: boolean;
   mono_color?: boolean;
   colors?: string[];
@@ -288,6 +325,13 @@ export interface EvCardFilter {
 export interface EvSlotOutcome {
   probability: number;
   filter: EvCardFilter;
+  /**
+   * Override the slot's is_foil flag for this specific outcome. Use when a
+   * single slot can produce either a non-foil or a foil card (e.g. the 10th
+   * common in pre-2024 draft boosters is a foil only 1/6 packs). When
+   * omitted, the slot's is_foil applies.
+   */
+  is_foil?: boolean;
 }
 
 export interface EvSlotDefinition {
@@ -324,6 +368,9 @@ export interface EvCalculationResult {
   box_ev_net: number;
   fee_rate: number;
   sift_floor: number;
+  /** From the effective config (saved or default fallback). UI surfaces these. */
+  packs_per_box: number;
+  cards_per_pack: number;
   cards_counted: number;
   cards_above_floor: number;
   cards_total: number;
@@ -338,11 +385,15 @@ export interface EvCalculationResult {
 }
 
 export interface EvTopCard {
+  uid: string;
+  scryfall_id: string;
   name: string;
   set: string;
   collector_number: string;
   rarity: string;
   treatment: string;
+  /** True when this contribution came from a foil slot/outcome. */
+  is_foil: boolean;
   price: number;
   pull_rate_per_box: number;
   ev_contribution: number;
@@ -373,16 +424,24 @@ export interface EvSimulationResult {
 }
 
 export interface EvSnapshot {
-  _id: string;
+  _id?: string;
   date: string;
-  set_code: string;
-  play_ev_gross: number | null;
-  play_ev_net: number | null;
-  collector_ev_gross: number | null;
-  collector_ev_net: number | null;
-  card_count_total: number;
-  card_count_priced: number;
-  sift_floor: number;
+  set_code?: string;                // one of set_code/product_slug is set per doc
+  product_slug?: string;            // product path (new)
+  play_ev_gross?: number | null;
+  play_ev_net?: number | null;
+  /** Per-pack net EV. Used by the EV-product calc for "opened booster" valuation. */
+  play_pack_ev_net?: number | null;
+  collector_ev_gross?: number | null;
+  collector_ev_net?: number | null;
+  collector_pack_ev_net?: number | null;
+  ev_net_sealed?: number;           // products only
+  ev_net_opened?: number;           // products only
+  ev_net_cards_only?: number;       // products only
+  card_count_total?: number;
+  card_count_priced?: number;
+  sift_floor?: number;
+  fee_rate?: number;
   created_at: string;
 }
 
@@ -444,4 +503,94 @@ export interface EvJumpstartSessionSubmit {
   tier_counts: { common: number; rare: number; mythic: number };
   theme_counts: Record<string, number>;
   packs: number;
+}
+
+// ── EV Products (fixed-pool products — PW decks, precons, etc.) ─────
+
+export type EvProductType =
+  | "planeswalker_deck"
+  | "commander"
+  | "starter"
+  | "welcome"
+  | "duel"
+  | "challenger"
+  | "other";
+
+export type EvProductCardRole =
+  | "foil_premium_pw"
+  | "commander"
+  | "key_card";
+
+export interface EvProductCard {
+  scryfall_id: string;
+  name: string;
+  set_code: string;
+  count: number;
+  is_foil: boolean;
+  role?: EvProductCardRole;
+}
+
+export interface EvIncludedBooster {
+  set_code: string;
+  count: number;
+  sealed_price_eur?: number;
+}
+
+export interface EvProduct {
+  _id?: string;
+  slug: string;
+  name: string;
+  product_type: EvProductType;
+  release_year: number;
+  parent_set_code?: string;
+  cards: EvProductCard[];
+  included_boosters?: EvIncludedBooster[];
+  image_uri?: string;
+  notes?: string;
+  /**
+   * When false/undefined (default behavior), basic lands (Plains, Island,
+   * Swamp, Mountain, Forest, Wastes) are treated as €0 in the EV calc.
+   * Set true to include their market price (rarely meaningful for precons).
+   */
+  count_basic_lands?: boolean;
+  seeded_at: string;
+}
+
+export interface EvProductCardBreakdown extends EvProductCard {
+  unit_price: number | null;
+  line_total: number;
+  /**
+   * When set, this card's value was NOT added to `cards_subtotal_gross`.
+   * The displayed unit_price / line_total still reflect the card's real
+   * market value so the decklist shows the price; the totals just exclude
+   * it. Use to render a "sifted" indicator in the UI.
+   */
+  excluded_reason?: "basic_land" | "below_sift_floor";
+}
+
+export interface EvProductBoosterBreakdown extends EvIncludedBooster {
+  opened_unit_ev: number | null;
+}
+
+export interface EvProductResult {
+  slug: string;
+  name: string;
+  product_type: EvProductType;
+  card_count_total: number;
+  unique_card_count: number;
+  cards_subtotal_gross: number;
+  boosters: {
+    count_total: number;
+    sealed: { available: boolean; gross: number; net: number };
+    opened: { available: boolean; gross: number; net: number };
+  } | null;
+  totals: {
+    sealed: { gross: number; net: number } | null;
+    opened: { gross: number; net: number } | null;
+    cards_only: { gross: number; net: number };
+  };
+  fee_rate: number;
+  card_breakdown: EvProductCardBreakdown[];
+  booster_breakdown: EvProductBoosterBreakdown[];
+  missing_scryfall_ids: string[];
 }
