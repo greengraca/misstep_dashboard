@@ -1217,6 +1217,11 @@ export function calculateEv(
   // pulled foil vs nonfoil are separate entries because they have different
   // prices and the breakdown table needs to surface both.
   const cardEvMap = new Map<string, { card: EvCard; isFoil: boolean; ev: number; pullRate: number }>();
+  // Unique scryfall_ids that match at least one outcome's filter (i.e.,
+  // actually pullable). Used for the "X / Y" counter instead of raw pool
+  // size, which would include excluded cards like PW-deck exclusives or
+  // off-subset Masterpieces that get imported but never hit.
+  const eligibleCardIds = new Set<string>();
   const slotBreakdown: EvCalculationResult["slot_breakdown"] = [];
 
   for (const slot of config.slots) {
@@ -1238,6 +1243,7 @@ export function calculateEv(
       const outcomeIsFoil = outcome.is_foil ?? slot.is_foil;
 
       for (const card of matching) {
+        eligibleCardIds.add(card.scryfall_id);
         const price = getCardPrice(card, outcomeIsFoil, siftFloor);
         const ev = price * pullsPerBox;
         slotEv += ev;
@@ -1276,7 +1282,11 @@ export function calculateEv(
     .filter((e) => e.ev > 0)
     .sort((a, b) => b.ev - a.ev);
 
-  const cardsAboveFloor = allCardEvs.length;
+  // Count unique cards (not foil/nonfoil tuples) above the floor, so the
+  // "X / Y" counter matches what a user would count by hand.
+  const uniqueAboveFloor = new Set<string>();
+  for (const e of allCardEvs) uniqueAboveFloor.add(e.card.scryfall_id);
+  const cardsAboveFloor = uniqueAboveFloor.size;
 
   // Biggest pulls — sorted by raw price (most expensive cards you could open)
   const allCardsByPrice = Array.from(cardEvMap.values())
@@ -1313,7 +1323,7 @@ export function calculateEv(
     sift_floor: siftFloor,
     packs_per_box: config.packs_per_box,
     cards_per_pack: config.cards_per_pack,
-    cards_counted: boosterCards.length,
+    cards_counted: eligibleCardIds.size,
     cards_above_floor: cardsAboveFloor,
     cards_total: cards.length,
     slot_breakdown: slotBreakdown,
