@@ -4,44 +4,7 @@ import { ChevronDown, ChevronUp, MessageSquare, PenLine } from "lucide-react";
 import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
-
-// Cardmarket ssMain2 sprite sheet, y=0 row. Positions captured from CM's
-// rendered DOM — if CM reshuffles the sprite we'll need to refresh this.
-// The ext already scrapes `langPos` per order item; stock rows don't carry
-// it yet, so we map by the aria-label string the ext extracts.
-const LANGUAGE_POS: Record<string, string> = {
-  English: "-16px 0",
-  French: "-32px 0",
-  German: "-48px 0",
-  Spanish: "-64px 0",
-  Italian: "-80px 0",
-  "S-Chinese": "-96px 0",
-  Japanese: "-112px 0",
-  Portuguese: "-128px 0",
-  Russian: "-144px 0",
-  Korean: "-160px 0",
-  "T-Chinese": "-176px 0",
-};
-const FOIL_STAR_POS = "-16px -16px";
-
-function CmSprite({ pos, title, size = 16 }: { pos: string; title?: string; size?: number }) {
-  return (
-    <span
-      title={title}
-      aria-label={title}
-      style={{
-        display: "inline-block",
-        width: `${size}px`,
-        height: `${size}px`,
-        backgroundImage: "url(/sprites/ssMain2.png)",
-        backgroundPosition: pos,
-        backgroundRepeat: "no-repeat",
-        verticalAlign: "middle",
-        flexShrink: 0,
-      }}
-    />
-  );
-}
+import { CmSprite, LANGUAGE_POS, FOIL_STAR_POS } from "@/components/dashboard/cm-sprite";
 
 export interface SetMeta {
   code: string;

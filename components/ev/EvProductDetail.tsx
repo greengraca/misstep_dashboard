@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR, { mutate } from "swr";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { FoilStar } from "@/components/dashboard/cm-sprite";
 import { fetcher } from "@/lib/fetcher";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
@@ -486,15 +487,12 @@ export default function EvProductDetail({ slug }: Props) {
                   >
                     {c.set_code.toUpperCase()}
                   </td>
-                  <td
-                    style={{
-                      padding: "8px",
-                      color: c.is_foil
-                        ? "var(--accent)"
-                        : "var(--text-muted)",
-                    }}
-                  >
-                    {c.is_foil ? "foil" : "non-foil"}
+                  <td style={{ padding: "8px" }}>
+                    {c.is_foil ? (
+                      <FoilStar size={14} />
+                    ) : (
+                      <span style={{ color: "var(--text-muted)" }}>—</span>
+                    )}
                   </td>
                   <td
                     style={{

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
+import { FoilStar } from "@/components/dashboard/cm-sprite";
 import type { EvTopCard } from "@/lib/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -50,23 +51,26 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
             />
           )}
           <div>
-            {cmUrl ? (
-              <a
-                href={cmUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-medium no-underline hover:underline transition-colors"
-                style={{ color: "var(--text-primary)" }}
-                title="Open on Cardmarket"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {row.name}
-              </a>
-            ) : (
-              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                {row.name}
-              </p>
-            )}
+            <div className="flex items-center gap-1.5">
+              {cmUrl ? (
+                <a
+                  href={cmUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium no-underline hover:underline transition-colors"
+                  style={{ color: "var(--text-primary)" }}
+                  title="Open on Cardmarket"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {row.name}
+                </a>
+              ) : (
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  {row.name}
+                </p>
+              )}
+              {row.is_foil && <FoilStar size={14} />}
+            </div>
             <a
               href={`https://scryfall.com/card/${row.set === "mb2-list" ? "plst" : row.set}/${row.collector_number}`}
               target="_blank"
@@ -76,9 +80,6 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
               onClick={(e) => e.stopPropagation()}
             >
               #{row.collector_number}
-              {row.is_foil && (
-                <span className="ml-1.5" style={{ color: "var(--accent)" }}>foil</span>
-              )}
             </a>
           </div>
         </div>
