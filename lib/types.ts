@@ -476,7 +476,7 @@ export interface EvProductCard {
   role?: EvProductCardRole;
 }
 
-export interface IncludedBooster {
+export interface EvIncludedBooster {
   set_code: string;
   count: number;
   sealed_price_eur?: number;
@@ -490,10 +490,10 @@ export interface EvProduct {
   release_year: number;
   parent_set_code?: string;
   cards: EvProductCard[];
-  included_boosters?: IncludedBooster[];
+  included_boosters?: EvIncludedBooster[];
   image_uri?: string;
   notes?: string;
-  seeded_at: Date;
+  seeded_at: string;
 }
 
 export interface EvProductCardBreakdown extends EvProductCard {
@@ -501,7 +501,7 @@ export interface EvProductCardBreakdown extends EvProductCard {
   line_total: number;
 }
 
-export interface EvProductBoosterBreakdown extends IncludedBooster {
+export interface EvProductBoosterBreakdown extends EvIncludedBooster {
   opened_unit_ev: number | null;
 }
 
