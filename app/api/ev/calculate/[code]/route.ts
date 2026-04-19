@@ -1,5 +1,5 @@
 import { withAuthReadParams } from "@/lib/api-helpers";
-import { getConfig, getSetByCode, getCardsForSet, calculateEv, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig, getDefaultDraftBoosterConfig, isDraftBoosterEra, collectExtraSetCodes, masterpieceSetCodeFor } from "@/lib/ev";
+import { getConfig, getSetByCode, getCardsForSet, calculateEv, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig, getDefaultDraftBoosterConfig, isDraftBoosterEra, collectExtraSetCodes, masterpieceRefFor } from "@/lib/ev";
 
 export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
   const boosterType = (req.nextUrl.searchParams.get("booster") || "play") as "play" | "collector";
@@ -18,7 +18,7 @@ export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
     boosterConfig = boosterType === "play"
       ? (isMB2 ? getDefaultMB2BoosterConfig()
         : isJumpstart ? getDefaultJumpstartBoosterConfig()
-        : isDraftEra ? getDefaultDraftBoosterConfig({ masterpieceSetCode: masterpieceSetCodeFor(params.code) })
+        : isDraftEra ? getDefaultDraftBoosterConfig({ masterpiece: masterpieceRefFor(params.code) })
         : getDefaultPlayBoosterConfig())
       : getDefaultCollectorBoosterConfig();
   }

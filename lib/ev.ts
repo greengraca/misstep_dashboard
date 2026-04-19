@@ -746,29 +746,40 @@ export function getDefaultJumpstartBoosterConfig(): EvBoosterConfig {
 // calc reads price_eur_foil. Masterpieces are a cross-set pool (separate
 // Scryfall set code) and require the caller to pass masterpieceSetCode.
 
-/** Masterpiece Series by set. Returns the set code to pull Masterpieces from. */
-export function masterpieceSetCodeFor(setCode: string): string | undefined {
+/**
+ * Reference to the Masterpiece subset pulled by a parent expansion's
+ * boosters. Masterpiece Series sets combine the batches from two parent
+ * expansions in a single Scryfall set, discriminated by collector number:
+ *   - Zendikar Expeditions (`exp`): 1-25 BFZ, 26-45 OGW.
+ *   - Kaladesh Inventions (`mps`):  1-30 KLD, 31-54 AER.
+ *   - Amonkhet Invocations (`mp2`): 1-30 AKH, 31-54 HOU.
+ * Without a collector-number range, the calc would pool ALL masterpieces
+ * and overestimate EV roughly 2x.
+ */
+export interface MasterpieceRef {
+  set_code: string;
+  collector_number_min?: number;
+  collector_number_max?: number;
+}
+
+export function masterpieceRefFor(setCode: string): MasterpieceRef | undefined {
   switch (setCode.toLowerCase()) {
-    case "bfz":
-    case "ogw":
-      return "exp"; // Zendikar Expeditions
-    case "kld":
-    case "aer":
-      return "mps"; // Kaladesh Inventions
-    case "akh":
-    case "hou":
-      return "mp2"; // Amonkhet Invocations
-    default:
-      return undefined;
+    case "bfz": return { set_code: "exp", collector_number_max: 25 };
+    case "ogw": return { set_code: "exp", collector_number_min: 26 };
+    case "kld": return { set_code: "mps", collector_number_max: 30 };
+    case "aer": return { set_code: "mps", collector_number_min: 31 };
+    case "akh": return { set_code: "mp2", collector_number_max: 30 };
+    case "hou": return { set_code: "mp2", collector_number_min: 31 };
+    default: return undefined;
   }
 }
 
-export function getDefaultDraftBoosterConfig(options: { masterpieceSetCode?: string } = {}): EvBoosterConfig {
-  const { masterpieceSetCode } = options;
+export function getDefaultDraftBoosterConfig(options: { masterpiece?: MasterpieceRef } = {}): EvBoosterConfig {
+  const { masterpiece } = options;
   // Probability budget for slot 10 (non-foil common vs foil wildcard vs
   // Masterpiece). Masterpieces REPLACE foils when they hit, so they eat
   // into the foil probability mass, not the plain-common mass.
-  const pMasterpiece = masterpieceSetCode ? 1 / 129 : 0;   // ~1:1935 cards, 15 cards/pack
+  const pMasterpiece = masterpiece ? 1 / 129 : 0;          // ~1:1935 cards, 15 cards/pack
   const pFoilAny = 1 / 6 - pMasterpiece;                    // ~1 foil per 6 packs
   const pCommonPlain = 1 - 1 / 6;                           // 5/6 of packs have no foil
 
@@ -786,11 +797,15 @@ export function getDefaultDraftBoosterConfig(options: { masterpieceSetCode?: str
     { probability: pFoilRare, is_foil: true, filter: { rarity: ["rare"], finishes: ["foil"] } },
     { probability: pFoilMythic, is_foil: true, filter: { rarity: ["mythic"], finishes: ["foil"] } },
   ];
-  if (masterpieceSetCode) {
+  if (masterpiece) {
     slot10Outcomes.push({
       probability: pMasterpiece,
       is_foil: true,
-      filter: { set_codes: [masterpieceSetCode] },
+      filter: {
+        set_codes: [masterpiece.set_code],
+        ...(masterpiece.collector_number_min !== undefined ? { collector_number_min: masterpiece.collector_number_min } : {}),
+        ...(masterpiece.collector_number_max !== undefined ? { collector_number_max: masterpiece.collector_number_max } : {}),
+      },
     });
   }
 
@@ -807,7 +822,7 @@ export function getDefaultDraftBoosterConfig(options: { masterpieceSetCode?: str
       { slot_number: 7, label: "Common 7", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
       { slot_number: 8, label: "Common 8", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
       { slot_number: 9, label: "Common 9", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      { slot_number: 10, label: masterpieceSetCode ? "Common / Foil / Masterpiece" : "Common / Foil wildcard", is_foil: false, outcomes: slot10Outcomes },
+      { slot_number: 10, label: masterpiece ? "Common / Foil / Masterpiece" : "Common / Foil wildcard", is_foil: false, outcomes: slot10Outcomes },
       { slot_number: 11, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
       { slot_number: 12, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
       { slot_number: 13, label: "Uncommon 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
@@ -1142,6 +1157,12 @@ export function collectExtraSetCodes(config: EvBoosterConfig, primarySetCode: st
 export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCard[] {
   return cards.filter((c) => {
     if (filter.set_codes?.length && !filter.set_codes.includes(c.set)) return false;
+    if (filter.collector_number_min !== undefined || filter.collector_number_max !== undefined) {
+      const n = parseInt(c.collector_number, 10);
+      if (!Number.isFinite(n)) return false;
+      if (filter.collector_number_min !== undefined && n < filter.collector_number_min) return false;
+      if (filter.collector_number_max !== undefined && n > filter.collector_number_max) return false;
+    }
     if (filter.rarity?.length && !filter.rarity.includes(c.rarity)) return false;
     if (filter.treatment?.length && !filter.treatment.includes(c.treatment)) return false;
     if (filter.border_color?.length && !filter.border_color.includes(c.border_color)) return false;
@@ -1712,7 +1733,7 @@ async function getDefaultConfigForSet(setCode: string): Promise<EvConfig | null>
     return {
       _id: "", set_code: setCode, updated_at: "", updated_by: "",
       sift_floor: 0.25, fee_rate: 0.05,
-      play_booster: getDefaultDraftBoosterConfig({ masterpieceSetCode: masterpieceSetCodeFor(setCode) }),
+      play_booster: getDefaultDraftBoosterConfig({ masterpiece: masterpieceRefFor(setCode) }),
       collector_booster: null,
     };
   }

@@ -307,6 +307,15 @@ export interface EvCardFilter {
    * level — callers pre-filter to the intended set).
    */
   set_codes?: string[];
+  /**
+   * Inclusive lower bound on collector_number (parsed as integer). Used to
+   * segment Masterpiece sets that span multiple parent expansions — e.g.
+   * mp2 collector numbers 31-54 are Hour of Devastation Invocations; 1-30
+   * are Amonkhet. Cards with non-numeric collector_numbers fail the bound.
+   */
+  collector_number_min?: number;
+  /** Inclusive upper bound on collector_number (parsed as integer). See collector_number_min. */
+  collector_number_max?: number;
   booster?: boolean;
   mono_color?: boolean;
   colors?: string[];
