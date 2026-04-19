@@ -116,11 +116,14 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       key: "treatment",
       label: "Treatment",
       sortable: true,
-      render: (row) => (
-        <span className="text-xs capitalize" style={{ color: "var(--text-secondary)" }}>
-          {row.treatment.replace(/_/g, " ")}
-        </span>
-      ),
+      render: (row) =>
+        row.treatment === "normal" ? (
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>
+        ) : (
+          <span className="text-xs capitalize" style={{ color: "var(--text-secondary)" }}>
+            {row.treatment.replace(/_/g, " ")}
+          </span>
+        ),
     },
     {
       key: "price",
@@ -213,7 +216,8 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
                   className="text-xs truncate"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  {row.rarity} &middot; {row.treatment.replace(/_/g, " ")}
+                  {row.rarity}
+                  {row.treatment !== "normal" && ` · ${row.treatment.replace(/_/g, " ")}`}
                 </p>
               </div>
             </div>
