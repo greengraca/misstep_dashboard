@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { withAuthRead, withAuth } from "@/lib/api-helpers";
-import { listProducts, upsertProduct } from "@/lib/ev-products";
+import { listProducts, upsertProduct, COL_EV_SNAPSHOTS } from "@/lib/ev-products";
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
+import { logApiError } from "@/lib/error-log";
 import type { EvProduct } from "@/lib/types";
 
 async function latestProductSnapshotsMap(slugs: string[]) {
   if (slugs.length === 0) return new Map<string, Record<string, number | null>>();
   const db = await getDb();
   const docs = await db
-    .collection("dashboard_ev_snapshots")
+    .collection(COL_EV_SNAPSHOTS)
     .aggregate([
       { $match: { product_slug: { $in: slugs } } },
       { $sort: { date: -1 } },
@@ -55,6 +56,15 @@ export const POST = withAuth(async (req, session) => {
       return NextResponse.json({ error: `Missing field: ${k}` }, { status: 400 });
     }
   }
+  const validProductTypes: EvProduct["product_type"][] = [
+    "planeswalker_deck", "commander", "starter", "welcome", "duel", "challenger", "other",
+  ];
+  if (!validProductTypes.includes(body.product_type as EvProduct["product_type"])) {
+    return NextResponse.json(
+      { error: `Invalid product_type: ${body.product_type}. Must be one of: ${validProductTypes.join(", ")}` },
+      { status: 400 }
+    );
+  }
   if (!Array.isArray(body.cards) || body.cards.length === 0) {
     return NextResponse.json({ error: "cards must be a non-empty array" }, { status: 400 });
   }
@@ -77,7 +87,10 @@ export const POST = withAuth(async (req, session) => {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const status = /already exists/i.test(msg) ? 409 : 500;
-    return NextResponse.json({ error: msg }, { status });
+    if (/already exists/i.test(msg)) {
+      return NextResponse.json({ error: msg }, { status: 409 });
+    }
+    logApiError("ev-products-upsert", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }, "ev-products-upsert");

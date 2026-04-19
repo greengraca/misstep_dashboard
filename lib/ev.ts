@@ -2,7 +2,7 @@ import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
 import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
-import { generateAllProductSnapshots } from "./ev-products";
+import { generateAllProductSnapshots, COL_EV_SNAPSHOTS as COL_SNAPSHOTS } from "./ev-products";
 import type {
   EvSet,
   EvCard,
@@ -30,7 +30,6 @@ const JUMPSTART_SEED_DATA: Record<string, EvJumpstartTheme[]> = {
 const COL_SETS = "dashboard_ev_sets";
 const COL_CARDS = "dashboard_ev_cards";
 const COL_CONFIG = "dashboard_ev_config";
-const COL_SNAPSHOTS = "dashboard_ev_snapshots";
 const COL_JUMPSTART_THEMES = "dashboard_ev_jumpstart_themes";
 const COL_JUMPSTART_WEIGHTS = "dashboard_ev_jumpstart_weights";
 
@@ -56,6 +55,17 @@ async function ensureIndexes(): Promise<void> {
   if (indexesEnsured) return;
   try {
     const db = await getDb();
+
+    // Auto-heal: drop the legacy snapshot unique index if it still exists.
+    // Without this, product snapshots collide on the second-ever product per day
+    // because the legacy index enforces unique (set_code, date) and products
+    // leave set_code as null.
+    try {
+      await db.collection(COL_SNAPSHOTS).dropIndex("set_code_date_unique");
+    } catch {
+      // Not present (already migrated, or fresh DB) — fine.
+    }
+
     await Promise.all([
       db.collection(COL_SETS).createIndex({ code: 1 }, { unique: true, name: "code_unique" }),
       db.collection(COL_SETS).createIndex({ released_at: -1 }, { name: "released_desc" }),
