@@ -247,15 +247,44 @@ export async function getSets(): Promise<EvSet[]> {
   await ensureIndexes();
   const db = await getDb();
 
+  // Collect set codes referenced by any EvProduct (parent_set_code or
+  // included_boosters[].set_code). These get included in the UI list even
+  // if they predate MIN_RELEASE_YEAR — otherwise pre-2020 parent sets for
+  // Planeswalker Decks / Commander precons can't be configured or snapshotted.
+  const productSets = await db
+    .collection("dashboard_ev_products")
+    .aggregate([
+      {
+        $project: {
+          codes: {
+            $setUnion: [
+              { $cond: [{ $ifNull: ["$parent_set_code", false] }, ["$parent_set_code"], []] },
+              { $ifNull: ["$included_boosters.set_code", []] },
+            ],
+          },
+        },
+      },
+      { $unwind: "$codes" },
+      { $group: { _id: "$codes" } },
+    ])
+    .toArray();
+  const productReferencedCodes = productSets.map((d) => d._id as string).filter(Boolean);
+
   // Read-time filter: EV calculator UI only wants booster sets released in 2020+,
   // excluding digital-only. The underlying collection may contain every Scryfall set
   // (since refreshAllScryfall populates the full catalog for canonical sort).
+  // Product-referenced sets bypass the year filter via $or.
   const sets = await db
     .collection(COL_SETS)
     .find({
-      set_type: { $in: Array.from(BOOSTER_SET_TYPES) },
-      released_at: { $gte: `${MIN_RELEASE_YEAR}-01-01` },
-      $or: [{ digital: { $ne: true } }, { digital: { $exists: false } }],
+      $or: [
+        {
+          set_type: { $in: Array.from(BOOSTER_SET_TYPES) },
+          released_at: { $gte: `${MIN_RELEASE_YEAR}-01-01` },
+          $or: [{ digital: { $ne: true } }, { digital: { $exists: false } }],
+        },
+        ...(productReferencedCodes.length > 0 ? [{ code: { $in: productReferencedCodes } }] : []),
+      ],
     })
     .sort({ released_at: -1 })
     .toArray();

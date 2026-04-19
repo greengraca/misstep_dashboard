@@ -7,6 +7,161 @@ import { ArrowLeft } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
+function SealedPriceInput({
+  product,
+  boosterIndex,
+  value,
+  onChanged,
+}: {
+  product: EvProduct;
+  boosterIndex: number;
+  value: number | undefined;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(value !== undefined ? String(value) : "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const parsed = draft.trim() === "" ? undefined : Number(draft);
+    if (parsed !== undefined && (!Number.isFinite(parsed) || parsed < 0)) {
+      setError("invalid");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const { _id, seeded_at, ...rest } = product;
+      void _id;
+      void seeded_at;
+      const included_boosters = (rest.included_boosters ?? []).map((b, i) =>
+        i === boosterIndex
+          ? parsed === undefined
+            ? { set_code: b.set_code, count: b.count }
+            : { ...b, sealed_price_eur: parsed }
+          : b
+      );
+      const payload = { ...rest, included_boosters, overwrite: true };
+      const res = await fetch("/api/ev/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      await fetch(`/api/ev/products/${product.slug}/snapshot`, { method: "POST" });
+      onChanged();
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(value !== undefined ? String(value) : "");
+          setEditing(true);
+          setError(null);
+        }}
+        className="transition-colors hover:underline"
+        style={{
+          color: value === undefined ? "var(--text-muted)" : "var(--text-primary)",
+          fontFamily: "var(--font-mono)",
+          background: "none",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          fontSize: "inherit",
+        }}
+        title="Click to edit sealed price"
+      >
+        {value === undefined ? "set…" : `€${value.toFixed(2)}`}
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>€</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        step="0.01"
+        min="0"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") {
+            setEditing(false);
+            setError(null);
+          }
+        }}
+        disabled={saving}
+        autoFocus
+        style={{
+          width: "70px",
+          padding: "2px 4px",
+          background: "transparent",
+          border: "1px solid var(--border)",
+          borderRadius: "4px",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "inherit",
+        }}
+      />
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        className="transition-colors"
+        style={{
+          padding: "2px 6px",
+          background: "var(--accent)",
+          border: "none",
+          borderRadius: "4px",
+          color: "var(--background, #000)",
+          fontSize: "11px",
+          cursor: saving ? "wait" : "pointer",
+        }}
+      >
+        {saving ? "…" : "save"}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setEditing(false);
+          setError(null);
+        }}
+        disabled={saving}
+        className="transition-colors"
+        style={{
+          padding: "2px 6px",
+          background: "none",
+          border: "1px solid var(--border)",
+          borderRadius: "4px",
+          color: "var(--text-muted)",
+          fontSize: "11px",
+          cursor: "pointer",
+        }}
+      >
+        cancel
+      </button>
+      {error && (
+        <span style={{ color: "var(--error)", fontSize: "11px" }}>{error}</span>
+      )}
+    </span>
+  );
+}
+
 function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -436,14 +591,13 @@ export default function EvProductDetail({ slug }: Props) {
                     >
                       {b.count}
                     </td>
-                    <td
-                      style={{
-                        padding: "8px",
-                        color: "var(--text-primary)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      {fmt(b.sealed_price_eur)}
+                    <td style={{ padding: "8px" }}>
+                      <SealedPriceInput
+                        product={product}
+                        boosterIndex={i}
+                        value={b.sealed_price_eur}
+                        onChanged={() => mutate(`/api/ev/products/${slug}`)}
+                      />
                     </td>
                     <td
                       style={{
