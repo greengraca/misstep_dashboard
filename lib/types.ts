@@ -299,6 +299,14 @@ export interface EvCardFilter {
   type_line_contains?: string;
   type_line_not_contains?: string;
   finishes?: string[];
+  /**
+   * Restrict this outcome's pool to cards from these Scryfall set codes.
+   * Used for cross-set pools like Masterpieces (e.g. ["mp2"] for Amonkhet
+   * Invocations while the rest of the booster pulls from "akh"). When
+   * omitted, all in-scope cards match (no set restriction at the filter
+   * level — callers pre-filter to the intended set).
+   */
+  set_codes?: string[];
   booster?: boolean;
   mono_color?: boolean;
   colors?: string[];
@@ -308,6 +316,13 @@ export interface EvCardFilter {
 export interface EvSlotOutcome {
   probability: number;
   filter: EvCardFilter;
+  /**
+   * Override the slot's is_foil flag for this specific outcome. Use when a
+   * single slot can produce either a non-foil or a foil card (e.g. the 10th
+   * common in pre-2024 draft boosters is a foil only 1/6 packs). When
+   * omitted, the slot's is_foil applies.
+   */
+  is_foil?: boolean;
 }
 
 export interface EvSlotDefinition {

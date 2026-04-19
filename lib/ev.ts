@@ -9,6 +9,7 @@ import type {
   EvCard,
   EvCardFilter,
   EvSlotDefinition,
+  EvSlotOutcome,
   EvBoosterConfig,
   EvConfig,
   EvConfigInput,
@@ -733,23 +734,66 @@ export function getDefaultJumpstartBoosterConfig(): EvBoosterConfig {
 // (2017) through the end of 2023. Replaced by the 15-card Play Booster in
 // early 2024. Structure:
 //   - 9 plain commons
-//   - 1 common slot that is replaced by a foil in ~1/6 packs (standard MTG
-//     foil rate, ≈1 foil per 67 cards = 6 per 36-pack box)
+//   - 1 common slot that is replaced by a foil in ~1/6 packs, or by a
+//     Masterpiece in ~1/129 packs (Kaladesh-block only). Standard MTG foil
+//     rate is ≈1 foil per 67 cards = 6 per 36-pack box.
 //   - 3 uncommons
 //   - 1 rare/mythic (87.5% rare, 12.5% mythic — standard 1:8 ratio)
 //   - 1 basic land / checklist card (no EV contribution)
 //   Plus: a separate token/marketing card slot that isn't counted.
 //
-// Known approximations:
-//   - The "10th common" foil swap uses is_foil:false on the slot so the calc
-//     prices foil outcomes from price_eur, NOT price_eur_foil. This
-//     underestimates foil EV by ~2–4x. Outcome-level is_foil would fix it.
-//   - Masterpieces (Invocations / Inventions / Expeditions) aren't modelled;
-//     they live in separate Scryfall sets (e.g. mp2 for Amonkhet
-//     Invocations) and today's calc can't reach cross-set pools. Material
-//     miss for Kaladesh / Aether Revolt / Amonkhet / Hour of Devastation.
+// Foil prices: slot 10's foil outcomes use outcome-level is_foil:true so the
+// calc reads price_eur_foil. Masterpieces are a cross-set pool (separate
+// Scryfall set code) and require the caller to pass masterpieceSetCode.
 
-export function getDefaultDraftBoosterConfig(): EvBoosterConfig {
+/** Masterpiece Series by set. Returns the set code to pull Masterpieces from. */
+export function masterpieceSetCodeFor(setCode: string): string | undefined {
+  switch (setCode.toLowerCase()) {
+    case "bfz":
+    case "ogw":
+      return "exp"; // Zendikar Expeditions
+    case "kld":
+    case "aer":
+      return "mps"; // Kaladesh Inventions
+    case "akh":
+    case "hou":
+      return "mp2"; // Amonkhet Invocations
+    default:
+      return undefined;
+  }
+}
+
+export function getDefaultDraftBoosterConfig(options: { masterpieceSetCode?: string } = {}): EvBoosterConfig {
+  const { masterpieceSetCode } = options;
+  // Probability budget for slot 10 (non-foil common vs foil wildcard vs
+  // Masterpiece). Masterpieces REPLACE foils when they hit, so they eat
+  // into the foil probability mass, not the plain-common mass.
+  const pMasterpiece = masterpieceSetCode ? 1 / 129 : 0;   // ~1:1935 cards, 15 cards/pack
+  const pFoilAny = 1 / 6 - pMasterpiece;                    // ~1 foil per 6 packs
+  const pCommonPlain = 1 - 1 / 6;                           // 5/6 of packs have no foil
+
+  // Conditional foil rarity distribution (1/12 + 1/18 + 1/36 + 1/216 = 37/216):
+  //   common 18/37, uncommon 12/37, rare 6/37, mythic 1/37.
+  const pFoilCommon = pFoilAny * (18 / 37);
+  const pFoilUncommon = pFoilAny * (12 / 37);
+  const pFoilRare = pFoilAny * (6 / 37);
+  const pFoilMythic = pFoilAny * (1 / 37);
+
+  const slot10Outcomes: EvSlotOutcome[] = [
+    { probability: pCommonPlain, filter: { rarity: ["common"], treatment: ["normal"] } },
+    { probability: pFoilCommon, is_foil: true, filter: { rarity: ["common"], finishes: ["foil"] } },
+    { probability: pFoilUncommon, is_foil: true, filter: { rarity: ["uncommon"], finishes: ["foil"] } },
+    { probability: pFoilRare, is_foil: true, filter: { rarity: ["rare"], finishes: ["foil"] } },
+    { probability: pFoilMythic, is_foil: true, filter: { rarity: ["mythic"], finishes: ["foil"] } },
+  ];
+  if (masterpieceSetCode) {
+    slot10Outcomes.push({
+      probability: pMasterpiece,
+      is_foil: true,
+      filter: { set_codes: [masterpieceSetCode] },
+    });
+  }
+
   return {
     packs_per_box: 36,
     cards_per_pack: 15,
@@ -763,19 +807,7 @@ export function getDefaultDraftBoosterConfig(): EvBoosterConfig {
       { slot_number: 7, label: "Common 7", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
       { slot_number: 8, label: "Common 8", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
       { slot_number: 9, label: "Common 9", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"] } }] },
-      {
-        // 10th common replaced by a foil 1/6 packs. Foil rarity split
-        // (conditional on foil): 49% common / 32% uncommon / 16% rare / 3%
-        // mythic — standard 1/12 + 1/18 + 1/36 + 1/216 distribution.
-        slot_number: 10, label: "Common / Foil wildcard", is_foil: false,
-        outcomes: [
-          { probability: 0.8333, filter: { rarity: ["common"], treatment: ["normal"] } },
-          { probability: 0.0811, filter: { rarity: ["common"], finishes: ["foil"] } },
-          { probability: 0.0541, filter: { rarity: ["uncommon"], finishes: ["foil"] } },
-          { probability: 0.0270, filter: { rarity: ["rare"], finishes: ["foil"] } },
-          { probability: 0.0045, filter: { rarity: ["mythic"], finishes: ["foil"] } },
-        ],
-      },
+      { slot_number: 10, label: masterpieceSetCode ? "Common / Foil / Masterpiece" : "Common / Foil wildcard", is_foil: false, outcomes: slot10Outcomes },
       { slot_number: 11, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
       { slot_number: 12, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
       { slot_number: 13, label: "Uncommon 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"] } }] },
@@ -1089,8 +1121,27 @@ export function weightsToOverride(w: EvJumpstartWeights | null): JumpstartWeight
 
 // ── Card Matching ──────────────────────────────────────────────
 
+/**
+ * Collect extra Scryfall set codes referenced by any outcome's `set_codes`
+ * filter in a booster config, excluding the primary setCode. Callers use
+ * this to pre-fetch cross-set card pools (e.g. Masterpieces from `mp2`
+ * alongside Amonkhet cards from `akh`).
+ */
+export function collectExtraSetCodes(config: EvBoosterConfig, primarySetCode: string): string[] {
+  const extras = new Set<string>();
+  for (const slot of config.slots) {
+    for (const outcome of slot.outcomes) {
+      for (const code of outcome.filter.set_codes ?? []) {
+        if (code && code !== primarySetCode) extras.add(code);
+      }
+    }
+  }
+  return [...extras];
+}
+
 export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCard[] {
   return cards.filter((c) => {
+    if (filter.set_codes?.length && !filter.set_codes.includes(c.set)) return false;
     if (filter.rarity?.length && !filter.rarity.includes(c.rarity)) return false;
     if (filter.treatment?.length && !filter.treatment.includes(c.treatment)) return false;
     if (filter.border_color?.length && !filter.border_color.includes(c.border_color)) return false;
@@ -1152,9 +1203,11 @@ export function calculateEv(
 
       const probPerCard = outcome.probability / matching.length;
       const pullsPerBox = probPerCard * config.packs_per_box;
+      // Outcome-level is_foil takes precedence over the slot default.
+      const outcomeIsFoil = outcome.is_foil ?? slot.is_foil;
 
       for (const card of matching) {
-        const price = getCardPrice(card, slot.is_foil, siftFloor);
+        const price = getCardPrice(card, outcomeIsFoil, siftFloor);
         const ev = price * pullsPerBox;
         slotEv += ev;
 
@@ -1163,7 +1216,7 @@ export function calculateEv(
         }
 
         // Aggregate per card
-        const key = `${card.scryfall_id}_${slot.is_foil ? "foil" : "nonfoil"}`;
+        const key = `${card.scryfall_id}_${outcomeIsFoil ? "foil" : "nonfoil"}`;
         const existing = cardEvMap.get(key);
         if (existing) {
           existing.ev += ev;
@@ -1255,8 +1308,9 @@ function buildSlotPools(
       cumProb += outcome.probability;
       cumulativeProbs.push(cumProb);
       const matching = matchCardsToFilter(boosterCards, outcome.filter);
+      const outcomeIsFoil = outcome.is_foil ?? slot.is_foil;
       cardPrices.push(
-        matching.map((c) => getCardPrice(c, slot.is_foil, siftFloor))
+        matching.map((c) => getCardPrice(c, outcomeIsFoil, siftFloor))
       );
     }
 
@@ -1658,7 +1712,8 @@ async function getDefaultConfigForSet(setCode: string): Promise<EvConfig | null>
     return {
       _id: "", set_code: setCode, updated_at: "", updated_by: "",
       sift_floor: 0.25, fee_rate: 0.05,
-      play_booster: getDefaultDraftBoosterConfig(), collector_booster: null,
+      play_booster: getDefaultDraftBoosterConfig({ masterpieceSetCode: masterpieceSetCodeFor(setCode) }),
+      collector_booster: null,
     };
   }
   return null;
@@ -1670,6 +1725,18 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
   await ensureIndexes();
   const { cards } = await getCardsForSet(setCode, { boosterOnly: false, limit: 10000 });
   const today = new Date().toISOString().slice(0, 10);
+
+  // Pre-load cross-set pools referenced by the effective config (e.g. mp2
+  // Masterpieces merged into an akh booster). Has to happen before calculateEv
+  // reads `cards`, and we check both play and collector configs.
+  const tentativeConfig = (await getConfig(setCode)) ?? (await getDefaultConfigForSet(setCode));
+  const extraCodes = new Set<string>();
+  if (tentativeConfig?.play_booster) for (const c of collectExtraSetCodes(tentativeConfig.play_booster, setCode)) extraCodes.add(c);
+  if (tentativeConfig?.collector_booster) for (const c of collectExtraSetCodes(tentativeConfig.collector_booster, setCode)) extraCodes.add(c);
+  for (const extra of extraCodes) {
+    const { cards: extraCards } = await getCardsForSet(extra, { boosterOnly: false, limit: 10000 });
+    cards.push(...extraCards);
+  }
 
   let playEvGross: number | null = null;
   let playEvNet: number | null = null;

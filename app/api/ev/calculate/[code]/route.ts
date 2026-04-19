@@ -1,5 +1,5 @@
 import { withAuthReadParams } from "@/lib/api-helpers";
-import { getConfig, getSetByCode, getCardsForSet, calculateEv, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig, getDefaultDraftBoosterConfig, isDraftBoosterEra } from "@/lib/ev";
+import { getConfig, getSetByCode, getCardsForSet, calculateEv, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig, getDefaultDraftBoosterConfig, isDraftBoosterEra, collectExtraSetCodes, masterpieceSetCodeFor } from "@/lib/ev";
 
 export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
   const boosterType = (req.nextUrl.searchParams.get("booster") || "play") as "play" | "collector";
@@ -18,13 +18,19 @@ export const GET = withAuthReadParams<{ code: string }>(async (req, params) => {
     boosterConfig = boosterType === "play"
       ? (isMB2 ? getDefaultMB2BoosterConfig()
         : isJumpstart ? getDefaultJumpstartBoosterConfig()
-        : isDraftEra ? getDefaultDraftBoosterConfig()
+        : isDraftEra ? getDefaultDraftBoosterConfig({ masterpieceSetCode: masterpieceSetCodeFor(params.code) })
         : getDefaultPlayBoosterConfig())
       : getDefaultCollectorBoosterConfig();
   }
 
   const feeRate = config?.fee_rate ?? 0.05;
   const { cards } = await getCardsForSet(params.code, { boosterOnly: false, limit: 10000 });
+  // Cross-set pools (e.g. Masterpieces from mp2): fetch referenced sets and
+  // merge into the calc's card pool. matchCardsToFilter respects set_codes.
+  for (const extra of collectExtraSetCodes(boosterConfig, params.code)) {
+    const { cards: extraCards } = await getCardsForSet(extra, { boosterOnly: false, limit: 10000 });
+    cards.push(...extraCards);
+  }
 
   const data = calculateEv(cards, boosterConfig, {
     siftFloor: floor,
