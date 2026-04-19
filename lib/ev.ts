@@ -65,8 +65,12 @@ async function ensureIndexes(): Promise<void> {
       db.collection(COL_CARDS).createIndex({ set: 1, name: 1 }, { name: "set_name" }),
       db.collection(COL_CONFIG).createIndex({ set_code: 1 }, { unique: true, name: "set_code_unique" }),
       db.collection(COL_SNAPSHOTS).createIndex(
-        { set_code: 1, date: -1 },
-        { unique: true, name: "set_code_date_unique" }
+        { set_code: 1, product_slug: 1, date: 1 },
+        { unique: true, name: "set_code_product_slug_date_unique" }
+      ),
+      db.collection(COL_SNAPSHOTS).createIndex(
+        { product_slug: 1, date: -1 },
+        { name: "product_slug_date" }
       ),
       db.collection(COL_JUMPSTART_THEMES).createIndex({ set_code: 1 }, { name: "jst_set_code" }),
       db.collection(COL_JUMPSTART_WEIGHTS).createIndex({ set_code: 1 }, { unique: true, name: "jsw_set_code_unique" }),
