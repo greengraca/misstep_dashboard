@@ -5,6 +5,44 @@ import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
 
+// Cardmarket ssMain2 sprite sheet, y=0 row. Positions captured from CM's
+// rendered DOM — if CM reshuffles the sprite we'll need to refresh this.
+// The ext already scrapes `langPos` per order item; stock rows don't carry
+// it yet, so we map by the aria-label string the ext extracts.
+const LANGUAGE_POS: Record<string, string> = {
+  English: "-16px 0",
+  French: "-32px 0",
+  German: "-48px 0",
+  Spanish: "-64px 0",
+  Italian: "-80px 0",
+  "S-Chinese": "-96px 0",
+  Japanese: "-112px 0",
+  Portuguese: "-128px 0",
+  Russian: "-144px 0",
+  Korean: "-160px 0",
+  "T-Chinese": "-176px 0",
+};
+const FOIL_STAR_POS = "-16px -16px";
+
+function CmSprite({ pos, title, size = 16 }: { pos: string; title?: string; size?: number }) {
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      style={{
+        display: "inline-block",
+        width: `${size}px`,
+        height: `${size}px`,
+        backgroundImage: "url(/sprites/ssMain2.png)",
+        backgroundPosition: pos,
+        backgroundRepeat: "no-repeat",
+        verticalAlign: "middle",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
 export interface SetMeta {
   code: string;
   name: string;
@@ -121,8 +159,25 @@ const columns: Column[] = [
     render: (r, setMap) => <SetCell setName={r.set} meta={setMap?.[r.set]} />,
   },
   { key: "condition", label: "Cond", render: (r) => r.condition },
-  { key: "foil", label: "Foil", render: (r) => (r.foil ? "Yes" : "No") },
-  { key: "language", label: "Lang", render: (r) => r.language },
+  {
+    key: "foil",
+    label: "Foil",
+    align: "left",
+    render: (r) =>
+      r.foil ? (
+        <CmSprite pos={FOIL_STAR_POS} title="Foil" />
+      ) : (
+        <span style={{ color: "var(--text-muted)" }}>—</span>
+      ),
+  },
+  {
+    key: "language",
+    label: "Lang",
+    render: (r) => {
+      const pos = LANGUAGE_POS[r.language];
+      return pos ? <CmSprite pos={pos} title={r.language} /> : r.language;
+    },
+  },
   { key: "qty", label: "Qty", align: "right", render: (r) => r.qty },
   {
     key: "price",
@@ -136,12 +191,42 @@ const columns: Column[] = [
     key: "overpriced_pct",
     label: "Trend",
     align: "right",
-    render: (r) =>
-      r.trend_eur != null ? (
-        `€${r.trend_eur.toFixed(2)}`
-      ) : (
-        <span style={{ color: "var(--text-muted)" }}>—</span>
-      ),
+    render: (r) => {
+      if (r.trend_eur == null) {
+        if (r.trend_ambiguous) {
+          return (
+            <span
+              style={{ color: "var(--text-muted)", cursor: "help" }}
+              title="Multiple art variants — visit this card in Cardmarket with the extension to identify which one you have."
+            >
+              ?
+            </span>
+          );
+        }
+        return <span style={{ color: "var(--text-muted)" }}>—</span>;
+      }
+      const src = r.trend_source === "cm_ext" ? "ext" : "scryfall";
+      const when = r.trend_updated_at
+        ? new Date(r.trend_updated_at).toLocaleDateString()
+        : "?";
+      return (
+        <span title={`${src} · ${when}`}>
+          €{r.trend_eur.toFixed(2)}
+          {r.trend_source === "cm_ext" && (
+            <span
+              style={{
+                marginLeft: 4,
+                fontSize: 9,
+                color: "var(--accent)",
+                verticalAlign: "top",
+              }}
+            >
+              •
+            </span>
+          )}
+        </span>
+      );
+    },
   },
   {
     key: "overpriced_pct",

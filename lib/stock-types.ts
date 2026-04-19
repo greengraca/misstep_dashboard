@@ -39,13 +39,22 @@ export interface StockSearchParams {
   pageSize: number;
 }
 
-// Stock row enriched with Scryfall trend price + how far over it we're listed.
+// Stock row enriched with the freshest available trend price + how far
+// over it we're listed. `trend_eur` picks from either Scryfall's
+// price_eur/price_eur_foil (bulk-synced every 3d) or the ext's
+// cm_prices.{variant}.trend (scraped per-visit), whichever has the more
+// recent updatedAt. `trend_source` tells the UI which one won.
 // `trend_eur` is null when the (name, set) join to ev_cards failed — stock's
 // CM set name variants like "X: Extras" don't all map yet (see CLAUDE.md TODO).
-// `cardmarket_id` is the joined ev_cards.cardmarket_id (Scryfall's Cardmarket
-// product ID) so the UI can deep-link into /Products/Search?idProduct=N.
 export interface StockListingWithTrend extends CmStockListing {
   trend_eur: number | null;
+  trend_source: "scryfall" | "cm_ext" | null;
+  trend_updated_at: string | null;
+  // True when (name, set) resolves to multiple ev_cards variants and this
+  // stock row doesn't have a productId yet to disambiguate. UI should show
+  // this differently from a plain "no join" miss so the user knows visiting
+  // the card in CM (which populates productId) will fix it.
+  trend_ambiguous: boolean;
   overpriced_pct: number | null;
   cardmarket_id: number | null;
 }

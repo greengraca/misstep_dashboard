@@ -134,6 +134,12 @@ export interface CmStockListing {
   // Captured by the ext (v1.7.0+); older ext versions omit the fields.
   signed?: boolean;
   signedComment?: string | null;
+  // Cardmarket productId — the specific art variant's product ID (matches
+  // ev_cards.cardmarket_id). Needed to pick the right ev_cards doc when
+  // multiple printings share (name, set) — basic lands, reprints. Captured
+  // by the ext (v1.7.1+); older syncs leave it absent and the join falls
+  // back to "only match if unique".
+  productId?: number | null;
   dedupKey: string;
   source: "stock_page" | "import" | "product_page";
   firstSeenAt?: string;
@@ -185,6 +191,7 @@ export interface CmProductStockListing {
   foil: boolean;
   signed?: boolean;
   signedComment?: string | null;
+  productId?: number | null;
 }
 
 export interface ExtSyncBatchItem {

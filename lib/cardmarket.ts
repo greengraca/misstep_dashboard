@@ -745,6 +745,7 @@ async function processStock(
       const refreshSet: Record<string, unknown> = { lastSeenAt: now, submittedBy };
       if (typeof listing.signed === "boolean") refreshSet.signed = listing.signed;
       if (listing.signedComment !== undefined) refreshSet.signedComment = listing.signedComment;
+      if (typeof listing.productId === "number") refreshSet.productId = listing.productId;
       updateOps.push({
         updateOne: {
           filter: { _id: hit._id as never },
@@ -771,6 +772,7 @@ async function processStock(
     };
     if (typeof listing.signed === "boolean") setOnInsert.signed = listing.signed;
     if (listing.signedComment !== undefined) setOnInsert.signedComment = listing.signedComment;
+    if (typeof listing.productId === "number") setOnInsert.productId = listing.productId;
     updateOps.push({
       updateOne: {
         filter: { dedupKey },
@@ -825,6 +827,7 @@ async function processProductStock(
     const signedFields: Record<string, unknown> = {};
     if (typeof listing.signed === "boolean") signedFields.signed = listing.signed;
     if (listing.signedComment !== undefined) signedFields.signedComment = listing.signedComment;
+    if (typeof listing.productId === "number") signedFields.productId = listing.productId;
 
     // First check if we already track this by articleId
     const existing = await col.findOne({ articleId: listing.articleId });
