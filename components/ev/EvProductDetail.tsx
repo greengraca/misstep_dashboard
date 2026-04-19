@@ -317,6 +317,7 @@ export default function EvProductDetail({ slug }: Props) {
                   {" "}&middot;{" "}
                   <Link
                     href={`/ev?view=sets&set=${product.parent_set_code}`}
+                    className="no-underline hover:underline transition-colors"
                     style={{ color: "var(--accent)" }}
                   >
                     parent set: {product.parent_set_code.toUpperCase()}
