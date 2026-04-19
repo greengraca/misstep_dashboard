@@ -10,17 +10,18 @@ interface Props {
       ev_net_sealed: number | null;
       ev_net_opened: number | null;
     } | null;
+    parent_set_icon?: string | null;
   };
 }
 
 const TYPE_LABEL: Record<EvProduct["product_type"], string> = {
-  planeswalker_deck: "PW DECK",
-  commander: "COMMANDER",
-  starter: "STARTER",
-  welcome: "WELCOME",
-  duel: "DUEL",
-  challenger: "CHALLENGER",
-  other: "OTHER",
+  planeswalker_deck: "Planeswalker Deck",
+  commander: "Commander Deck",
+  starter: "Starter Deck",
+  welcome: "Welcome Deck",
+  duel: "Duel Deck",
+  challenger: "Challenger Deck",
+  other: "Product",
 };
 
 function fmt(eur: number | null | undefined): string {
@@ -30,54 +31,118 @@ function fmt(eur: number | null | undefined): string {
 
 export default function EvProductCard({ product }: Props) {
   const s = product.latest_snapshot ?? null;
+  const hasEv = s?.ev_net_cards_only != null || s?.ev_net_sealed != null || s?.ev_net_opened != null;
+  const totalCards = product.cards.reduce((acc, c) => acc + c.count, 0);
+  const totalBoosters = (product.included_boosters ?? []).reduce((acc, b) => acc + b.count, 0);
+
   return (
     <Link
       href={`/ev/product/${product.slug}`}
-      className="block p-4 rounded-xl transition-all duration-200 hover:-translate-y-0.5"
+      className="p-4 rounded-xl transition-all duration-200 hover:-translate-y-0.5 flex flex-col no-underline"
       style={{
         background: "var(--surface-gradient)",
         backdropFilter: "var(--surface-blur)",
         border: "1px solid rgba(255, 255, 255, 0.10)",
         boxShadow: "var(--surface-shadow)",
-        textDecoration: "none",
         color: "inherit",
       }}
     >
-      {product.image_uri && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={product.image_uri}
-          alt={product.name}
-          className="w-full mb-3"
-          style={{ height: "120px", objectFit: "contain" }}
-        />
-      )}
-      <div
-        className="text-sm font-semibold truncate mb-1"
-        style={{ color: "var(--text-primary)" }}
-      >
-        {product.name}
-      </div>
-      <div
-        className="text-xs mb-3"
-        style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-      >
-        {TYPE_LABEL[product.product_type]} &middot; {product.release_year}
-      </div>
-      <div className="text-[13px] grid gap-0.5" style={{ color: "var(--text-primary)" }}>
-        <div>
-          Cards: <strong>{fmt(s?.ev_net_cards_only)}</strong>
+      {/* Header: parent-set icon + name + type/year */}
+      <div className="flex items-start gap-3 mb-3">
+        {product.parent_set_icon ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={product.parent_set_icon}
+            alt={product.parent_set_code ?? ""}
+            className="w-8 h-8"
+            style={{ filter: "invert(0.9)" }}
+          />
+        ) : (
+          <div className="w-8 h-8" />
+        )}
+        <div className="min-w-0 flex-1">
+          <p
+            className="text-sm font-semibold truncate"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {product.name}
+          </p>
+          <p
+            className="text-xs"
+            style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+          >
+            {TYPE_LABEL[product.product_type]} &middot; {product.release_year}
+            {product.parent_set_code && ` · ${product.parent_set_code.toUpperCase()}`}
+          </p>
         </div>
-        {s?.ev_net_sealed != null && (
-          <div>
-            + sealed: <strong>{fmt(s.ev_net_sealed)}</strong>
-          </div>
+      </div>
+
+      {/* Middle: EV badges (cards only / + sealed / + opened) */}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        {hasEv ? (
+          <>
+            {s?.ev_net_cards_only != null && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                style={{
+                  background: "rgba(99, 102, 241, 0.15)",
+                  color: "var(--accent)",
+                  fontFamily: "var(--font-mono)",
+                }}
+                title="Cards only (net)"
+              >
+                Cards: {fmt(s.ev_net_cards_only)}
+              </span>
+            )}
+            {s?.ev_net_sealed != null && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                style={{
+                  background: "rgba(34, 197, 94, 0.15)",
+                  color: "var(--success)",
+                  fontFamily: "var(--font-mono)",
+                }}
+                title="Cards + sealed boosters (net)"
+              >
+                + sealed: {fmt(s.ev_net_sealed)}
+              </span>
+            )}
+            {s?.ev_net_opened != null && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                style={{
+                  background: "rgba(168, 85, 247, 0.15)",
+                  color: "#a855f7",
+                  fontFamily: "var(--font-mono)",
+                }}
+                title="Cards + opened boosters (net)"
+              >
+                + opened: {fmt(s.ev_net_opened)}
+              </span>
+            )}
+          </>
+        ) : (
+          <span
+            className="text-xs px-2 py-0.5 rounded-full"
+            style={{
+              background: "rgba(255, 255, 255, 0.05)",
+              color: "var(--text-muted)",
+            }}
+          >
+            No snapshot
+          </span>
         )}
-        {s?.ev_net_opened != null && (
-          <div>
-            + opened: <strong>{fmt(s.ev_net_opened)}</strong>
-          </div>
-        )}
+      </div>
+
+      {/* Footer: card count + booster count — always at bottom */}
+      <div className="flex items-center justify-between mt-auto">
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {totalCards} cards
+          {totalBoosters > 0 && ` + ${totalBoosters} booster${totalBoosters === 1 ? "" : "s"}`}
+        </span>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {product.cards.length} unique
+        </span>
       </div>
     </Link>
   );

@@ -36,13 +36,30 @@ async function latestProductSnapshotsMap(slugs: string[]) {
   return map;
 }
 
+async function setIconsByCode(codes: string[]): Promise<Record<string, string | null>> {
+  if (codes.length === 0) return {};
+  const db = await getDb();
+  const docs = await db
+    .collection("dashboard_ev_sets")
+    .find({ code: { $in: codes } }, { projection: { code: 1, icon_svg_uri: 1 } })
+    .toArray();
+  const out: Record<string, string | null> = {};
+  for (const d of docs) out[d.code as string] = (d.icon_svg_uri as string | null) ?? null;
+  return out;
+}
+
 export const GET = withAuthRead(async () => {
   const products = await listProducts();
   const slugs = products.map((p) => p.slug);
   const snaps = await latestProductSnapshotsMap(slugs);
+  const parentCodes = [
+    ...new Set(products.map((p) => p.parent_set_code).filter((c): c is string => Boolean(c))),
+  ];
+  const setIcons = await setIconsByCode(parentCodes);
   const data = products.map((p) => ({
     ...p,
     latest_snapshot: snaps.get(p.slug) ?? null,
+    parent_set_icon: p.parent_set_code ? setIcons[p.parent_set_code] ?? null : null,
   }));
   return { data };
 }, "ev-products-list");
