@@ -196,8 +196,11 @@ function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged
   }
 
   return (
-    <div className="mb-3 flex items-center gap-2 text-sm">
-      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+    <div className="flex items-center gap-2 text-sm">
+      <label
+        className="inline-flex items-center gap-2 cursor-pointer select-none"
+        style={{ color: "var(--text-muted)" }}
+      >
         <input
           type="checkbox"
           checked={countOn}
@@ -205,9 +208,7 @@ function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged
           disabled={saving}
           className="accent-[var(--accent)]"
         />
-        <span style={{ color: "var(--text-muted)" }}>
-          Count basic lands {countOn ? "(on)" : "(off — default)"}
-        </span>
+        Count basic lands
       </label>
       {saving && <span style={{ color: "var(--text-muted)" }}>saving…</span>}
       {error && <span style={{ color: "var(--error)" }}>{error}</span>}
@@ -247,6 +248,8 @@ function cardmarketUrl(setName: string | undefined, cardName: string, isFoil: bo
 }
 
 export default function EvProductDetail({ slug }: Props) {
+  const [siftEnabled, setSiftEnabled] = useState(true);
+  const siftParam = siftEnabled ? "" : "?sift=off";
   const { data, isLoading, error } = useSWR<{
     data: {
       product: EvProduct;
@@ -254,7 +257,7 @@ export default function EvProductDetail({ slug }: Props) {
       set_names?: Record<string, string>;
       set_icons?: Record<string, string | null>;
     };
-  }>(`/api/ev/products/${slug}`, fetcher);
+  }>(`/api/ev/products/${slug}${siftParam}`, fetcher);
 
   if (isLoading) {
     return <div className="skeleton" style={{ height: "400px" }} />;
@@ -381,6 +384,100 @@ export default function EvProductDetail({ slug }: Props) {
         </div>
       )}
 
+      {/* Included boosters — shown above decklist */}
+      {ev.booster_breakdown.length > 0 && (
+        <section
+          className="p-4 rounded-xl"
+          style={{
+            background: "var(--surface-gradient)",
+            backdropFilter: "var(--surface-blur)",
+            border: "1px solid rgba(255, 255, 255, 0.10)",
+            boxShadow: "var(--surface-shadow)",
+          }}
+        >
+          <h2
+            className="text-base font-semibold mb-3"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Included boosters
+          </h2>
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "13px",
+              }}
+            >
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: "1px solid var(--border)",
+                    textAlign: "left",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  <th style={{ padding: "8px", fontWeight: 500 }}>Set</th>
+                  <th style={{ padding: "8px", fontWeight: 500 }}>Count</th>
+                  <th style={{ padding: "8px", fontWeight: 500 }}>
+                    Sealed (each)
+                  </th>
+                  <th style={{ padding: "8px", fontWeight: 500 }}>
+                    Opened EV (each)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {ev.booster_breakdown.map((b, i) => (
+                  <tr
+                    key={b.set_code + i}
+                    style={{ borderBottom: "1px solid var(--border-subtle)" }}
+                  >
+                    <td style={{ padding: "8px" }}>
+                      <Link
+                        href={`/ev?view=sets&set=${b.set_code}`}
+                        style={{
+                          color: "var(--accent)",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {b.set_code.toUpperCase()}
+                      </Link>
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px",
+                        color: "var(--text-primary)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      {b.count}
+                    </td>
+                    <td style={{ padding: "8px" }}>
+                      <SealedPriceInput
+                        product={product}
+                        boosterIndex={i}
+                        value={b.sealed_price_eur}
+                        onChanged={() => mutate(`/api/ev/products/${slug}${siftParam}`)}
+                      />
+                    </td>
+                    <td
+                      style={{
+                        padding: "8px",
+                        color: "var(--text-primary)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      {fmt(b.opened_unit_ev)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* Decklist */}
       <section
         className="p-4 rounded-xl"
@@ -403,7 +500,21 @@ export default function EvProductDetail({ slug }: Props) {
             ({ev.card_count_total} cards)
           </span>
         </h2>
-        <BasicLandToggle product={product} onChanged={() => mutate(`/api/ev/products/${slug}`)} />
+        <div className="flex items-center gap-4 mb-3 flex-wrap">
+          <BasicLandToggle product={product} onChanged={() => mutate(`/api/ev/products/${slug}${siftParam}`)} />
+          <label
+            className="inline-flex items-center gap-2 text-sm cursor-pointer select-none"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <input
+              type="checkbox"
+              checked={siftEnabled}
+              onChange={(e) => setSiftEnabled(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Sift floor (€0.25)
+          </label>
+        </div>
         <div style={{ overflowX: "auto" }}>
           <table
             style={{
@@ -510,9 +621,17 @@ export default function EvProductDetail({ slug }: Props) {
                   <td
                     style={{
                       padding: "8px",
-                      color: "var(--text-primary)",
+                      color: c.excluded_reason ? "var(--text-muted)" : "var(--text-primary)",
                       fontFamily: "var(--font-mono)",
+                      textDecoration: c.excluded_reason ? "line-through" : undefined,
                     }}
+                    title={
+                      c.excluded_reason === "basic_land"
+                        ? "Basic land — excluded from EV (toggle 'Count basic lands' to include)"
+                        : c.excluded_reason === "below_sift_floor"
+                          ? "Below €0.25 sift floor — excluded from EV (toggle 'Sift floor' to include)"
+                          : undefined
+                    }
                   >
                     {fmt(c.unit_price)}
                   </td>
@@ -520,9 +639,17 @@ export default function EvProductDetail({ slug }: Props) {
                     style={{
                       padding: "8px",
                       textAlign: "right",
-                      color: "var(--text-primary)",
+                      color: c.excluded_reason ? "var(--text-muted)" : "var(--text-primary)",
                       fontFamily: "var(--font-mono)",
+                      textDecoration: c.excluded_reason ? "line-through" : undefined,
                     }}
+                    title={
+                      c.excluded_reason === "basic_land"
+                        ? "Basic land — excluded from EV"
+                        : c.excluded_reason === "below_sift_floor"
+                          ? "Below sift floor — excluded from EV"
+                          : undefined
+                    }
                   >
                     {fmt(c.line_total)}
                   </td>
@@ -534,99 +661,6 @@ export default function EvProductDetail({ slug }: Props) {
         </div>
       </section>
 
-      {/* Included boosters */}
-      {ev.booster_breakdown.length > 0 && (
-        <section
-          className="p-4 rounded-xl"
-          style={{
-            background: "var(--surface-gradient)",
-            backdropFilter: "var(--surface-blur)",
-            border: "1px solid rgba(255, 255, 255, 0.10)",
-            boxShadow: "var(--surface-shadow)",
-          }}
-        >
-          <h2
-            className="text-base font-semibold mb-3"
-            style={{ color: "var(--text-primary)" }}
-          >
-            Included boosters
-          </h2>
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "13px",
-              }}
-            >
-              <thead>
-                <tr
-                  style={{
-                    borderBottom: "1px solid var(--border)",
-                    textAlign: "left",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  <th style={{ padding: "8px", fontWeight: 500 }}>Set</th>
-                  <th style={{ padding: "8px", fontWeight: 500 }}>Count</th>
-                  <th style={{ padding: "8px", fontWeight: 500 }}>
-                    Sealed (each)
-                  </th>
-                  <th style={{ padding: "8px", fontWeight: 500 }}>
-                    Opened EV (each)
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {ev.booster_breakdown.map((b, i) => (
-                  <tr
-                    key={b.set_code + i}
-                    style={{ borderBottom: "1px solid var(--border-subtle)" }}
-                  >
-                    <td style={{ padding: "8px" }}>
-                      <Link
-                        href={`/ev?view=sets&set=${b.set_code}`}
-                        style={{
-                          color: "var(--accent)",
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        {b.set_code.toUpperCase()}
-                      </Link>
-                    </td>
-                    <td
-                      style={{
-                        padding: "8px",
-                        color: "var(--text-primary)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      {b.count}
-                    </td>
-                    <td style={{ padding: "8px" }}>
-                      <SealedPriceInput
-                        product={product}
-                        boosterIndex={i}
-                        value={b.sealed_price_eur}
-                        onChanged={() => mutate(`/api/ev/products/${slug}`)}
-                      />
-                    </td>
-                    <td
-                      style={{
-                        padding: "8px",
-                        color: "var(--text-primary)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      {fmt(b.opened_unit_ev)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

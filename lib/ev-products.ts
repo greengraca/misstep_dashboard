@@ -61,14 +61,25 @@ export function calculateProductEv(
     const c = cardById.get(pc.scryfall_id);
     const rawUnit = c ? getEffectivePrice(c, pc.is_foil).price : null;
     if (!c) missing.push(pc.scryfall_id);
-    const isBasicLandSkipped = !countBasicLands && BASIC_LAND_NAMES.has(pc.name);
-    const sifted = rawUnit !== null && rawUnit < siftFloor;
-    const unit = isBasicLandSkipped || sifted ? 0 : rawUnit;
-    const price = unit ?? 0;
-    const line = price * pc.count;
-    cardsTotal += line;
+
+    // Determine why a card might not count toward EV. Reasons are mutually
+    // exclusive; basic land takes precedence over sift floor for clarity.
+    let excludedReason: "basic_land" | "below_sift_floor" | undefined;
+    if (!countBasicLands && BASIC_LAND_NAMES.has(pc.name)) {
+      excludedReason = "basic_land";
+    } else if (rawUnit !== null && rawUnit < siftFloor) {
+      excludedReason = "below_sift_floor";
+    }
+
+    const lineRaw = (rawUnit ?? 0) * pc.count;
+    if (!excludedReason) cardsTotal += lineRaw;
     cardCountTotal += pc.count;
-    cardBreakdown.push({ ...pc, unit_price: unit, line_total: round2(line) });
+    cardBreakdown.push({
+      ...pc,
+      unit_price: rawUnit,
+      line_total: round2(lineRaw),
+      ...(excludedReason ? { excluded_reason: excludedReason } : {}),
+    });
   }
 
   cardBreakdown.sort((a, b) => b.line_total - a.line_total);

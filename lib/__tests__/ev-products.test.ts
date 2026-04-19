@@ -166,7 +166,7 @@ describe("calculateProductEv — included boosters", () => {
 });
 
 describe("calculateProductEv — basic lands", () => {
-  it("zeroes basic land prices by default (count_basic_lands undefined)", () => {
+  it("excludes basic lands from cards_subtotal_gross by default but keeps real prices visible", () => {
     const cards = [
       card("a", "Swamp", 0.29),
       card("b", "Liliana, Death Wielder", 5.27, 5.27),
@@ -179,10 +179,13 @@ describe("calculateProductEv — basic lands", () => {
     });
     const r = calculateProductEv(p, cards, { feeRate: 0 });
     expect(r.cards_subtotal_gross).toBe(5.27);
-    // Swamp line appears in breakdown but with unit_price 0 and line_total 0.
+    // Swamp keeps its real unit_price and line_total in the breakdown so the
+    // decklist UI can show the raw value, but is flagged with excluded_reason
+    // so it can be rendered with a sifted indicator.
     const swampLine = r.card_breakdown.find((c) => c.name === "Swamp");
-    expect(swampLine?.unit_price).toBe(0);
-    expect(swampLine?.line_total).toBe(0);
+    expect(swampLine?.unit_price).toBe(0.29);
+    expect(swampLine?.line_total).toBe(3.19);
+    expect(swampLine?.excluded_reason).toBe("basic_land");
   });
 
   it("counts basic lands when count_basic_lands is true", () => {
@@ -196,7 +199,7 @@ describe("calculateProductEv — basic lands", () => {
     expect(r.card_breakdown[0].unit_price).toBe(0.29);
   });
 
-  it("zeroes all six basic land names", () => {
+  it("excludes all six basic land names from totals", () => {
     const names = ["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes"];
     const cards = names.map((n, i) => card(`id-${i}`, n, 1));
     const p = product({
@@ -204,5 +207,40 @@ describe("calculateProductEv — basic lands", () => {
     });
     const r = calculateProductEv(p, cards, { feeRate: 0 });
     expect(r.cards_subtotal_gross).toBe(0);
+    expect(r.card_breakdown.every((c) => c.excluded_reason === "basic_land")).toBe(true);
+  });
+});
+
+describe("calculateProductEv — sift floor", () => {
+  it("excludes cards strictly below siftFloor from cards_subtotal_gross but keeps prices", () => {
+    const cards = [
+      card("a", "Cheap Common", 0.10),
+      card("b", "Edge Card", 0.25),
+      card("c", "Real Card", 1.50),
+    ];
+    const p = product({
+      cards: [
+        productCard({ scryfall_id: "a", name: "Cheap Common", count: 4 }),
+        productCard({ scryfall_id: "b", name: "Edge Card", count: 1 }),
+        productCard({ scryfall_id: "c", name: "Real Card", count: 1 }),
+      ],
+    });
+    const r = calculateProductEv(p, cards, { feeRate: 0, siftFloor: 0.25 });
+    // Only Edge Card (>=0.25) and Real Card count toward total.
+    expect(r.cards_subtotal_gross).toBe(0.25 + 1.5);
+    const cheap = r.card_breakdown.find((c) => c.name === "Cheap Common");
+    expect(cheap?.unit_price).toBe(0.10);
+    expect(cheap?.line_total).toBe(0.40);
+    expect(cheap?.excluded_reason).toBe("below_sift_floor");
+    const edge = r.card_breakdown.find((c) => c.name === "Edge Card");
+    expect(edge?.excluded_reason).toBeUndefined();
+  });
+
+  it("default siftFloor 0 includes all cards", () => {
+    const cards = [card("a", "Cheap", 0.05)];
+    const p = product({ cards: [productCard({ scryfall_id: "a", name: "Cheap", count: 10 })] });
+    const r = calculateProductEv(p, cards, { feeRate: 0 });
+    expect(r.cards_subtotal_gross).toBe(0.5);
+    expect(r.card_breakdown[0].excluded_reason).toBeUndefined();
   });
 });

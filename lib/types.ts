@@ -559,6 +559,13 @@ export interface EvProduct {
 export interface EvProductCardBreakdown extends EvProductCard {
   unit_price: number | null;
   line_total: number;
+  /**
+   * When set, this card's value was NOT added to `cards_subtotal_gross`.
+   * The displayed unit_price / line_total still reflect the card's real
+   * market value so the decklist shows the price; the totals just exclude
+   * it. Use to render a "sifted" indicator in the UI.
+   */
+  excluded_reason?: "basic_land" | "below_sift_floor";
 }
 
 export interface EvProductBoosterBreakdown extends EvIncludedBooster {

@@ -30,15 +30,19 @@ async function setMetaByCode(codes: string[]): Promise<{
   return { names, icons };
 }
 
-export const GET = withAuthReadParams<{ slug: string }>(async (_req, { slug }) => {
+export const GET = withAuthReadParams<{ slug: string }>(async (req, { slug }) => {
   const product = await getProductBySlug(slug);
   if (!product) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  // Sift toggle — defaults to on (excludes sub-€0.25 cards). Pass `?sift=off`
+  // to see raw EV including unsellable cards.
+  const siftFloor = req.nextUrl.searchParams.get("sift") === "off" ? 0 : 0.25;
 
   const cards = await fetchCardsByScryfallIds(product.cards.map((c) => c.scryfall_id));
   const boosterCodes = (product.included_boosters ?? []).map((b) => b.set_code);
   const boosterEvBySet = await latestPlayEvBySet([...new Set(boosterCodes)]);
   const feeRate = await getFeeRate();
-  const ev = calculateProductEv(product, cards, { feeRate, boosterEvBySet, siftFloor: 0.25 });
+  const ev = calculateProductEv(product, cards, { feeRate, boosterEvBySet, siftFloor });
 
   const uniqueSetCodes = [...new Set(product.cards.map((c) => c.set_code))];
   const { names: set_names, icons: set_icons } = await setMetaByCode(uniqueSetCodes);
