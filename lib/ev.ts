@@ -1122,7 +1122,10 @@ export function calculateEv(
     .filter((e) => e.ev > 0)
     .sort((a, b) => getCardPrice(b.card, false, 0) - getCardPrice(a.card, false, 0));
 
-  const mapToTopCard = (e: { card: EvCard; ev: number; pullRate: number }) => ({
+  const mapToTopCard = (e: { card: EvCard; ev: number; pullRate: number }, i: number) => ({
+    // uid: same card can appear in multiple slot outcomes (rare + wildcard,
+    // etc.), so scryfall_id alone isn't unique. Suffix the list index.
+    uid: `${e.card.scryfall_id}-${i}`,
     scryfall_id: e.card.scryfall_id,
     name: e.card.name,
     set: e.card.set,

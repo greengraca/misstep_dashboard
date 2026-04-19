@@ -150,7 +150,7 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       {!expanded ? null : <DataTable
         columns={columns}
         data={data}
-        keyField="scryfall_id"
+        keyField="uid"
         emptyMessage="No cards with EV above sift floor"
         defaultSortKey={defaultSortKey}
         defaultSortDir="desc"

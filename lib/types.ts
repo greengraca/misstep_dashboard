@@ -358,6 +358,7 @@ export interface EvCalculationResult {
 }
 
 export interface EvTopCard {
+  uid: string;
   scryfall_id: string;
   name: string;
   set: string;
