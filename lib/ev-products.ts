@@ -220,6 +220,13 @@ export async function deleteProduct(slug: string): Promise<{ deleted: boolean }>
  * Reads the latest `play_ev_net` snapshot for each booster set referenced
  * by products. Used to populate `boosterEvBySet` for the "opened" valuation.
  */
+/**
+ * Returns the per-PACK net EV for each requested set, used as the "opened
+ * booster" valuation in product EV. Prefers the snapshot's
+ * `play_pack_ev_net` field; falls back to `play_ev_net / 36` for legacy
+ * snapshots written before the pack-EV split was added (Draft Booster era
+ * = 36 packs/box, which covers all current product use cases).
+ */
 export async function latestPlayEvBySet(codes: string[]): Promise<Record<string, number>> {
   if (codes.length === 0) return {};
   const db = await getDb();
@@ -228,12 +235,23 @@ export async function latestPlayEvBySet(codes: string[]): Promise<Record<string,
     .aggregate([
       { $match: { set_code: { $in: codes }, play_ev_net: { $ne: null } } },
       { $sort: { date: -1 } },
-      { $group: { _id: "$set_code", play_ev_net: { $first: "$play_ev_net" } } },
+      {
+        $group: {
+          _id: "$set_code",
+          play_ev_net: { $first: "$play_ev_net" },
+          play_pack_ev_net: { $first: "$play_pack_ev_net" },
+        },
+      },
     ])
     .toArray();
   const out: Record<string, number> = {};
   for (const d of docs) {
-    if (typeof d.play_ev_net === "number") out[d._id as string] = d.play_ev_net;
+    if (typeof d.play_pack_ev_net === "number") {
+      out[d._id as string] = d.play_pack_ev_net;
+    } else if (typeof d.play_ev_net === "number") {
+      // Legacy snapshot — assume 36 packs/box (Draft Booster era).
+      out[d._id as string] = d.play_ev_net / 36;
+    }
   }
   return out;
 }

@@ -1787,8 +1787,10 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
 
   let playEvGross: number | null = null;
   let playEvNet: number | null = null;
+  let playPackEvNet: number | null = null;
   let collectorEvGross: number | null = null;
   let collectorEvNet: number | null = null;
+  let collectorPackEvNet: number | null = null;
 
   // Check if this is a Jumpstart set with theme data
   const jumpstartThemes = await getJumpstartThemes(setCode);
@@ -1822,6 +1824,7 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
       });
       playEvGross = result.box_ev_gross;
       playEvNet = result.box_ev_net;
+      playPackEvNet = Math.round((result.box_ev_net / result.packs_per_box) * 100) / 100;
     }
 
     if (effectiveConfig.collector_booster) {
@@ -1833,6 +1836,7 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
       });
       collectorEvGross = result.box_ev_gross;
       collectorEvNet = result.box_ev_net;
+      collectorPackEvNet = Math.round((result.box_ev_net / result.packs_per_box) * 100) / 100;
     }
   }
 
@@ -1842,8 +1846,10 @@ export async function generateSnapshot(setCode: string): Promise<EvSnapshot | nu
     set_code: setCode,
     play_ev_gross: playEvGross,
     play_ev_net: playEvNet,
+    play_pack_ev_net: playPackEvNet,
     collector_ev_gross: collectorEvGross,
     collector_ev_net: collectorEvNet,
+    collector_pack_ev_net: collectorPackEvNet,
     card_count_total: cards.length,
     card_count_priced: cards.filter((c) => c.price_eur !== null || c.price_eur_foil !== null).length,
     sift_floor: config?.sift_floor ?? 0.25,

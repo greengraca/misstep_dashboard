@@ -430,8 +430,11 @@ export interface EvSnapshot {
   product_slug?: string;            // product path (new)
   play_ev_gross?: number | null;
   play_ev_net?: number | null;
+  /** Per-pack net EV. Used by the EV-product calc for "opened booster" valuation. */
+  play_pack_ev_net?: number | null;
   collector_ev_gross?: number | null;
   collector_ev_net?: number | null;
+  collector_pack_ev_net?: number | null;
   ev_net_sealed?: number;           // products only
   ev_net_opened?: number;           // products only
   ev_net_cards_only?: number;       // products only
