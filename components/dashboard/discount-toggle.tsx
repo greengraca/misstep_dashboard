@@ -88,17 +88,15 @@ export default function DiscountToggle() {
           min={0}
           max={100}
           step={1}
-          className="text-right text-sm transition-colors duration-200 outline-none"
+          className="text-right text-sm transition-colors duration-200 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           style={{
-            width: "32px",
+            width: "28px",
             background: "transparent",
             border: "none",
             color: enabled ? "var(--text-primary)" : "var(--text-muted)",
             fontFamily: "var(--font-mono)",
             fontWeight: 600,
             padding: 0,
-            // Hide spinner for a cleaner look — users still get up/down arrows on focus.
-            MozAppearance: "textfield",
           }}
         />
         <span
