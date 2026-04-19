@@ -3,19 +3,9 @@
 import { useState } from "react";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
+import { buildCardmarketUrl } from "@/lib/cardmarket-url";
 import type { EvTopCard } from "@/lib/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
-
-// Cardmarket slug pattern matches StockTable.tsx — collapse non-alphanumerics.
-function cardmarketSlug(input: string): string {
-  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-function cardmarketUrl(setName: string | undefined, cardName: string, isFoil: boolean): string | null {
-  if (!setName) return null;
-  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(setName)}/${cardmarketSlug(cardName)}`;
-  return isFoil ? `${base}?isFoil=Y` : base;
-}
 
 interface EvCardTableProps {
   cards: EvTopCard[];
@@ -39,7 +29,7 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       label: "Card",
       sortable: true,
       render: (row) => {
-        const cmUrl = cardmarketUrl(setNames?.[row.set], row.name, row.is_foil);
+        const cmUrl = buildCardmarketUrl(setNames?.[row.set], row.name, row.is_foil);
         return (
         <div className="flex items-center gap-2">
           {row.image_uri && (

@@ -237,17 +237,7 @@ function fmt(eur: number | null | undefined): string {
   return `€${eur.toFixed(2)}`;
 }
 
-// Cardmarket slugifies set and card names by collapsing runs of non-alphanumeric
-// chars to a single dash. Same pattern as components/stock/StockTable.tsx.
-function cardmarketSlug(input: string): string {
-  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-function cardmarketUrl(setName: string | undefined, cardName: string, isFoil: boolean): string | null {
-  if (!setName) return null;
-  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(setName)}/${cardmarketSlug(cardName)}`;
-  return isFoil ? `${base}?isFoil=Y` : base;
-}
+import { buildCardmarketUrl } from "@/lib/cardmarket-url";
 
 export default function EvProductDetail({ slug }: Props) {
   const [siftEnabled, setSiftEnabled] = useState(true);
@@ -551,7 +541,7 @@ export default function EvProductDetail({ slug }: Props) {
             </thead>
             <tbody>
               {ev.card_breakdown.map((c) => {
-                const cmUrl = cardmarketUrl(
+                const cmUrl = buildCardmarketUrl(
                   data.data.set_names?.[c.set_code],
                   c.name,
                   c.is_foil

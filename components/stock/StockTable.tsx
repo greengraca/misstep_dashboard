@@ -5,6 +5,7 @@ import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
+import { buildCardmarketUrl } from "@/lib/cardmarket-url";
 
 export interface SetMeta {
   code: string;
@@ -66,18 +67,8 @@ interface Column {
   render: (row: StockListingWithTrend, setMap?: SetMap) => React.ReactNode;
 }
 
-// Cardmarket slugifies to Products/Singles/{Set}/{Card} by collapsing any
-// non-alphanumeric run (spaces, colons, apostrophes, "//", etc.) to a
-// single dash and preserving capitalization. The ?idProduct= search URL
-// doesn't reliably redirect to the correct product page — the slug URL
-// does, so we use it unconditionally.
-function cardmarketSlug(input: string): string {
-  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
 function CardmarketLink({ row }: { row: StockListingWithTrend }) {
-  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(row.set)}/${cardmarketSlug(row.name)}`;
-  const href = row.foil ? `${base}?isFoil=Y` : base;
+  const href = buildCardmarketUrl(row.set, row.name, row.foil) ?? "#";
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       <a
