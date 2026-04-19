@@ -1,55 +1,107 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { EvSet } from "@/lib/types";
 import EvSetList from "./EvSetList";
 import EvSetDetail from "./EvSetDetail";
+import EvProductList from "./EvProductList";
+
+type TabKey = "sets" | "products";
 
 export default function EvContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const initialTab: TabKey = searchParams.get("view") === "products" ? "products" : "sets";
+  const [tab, setTab] = useState<TabKey>(initialTab);
   const [selectedSetCode, setSelectedSetCode] = useState<string | null>(null);
+
+  // Keep ?view= in sync with tab
+  useEffect(() => {
+    const current = searchParams.get("view");
+    const desired = tab === "products" ? "products" : null;
+    if (current === desired) return;
+    const params = new URLSearchParams(searchParams.toString());
+    if (desired) params.set("view", desired);
+    else params.delete("view");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [tab, pathname, router, searchParams]);
 
   const { data: setsData, isLoading } = useSWR<{ data: EvSet[] }>(
     "/api/ev/sets",
     fetcher
   );
-
   const sets = setsData?.data ?? [];
-  const selectedSet = selectedSetCode ? sets.find((s) => s.code === selectedSetCode) ?? null : null;
+  const selectedSet = selectedSetCode
+    ? sets.find((s) => s.code === selectedSetCode) ?? null
+    : null;
 
   async function handleRefreshSets() {
     await fetch("/api/ev/sets?refresh=true");
     globalMutate("/api/ev/sets");
   }
 
-  if (isLoading) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-        <div className="skeleton" style={{ height: "48px", maxWidth: "400px" }} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px" }}>
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="skeleton" style={{ height: "140px" }} />
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      {/* Tab strip — hidden when a set detail is open */}
+      {!selectedSet && (
+        <div
+          className="flex gap-2"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          {(["sets", "products"] as TabKey[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setTab(k)}
+              className="px-4 py-2 text-sm capitalize transition-colors"
+              style={{
+                background: "none",
+                border: "none",
+                borderBottom:
+                  tab === k ? "2px solid var(--accent)" : "2px solid transparent",
+                color: tab === k ? "var(--text-primary)" : "var(--text-muted)",
+                fontWeight: tab === k ? 600 : 400,
+                cursor: "pointer",
+                marginBottom: "-1px",
+              }}
+            >
+              {k}
+            </button>
           ))}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      {selectedSet ? (
-        <EvSetDetail
-          set={selectedSet}
-          onBack={() => setSelectedSetCode(null)}
-        />
-      ) : (
-        <EvSetList
-          sets={sets}
-          onSelectSet={setSelectedSetCode}
-          onRefresh={handleRefreshSets}
-        />
       )}
-    </>
+
+      {tab === "sets" ? (
+        selectedSet ? (
+          <EvSetDetail set={selectedSet} onBack={() => setSelectedSetCode(null)} />
+        ) : isLoading ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="skeleton" style={{ height: "140px" }} />
+            ))}
+          </div>
+        ) : (
+          <EvSetList
+            sets={sets}
+            onSelectSet={setSelectedSetCode}
+            onRefresh={handleRefreshSets}
+          />
+        )
+      ) : (
+        <EvProductList />
+      )}
+    </div>
   );
 }
