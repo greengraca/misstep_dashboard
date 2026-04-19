@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, MessageSquare, PenLine } from "lucide-react";
 import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
-import { CmSprite, LANGUAGE_POS, FOIL_STAR_POS } from "@/components/dashboard/cm-sprite";
+import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 
 export interface SetMeta {
   code: string;
@@ -138,7 +138,7 @@ const columns: Column[] = [
     align: "left",
     render: (r) =>
       r.foil ? (
-        <CmSprite pos={FOIL_STAR_POS} title="Foil" />
+        <FoilStar size={16} />
       ) : (
         <span style={{ color: "var(--text-muted)" }}>—</span>
       ),
@@ -146,10 +146,7 @@ const columns: Column[] = [
   {
     key: "language",
     label: "Lang",
-    render: (r) => {
-      const pos = LANGUAGE_POS[r.language];
-      return pos ? <CmSprite pos={pos} title={r.language} /> : r.language;
-    },
+    render: (r) => <LanguageFlag language={r.language} size={16} />,
   },
   { key: "qty", label: "Qty", align: "right", render: (r) => r.qty },
   {

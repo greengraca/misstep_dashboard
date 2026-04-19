@@ -2,24 +2,40 @@
 // Cardmarket uses on their site, so language flags and the foil star match
 // what the user sees there. New code referring to "foil" anywhere in the UI
 // should use <FoilStar /> instead of text or other glyphs (see CLAUDE.md).
+//
+// Internally this component works in grid coordinates (col, row) rather
+// than raw CSS pixel positions so it scales at any `size`. At size=16 the
+// natural sheet is 12 cols × 2 rows of 16px tiles (192 × 32 px); we scale
+// proportionally for any other size.
 
-export const FOIL_STAR_POS = "-16px -16px";
+export const SPRITE_SHEET_COLS = 12;
+export const SPRITE_SHEET_ROWS = 2;
 
-export const LANGUAGE_POS: Record<string, string> = {
-  English: "-16px 0",
-  French: "-32px 0",
-  German: "-48px 0",
-  Spanish: "-64px 0",
-  Italian: "-80px 0",
-  "S-Chinese": "-96px 0",
-  Japanese: "-112px 0",
-  Portuguese: "-128px 0",
-  Russian: "-144px 0",
-  Korean: "-160px 0",
-  "T-Chinese": "-176px 0",
+export const LANGUAGE_COL: Record<string, number> = {
+  English: 1,
+  French: 2,
+  German: 3,
+  Spanish: 4,
+  Italian: 5,
+  "S-Chinese": 6,
+  Japanese: 7,
+  Portuguese: 8,
+  Russian: 9,
+  Korean: 10,
+  "T-Chinese": 11,
 };
 
-export function CmSprite({ pos, title, size = 16 }: { pos: string; title?: string; size?: number }) {
+interface CmSpriteProps {
+  /** 0-indexed column in the sprite sheet (each sprite is 16px at natural size). */
+  col: number;
+  /** 0-indexed row in the sprite sheet. */
+  row: number;
+  /** Rendered size in px (square). Default 16. */
+  size?: number;
+  title?: string;
+}
+
+export function CmSprite({ col, row, size = 16, title }: CmSpriteProps) {
   return (
     <span
       title={title}
@@ -29,7 +45,8 @@ export function CmSprite({ pos, title, size = 16 }: { pos: string; title?: strin
         width: `${size}px`,
         height: `${size}px`,
         backgroundImage: "url(/sprites/ssMain2.png)",
-        backgroundPosition: pos,
+        backgroundPosition: `${-col * size}px ${-row * size}px`,
+        backgroundSize: `${SPRITE_SHEET_COLS * size}px ${SPRITE_SHEET_ROWS * size}px`,
         backgroundRepeat: "no-repeat",
         verticalAlign: "middle",
         flexShrink: 0,
@@ -39,6 +56,12 @@ export function CmSprite({ pos, title, size = 16 }: { pos: string; title?: strin
 }
 
 /** Cardmarket foil-star sprite. Use this anywhere the UI shows that a card is foil. */
-export function FoilStar({ size = 16 }: { size?: number }) {
-  return <CmSprite pos={FOIL_STAR_POS} title="Foil" size={size} />;
+export function FoilStar({ size = 14 }: { size?: number }) {
+  return <CmSprite col={1} row={1} size={size} title="Foil" />;
+}
+
+export function LanguageFlag({ language, size = 16 }: { language: string; size?: number }) {
+  const col = LANGUAGE_COL[language];
+  if (col === undefined) return <span>{language}</span>;
+  return <CmSprite col={col} row={0} size={size} title={language} />;
 }
