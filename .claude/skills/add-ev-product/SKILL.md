@@ -64,6 +64,8 @@ For each parsed line, resolve the exact `scryfall_id` using the Scryfall public 
 **Primary lookup:** `GET https://api.scryfall.com/cards/named?exact=<url-encoded-name>&set=<parent>`
 **Fallback:** `GET https://api.scryfall.com/cards/search?q=!"<name>"+set:<parent>&unique=prints`
 
+**DFC / split-card name handling:** Wizards' published decklists list double-faced cards by FRONT FACE only (e.g. `Murderous Rider`), but Scryfall stores them with the full `Front // Back` name (e.g. `Murderous Rider // Swift End`). If the exact-name lookup misses, retry with `cards/search?q=name:"<input>"+set:<parent>` (Scryfall's name search matches either face); if exactly one DFC card whose front face matches is returned, use it without prompting. Apply the same trick when looking up cards in our local `dashboard_ev_cards` (regex `^<input> // ` against the `name` field). Same for split cards (`Dusk // Dawn`), though those are usually written with `//` already in source decklists.
+
 **Disambiguation rules (in order):**
 
 1. If the card is foil AND `promo_types` on any returned printing includes `"planeswalkerdeck"` (Scryfall writes it as one word, no underscore): pick that printing. Depending on the year, this printing may live in the parent set directly (older sets like Amonkhet/Kaladesh/Ixalan keep PW-deck-exclusive cards in the main expansion, foil-only) OR in a dedicated promo set like `p<parent>` (some newer sets). Either location is fine; the `promo_types` tag is the authoritative signal.
