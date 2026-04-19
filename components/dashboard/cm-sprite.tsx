@@ -4,12 +4,13 @@
 // should use <FoilStar /> instead of text or other glyphs (see CLAUDE.md).
 //
 // Internally this component works in grid coordinates (col, row) rather
-// than raw CSS pixel positions so it scales at any `size`. At size=16 the
-// natural sheet is 12 cols × 2 rows of 16px tiles (192 × 32 px); we scale
-// proportionally for any other size.
+// than raw CSS pixel positions so it scales at any `size`. The natural
+// sheet is 19 cols × 3 rows of 16px tiles (304 × 48 px — verified via
+// `file public/sprites/ssMain2.png`); we scale proportionally for any
+// other size by setting backgroundSize to (cols × size, rows × size).
 
-export const SPRITE_SHEET_COLS = 12;
-export const SPRITE_SHEET_ROWS = 2;
+export const SPRITE_SHEET_COLS = 19;
+export const SPRITE_SHEET_ROWS = 3;
 
 export const LANGUAGE_COL: Record<string, number> = {
   English: 1,
