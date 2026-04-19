@@ -201,3 +201,112 @@ export async function deleteProduct(slug: string): Promise<{ deleted: boolean }>
   const res = await db.collection(COL_PRODUCTS).deleteOne({ slug });
   return { deleted: res.deletedCount === 1 };
 }
+
+/**
+ * Reads the latest `play_ev_net` snapshot for each booster set referenced
+ * by products. Used to populate `boosterEvBySet` for the "opened" valuation.
+ */
+async function latestPlayEvBySet(codes: string[]): Promise<Record<string, number>> {
+  if (codes.length === 0) return {};
+  const db = await getDb();
+  const docs = await db
+    .collection(COL_EV_SNAPSHOTS)
+    .aggregate([
+      { $match: { set_code: { $in: codes }, play_ev_net: { $ne: null } } },
+      { $sort: { date: -1 } },
+      { $group: { _id: "$set_code", play_ev_net: { $first: "$play_ev_net" } } },
+    ])
+    .toArray();
+  const out: Record<string, number> = {};
+  for (const d of docs) {
+    if (typeof d.play_ev_net === "number") out[d._id as string] = d.play_ev_net;
+  }
+  return out;
+}
+
+async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPriceRef[]> {
+  if (ids.length === 0) return [];
+  const db = await getDb();
+  const docs = await db
+    .collection("dashboard_ev_cards")
+    .find(
+      { scryfall_id: { $in: ids } },
+      { projection: { scryfall_id: 1, name: 1, price_eur: 1, price_eur_foil: 1 } }
+    )
+    .toArray();
+  return docs.map((d) => ({
+    scryfall_id: d.scryfall_id as string,
+    name: d.name as string | undefined,
+    price_eur: (d.price_eur ?? null) as number | null,
+    price_eur_foil: (d.price_eur_foil ?? null) as number | null,
+  }));
+}
+
+async function getFeeRate(): Promise<number> {
+  const db = await getDb();
+  const cfg = await db.collection("dashboard_ev_config").findOne({}, { projection: { fee_rate: 1 } });
+  return (cfg?.fee_rate as number | undefined) ?? 0.05;
+}
+
+export async function generateProductSnapshot(slug: string): Promise<{ written: boolean; reason?: string }> {
+  await ensureProductIndexes();
+  const product = await getProductBySlug(slug);
+  if (!product) return { written: false, reason: "not_found" };
+
+  const ids = product.cards.map((c) => c.scryfall_id);
+  const cards = await fetchCardsByScryfallIds(ids);
+
+  const boosterSetCodes = (product.included_boosters ?? []).map((b) => b.set_code);
+  const boosterEvBySet = await latestPlayEvBySet([...new Set(boosterSetCodes)]);
+
+  const feeRate = await getFeeRate();
+  const result = calculateProductEv(product, cards, { feeRate, boosterEvBySet });
+
+  const date = new Date().toISOString().slice(0, 10);
+  const db = await getDb();
+  await db.collection(COL_EV_SNAPSHOTS).updateOne(
+    { product_slug: slug, date },
+    {
+      $set: {
+        product_slug: slug,
+        date,
+        ev_net_cards_only: result.totals.cards_only.net,
+        ev_net_sealed: result.totals.sealed?.net ?? null,
+        ev_net_opened: result.totals.opened?.net ?? null,
+        fee_rate: feeRate,
+        created_at: new Date(),
+      },
+    },
+    { upsert: true }
+  );
+
+  return { written: true };
+}
+
+export async function generateAllProductSnapshots(): Promise<{ generated: number; errors: string[] }> {
+  const products = await listProducts();
+  let generated = 0;
+  const errors: string[] = [];
+  for (const p of products) {
+    try {
+      const res = await generateProductSnapshot(p.slug);
+      if (res.written) generated++;
+    } catch (err) {
+      errors.push(`${p.slug}: ${String(err)}`);
+    }
+  }
+  return { generated, errors };
+}
+
+export async function getProductSnapshots(slug: string, days: number = 180) {
+  const db = await getDb();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const docs = await db
+    .collection(COL_EV_SNAPSHOTS)
+    .find({ product_slug: slug, date: { $gte: cutoffStr } })
+    .sort({ date: 1 })
+    .toArray();
+  return docs.map((d) => ({ ...d, _id: d._id.toString() }));
+}

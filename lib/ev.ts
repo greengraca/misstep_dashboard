@@ -2,6 +2,7 @@ import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
 import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
+import { generateAllProductSnapshots } from "./ev-products";
 import type {
   EvSet,
   EvCard,
@@ -1639,6 +1640,11 @@ export async function generateAllSnapshots(): Promise<{ generated: number; error
       errors.push(`${code}: ${String(err)}`);
     }
   }
+
+  // Products: run AFTER sets so latestPlayEvBySet picks up fresh snapshots
+  const productRes = await generateAllProductSnapshots();
+  generated += productRes.generated;
+  errors.push(...productRes.errors);
 
   return { generated, errors };
 }
