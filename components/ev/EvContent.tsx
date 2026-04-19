@@ -17,20 +17,25 @@ export default function EvContent() {
   const pathname = usePathname();
 
   const initialTab: TabKey = searchParams.get("view") === "products" ? "products" : "sets";
+  const initialSet = searchParams.get("set");
   const [tab, setTab] = useState<TabKey>(initialTab);
-  const [selectedSetCode, setSelectedSetCode] = useState<string | null>(null);
+  const [selectedSetCode, setSelectedSetCode] = useState<string | null>(initialSet);
 
-  // Keep ?view= in sync with tab
+  // Keep ?view= and ?set= in sync with component state.
   useEffect(() => {
-    const current = searchParams.get("view");
-    const desired = tab === "products" ? "products" : null;
-    if (current === desired) return;
+    const currentView = searchParams.get("view");
+    const currentSet = searchParams.get("set");
+    const desiredView = tab === "products" ? "products" : null;
+    const desiredSet = tab === "sets" && selectedSetCode ? selectedSetCode : null;
+    if (currentView === desiredView && currentSet === desiredSet) return;
     const params = new URLSearchParams(searchParams.toString());
-    if (desired) params.set("view", desired);
+    if (desiredView) params.set("view", desiredView);
     else params.delete("view");
+    if (desiredSet) params.set("set", desiredSet);
+    else params.delete("set");
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [tab, pathname, router, searchParams]);
+  }, [tab, selectedSetCode, pathname, router, searchParams]);
 
   const { data: setsData, isLoading } = useSWR<{ data: EvSet[] }>(
     "/api/ev/sets",
