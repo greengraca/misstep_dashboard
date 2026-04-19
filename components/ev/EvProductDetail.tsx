@@ -5,6 +5,8 @@ import useSWR, { mutate } from "swr";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
+import DiscountToggle from "@/components/dashboard/discount-toggle";
+import { useDiscount } from "@/lib/discount";
 import { fetcher } from "@/lib/fetcher";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
@@ -242,6 +244,7 @@ import { buildCardmarketUrl } from "@/lib/cardmarket-url";
 export default function EvProductDetail({ slug }: Props) {
   const [siftEnabled, setSiftEnabled] = useState(true);
   const siftParam = siftEnabled ? "" : "?sift=off";
+  const { apply: applyDiscount } = useDiscount();
   const { data, isLoading, error } = useSWR<{
     data: {
       product: EvProduct;
@@ -285,13 +288,16 @@ export default function EvProductDetail({ slug }: Props) {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div>
-        <Link
-          href="/ev?view=products"
-          className="inline-flex items-center gap-1.5 text-sm mb-2"
-          style={{ color: "var(--accent)" }}
-        >
-          <ArrowLeft size={14} /> Products
-        </Link>
+        <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+          <Link
+            href="/ev?view=products"
+            className="inline-flex items-center gap-1.5 text-sm"
+            style={{ color: "var(--accent)" }}
+          >
+            <ArrowLeft size={14} /> Products
+          </Link>
+          <DiscountToggle />
+        </div>
         <div className="flex items-start gap-4 flex-wrap">
           {product.image_uri && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -340,21 +346,21 @@ export default function EvProductDetail({ slug }: Props) {
       >
         <TotalCard
           label="Cards only (net)"
-          value={ev.totals.cards_only.net}
-          gross={ev.totals.cards_only.gross}
+          value={applyDiscount(ev.totals.cards_only.net)}
+          gross={applyDiscount(ev.totals.cards_only.gross)}
         />
         {ev.totals.sealed && (
           <TotalCard
             label="+ Sealed boosters (net)"
-            value={ev.totals.sealed.net}
-            gross={ev.totals.sealed.gross}
+            value={applyDiscount(ev.totals.sealed.net)}
+            gross={applyDiscount(ev.totals.sealed.gross)}
           />
         )}
         {ev.totals.opened && (
           <TotalCard
             label="+ Opened boosters (net)"
-            value={ev.totals.opened.net}
-            gross={ev.totals.opened.gross}
+            value={applyDiscount(ev.totals.opened.net)}
+            gross={applyDiscount(ev.totals.opened.gross)}
           />
         )}
       </div>
@@ -460,7 +466,7 @@ export default function EvProductDetail({ slug }: Props) {
                         fontFamily: "var(--font-mono)",
                       }}
                     >
-                      {fmt(b.opened_unit_ev)}
+                      {fmt(applyDiscount(b.opened_unit_ev))}
                     </td>
                   </tr>
                 ))}
@@ -625,7 +631,7 @@ export default function EvProductDetail({ slug }: Props) {
                           : undefined
                     }
                   >
-                    {fmt(c.unit_price)}
+                    {fmt(applyDiscount(c.unit_price))}
                   </td>
                   <td
                     style={{
@@ -643,7 +649,7 @@ export default function EvProductDetail({ slug }: Props) {
                           : undefined
                     }
                   >
-                    {fmt(c.line_total)}
+                    {fmt(applyDiscount(c.line_total))}
                   </td>
                 </tr>
                 );

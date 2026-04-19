@@ -1,6 +1,7 @@
 "use client";
 
 import type { EvSet } from "@/lib/types";
+import { useDiscount } from "@/lib/discount";
 
 interface EvSetCardProps {
   set: EvSet;
@@ -8,10 +9,13 @@ interface EvSetCardProps {
 }
 
 export default function EvSetCard({ set, onClick }: EvSetCardProps) {
+  const { apply } = useDiscount();
   const isMB2 = set.name.toLowerCase().includes("mystery booster 2");
   const isJumpstart = !isMB2 && (set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart"));
   const playLabel = isJumpstart ? "Jumpstart" : isMB2 ? "Mystery" : "Play";
-  const hasEv = set.play_ev_net != null || set.collector_ev_net != null;
+  const playEv = apply(set.play_ev_net);
+  const collectorEv = apply(set.collector_ev_net);
+  const hasEv = playEv != null || collectorEv != null;
 
   return (
     <div
@@ -56,7 +60,7 @@ export default function EvSetCard({ set, onClick }: EvSetCardProps) {
         {set.config_exists ? (
           hasEv ? (
             <>
-              {set.play_ev_net != null && (
+              {playEv != null && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-medium"
                   style={{
@@ -65,10 +69,10 @@ export default function EvSetCard({ set, onClick }: EvSetCardProps) {
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  {playLabel}: &euro;{set.play_ev_net.toFixed(2)}
+                  {playLabel}: &euro;{playEv.toFixed(2)}
                 </span>
               )}
-              {set.collector_ev_net != null && (
+              {collectorEv != null && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-medium"
                   style={{
@@ -77,7 +81,7 @@ export default function EvSetCard({ set, onClick }: EvSetCardProps) {
                     fontFamily: "var(--font-mono)",
                   }}
                 >
-                  Collector: &euro;{set.collector_ev_net.toFixed(2)}
+                  Collector: &euro;{collectorEv.toFixed(2)}
                 </span>
               )}
             </>

@@ -8,6 +8,7 @@ import type { EvSet } from "@/lib/types";
 import EvSetList from "./EvSetList";
 import EvSetDetail from "./EvSetDetail";
 import EvProductList from "./EvProductList";
+import DiscountToggle from "@/components/dashboard/discount-toggle";
 
 type TabKey = "sets" | "products";
 
@@ -53,6 +54,11 @@ export default function EvContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      {/* Discount toggle — global, persists across pages via localStorage */}
+      <div className="flex justify-end">
+        <DiscountToggle />
+      </div>
+
       {/* Tab strip — hidden when a set detail is open */}
       {!selectedSet && (
         <div

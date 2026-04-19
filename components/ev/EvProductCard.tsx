@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { EvProduct } from "@/lib/types";
+import { useDiscount } from "@/lib/discount";
 
 interface Props {
   product: EvProduct & {
@@ -46,7 +47,15 @@ function shortenProductName(name: string, parentSetName: string | null | undefin
 }
 
 export default function EvProductCard({ product }: Props) {
-  const s = product.latest_snapshot ?? null;
+  const { apply } = useDiscount();
+  const raw = product.latest_snapshot ?? null;
+  const s = raw
+    ? {
+        ev_net_cards_only: apply(raw.ev_net_cards_only),
+        ev_net_sealed: apply(raw.ev_net_sealed),
+        ev_net_opened: apply(raw.ev_net_opened),
+      }
+    : null;
   const hasEv = s?.ev_net_cards_only != null || s?.ev_net_sealed != null || s?.ev_net_opened != null;
   const totalCards = product.cards.reduce((acc, c) => acc + c.count, 0);
   const totalBoosters = (product.included_boosters ?? []).reduce((acc, b) => acc + b.count, 0);
