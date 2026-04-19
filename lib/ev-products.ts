@@ -4,6 +4,7 @@ import type {
   EvProductCardBreakdown,
   EvProductBoosterBreakdown,
 } from "./types";
+import { getDb } from "./mongodb";
 
 // The calc only reads these fields from ev_cards. Accepting a structural
 // subset keeps the function trivially mockable in tests.
@@ -129,4 +130,74 @@ export function calculateProductEv(
     booster_breakdown: boosterBreakdown,
     missing_scryfall_ids: missing,
   };
+}
+
+export const COL_PRODUCTS = "dashboard_ev_products";
+export const COL_EV_SNAPSHOTS = "dashboard_ev_snapshots";
+
+let productIndexesEnsured = false;
+
+export async function ensureProductIndexes(): Promise<void> {
+  if (productIndexesEnsured) return;
+  try {
+    const db = await getDb();
+    await Promise.all([
+      db.collection(COL_PRODUCTS).createIndex({ slug: 1 }, { unique: true, name: "slug_unique" }),
+      db.collection(COL_PRODUCTS).createIndex({ parent_set_code: 1 }, { name: "parent_set_code" }),
+      db.collection(COL_PRODUCTS).createIndex({ product_type: 1 }, { name: "product_type" }),
+      db.collection(COL_EV_SNAPSHOTS).createIndex({ product_slug: 1, date: -1 }, { name: "product_slug_date" }),
+    ]);
+    productIndexesEnsured = true;
+  } catch {
+    productIndexesEnsured = true;
+  }
+}
+
+export async function listProducts(): Promise<EvProduct[]> {
+  await ensureProductIndexes();
+  const db = await getDb();
+  const docs = await db
+    .collection(COL_PRODUCTS)
+    .find({})
+    .sort({ release_year: -1, name: 1 })
+    .toArray();
+  return docs.map((d) => ({ ...d, _id: d._id.toString() }) as EvProduct);
+}
+
+export async function getProductBySlug(slug: string): Promise<EvProduct | null> {
+  await ensureProductIndexes();
+  const db = await getDb();
+  const doc = await db.collection(COL_PRODUCTS).findOne({ slug });
+  if (!doc) return null;
+  return { ...doc, _id: doc._id.toString() } as EvProduct;
+}
+
+export interface UpsertProductInput extends Omit<EvProduct, "_id" | "seeded_at"> {}
+
+export async function upsertProduct(
+  input: UpsertProductInput,
+  { overwrite }: { overwrite: boolean } = { overwrite: false }
+): Promise<{ created: boolean; slug: string }> {
+  await ensureProductIndexes();
+  const db = await getDb();
+  const existing = await db
+    .collection(COL_PRODUCTS)
+    .findOne({ slug: input.slug }, { projection: { _id: 1 } });
+  if (existing && !overwrite) {
+    throw new Error(`Product already exists: ${input.slug} (pass overwrite=true to replace)`);
+  }
+  const now = new Date().toISOString();
+  await db.collection(COL_PRODUCTS).updateOne(
+    { slug: input.slug },
+    { $set: { ...input, seeded_at: now } },
+    { upsert: true }
+  );
+  return { created: !existing, slug: input.slug };
+}
+
+export async function deleteProduct(slug: string): Promise<{ deleted: boolean }> {
+  await ensureProductIndexes();
+  const db = await getDb();
+  const res = await db.collection(COL_PRODUCTS).deleteOne({ slug });
+  return { deleted: res.deletedCount === 1 };
 }
