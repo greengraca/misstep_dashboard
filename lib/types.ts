@@ -368,6 +368,9 @@ export interface EvCalculationResult {
   box_ev_net: number;
   fee_rate: number;
   sift_floor: number;
+  /** From the effective config (saved or default fallback). UI surfaces these. */
+  packs_per_box: number;
+  cards_per_pack: number;
   cards_counted: number;
   cards_above_floor: number;
   cards_total: number;

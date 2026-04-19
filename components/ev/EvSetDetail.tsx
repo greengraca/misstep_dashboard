@@ -184,8 +184,8 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
             boosterType={boosterType}
             onBoosterTypeChange={setBoosterType}
             boosterLabel={boosterLabel}
-            packsPerBox={boosterType === "play" ? config?.play_booster?.packs_per_box : config?.collector_booster?.packs_per_box}
-            cardsPerPack={boosterType === "play" ? config?.play_booster?.cards_per_pack : config?.collector_booster?.cards_per_pack}
+            packsPerBox={calcResult?.packs_per_box ?? (boosterType === "play" ? config?.play_booster?.packs_per_box : config?.collector_booster?.packs_per_box)}
+            cardsPerPack={calcResult?.cards_per_pack ?? (boosterType === "play" ? config?.play_booster?.cards_per_pack : config?.collector_booster?.cards_per_pack)}
             masterpiecesEnabled={setHasMasterpieces ? includeMasterpieces : undefined}
             onMasterpiecesChange={setHasMasterpieces ? setIncludeMasterpieces : undefined}
           />

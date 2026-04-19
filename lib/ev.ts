@@ -1311,6 +1311,8 @@ export function calculateEv(
     box_ev_net: Math.round(boxEvNet * 100) / 100,
     fee_rate: feeRate,
     sift_floor: siftFloor,
+    packs_per_box: config.packs_per_box,
+    cards_per_pack: config.cards_per_pack,
     cards_counted: boosterCards.length,
     cards_above_floor: cardsAboveFloor,
     cards_total: cards.length,
