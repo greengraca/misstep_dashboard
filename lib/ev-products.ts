@@ -26,6 +26,13 @@ export interface CalculateProductEvOptions {
   feeRate: number;
   /** Opened-box EV per included booster's parent set (e.g. { akh: 3.75 }). */
   boosterEvBySet?: Record<string, number>;
+  /**
+   * Cards priced strictly below this floor are treated as €0. Mirrors the
+   * set EV calc's siftFloor — Cardmarket's €0.25 minimum order means
+   * sub-€0.25 cards aren't realistically sellable, so they don't count
+   * toward EV. Default 0 (no filtering) so callers must opt in.
+   */
+  siftFloor?: number;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -39,7 +46,7 @@ export function calculateProductEv(
   cards: EvCardPriceRef[],
   options: CalculateProductEvOptions
 ): EvProductResult {
-  const { feeRate, boosterEvBySet = {} } = options;
+  const { feeRate, boosterEvBySet = {}, siftFloor = 0 } = options;
   const countBasicLands = product.count_basic_lands === true;
 
   const cardById = new Map<string, EvCardPriceRef>();
@@ -55,7 +62,8 @@ export function calculateProductEv(
     const rawUnit = c ? getEffectivePrice(c, pc.is_foil).price : null;
     if (!c) missing.push(pc.scryfall_id);
     const isBasicLandSkipped = !countBasicLands && BASIC_LAND_NAMES.has(pc.name);
-    const unit = isBasicLandSkipped ? 0 : rawUnit;
+    const sifted = rawUnit !== null && rawUnit < siftFloor;
+    const unit = isBasicLandSkipped || sifted ? 0 : rawUnit;
     const price = unit ?? 0;
     const line = price * pc.count;
     cardsTotal += line;
@@ -303,7 +311,7 @@ export async function generateProductSnapshot(slug: string): Promise<{ written: 
   const boosterEvBySet = await latestPlayEvBySet([...new Set(boosterSetCodes)]);
 
   const feeRate = await getFeeRate();
-  const result = calculateProductEv(product, cards, { feeRate, boosterEvBySet });
+  const result = calculateProductEv(product, cards, { feeRate, boosterEvBySet, siftFloor: 0.25 });
 
   const date = new Date().toISOString().slice(0, 10);
   const db = await getDb();

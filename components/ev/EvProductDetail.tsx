@@ -248,7 +248,12 @@ function cardmarketUrl(setName: string | undefined, cardName: string, isFoil: bo
 
 export default function EvProductDetail({ slug }: Props) {
   const { data, isLoading, error } = useSWR<{
-    data: { product: EvProduct; ev: EvProductResult; set_names?: Record<string, string> };
+    data: {
+      product: EvProduct;
+      ev: EvProductResult;
+      set_names?: Record<string, string>;
+      set_icons?: Record<string, string | null>;
+    };
   }>(`/api/ev/products/${slug}`, fetcher);
 
   if (isLoading) {
@@ -478,14 +483,22 @@ export default function EvProductDetail({ slug }: Props) {
                       </span>
                     )}
                   </td>
-                  <td
-                    style={{
-                      padding: "8px",
-                      color: "var(--text-muted)",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    {c.set_code.toUpperCase()}
+                  <td style={{ padding: "8px", color: "var(--text-muted)" }}>
+                    <span className="inline-flex items-center gap-1.5">
+                      {data.data.set_icons?.[c.set_code] && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={data.data.set_icons[c.set_code]!}
+                          alt=""
+                          className="w-4 h-4"
+                          style={{ filter: "invert(0.9)" }}
+                          title={data.data.set_names?.[c.set_code] ?? c.set_code}
+                        />
+                      )}
+                      <span style={{ fontFamily: "var(--font-mono)" }}>
+                        {c.set_code.toUpperCase()}
+                      </span>
+                    </span>
                   </td>
                   <td style={{ padding: "8px" }}>
                     {c.is_foil ? (
