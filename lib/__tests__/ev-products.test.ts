@@ -166,7 +166,7 @@ describe("calculateProductEv — included boosters", () => {
 });
 
 describe("calculateProductEv — basic lands", () => {
-  it("excludes basic lands from cards_subtotal_gross by default but keeps real prices visible", () => {
+  it("excludes basic lands from cards_subtotal_gross by default and zeroes their display values", () => {
     const cards = [
       card("a", "Swamp", 0.29),
       card("b", "Liliana, Death Wielder", 5.27, 5.27),
@@ -179,12 +179,11 @@ describe("calculateProductEv — basic lands", () => {
     });
     const r = calculateProductEv(p, cards, { feeRate: 0 });
     expect(r.cards_subtotal_gross).toBe(5.27);
-    // Swamp keeps its real unit_price and line_total in the breakdown so the
-    // decklist UI can show the raw value, but is flagged with excluded_reason
-    // so it can be rendered with a sifted indicator.
+    // Basic lands sort to the bottom of the decklist by zeroing display
+    // values; the excluded_reason flag still surfaces the indicator.
     const swampLine = r.card_breakdown.find((c) => c.name === "Swamp");
-    expect(swampLine?.unit_price).toBe(0.29);
-    expect(swampLine?.line_total).toBe(3.19);
+    expect(swampLine?.unit_price).toBe(0);
+    expect(swampLine?.line_total).toBe(0);
     expect(swampLine?.excluded_reason).toBe("basic_land");
   });
 

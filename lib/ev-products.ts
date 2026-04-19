@@ -74,10 +74,17 @@ export function calculateProductEv(
     const lineRaw = (rawUnit ?? 0) * pc.count;
     if (!excludedReason) cardsTotal += lineRaw;
     cardCountTotal += pc.count;
+
+    // Display rule: basic lands always render as €0 in the decklist (they
+    // sort to the bottom). Below-floor cards keep their real price so the
+    // user sees actual market value with a strikethrough indicator.
+    const displayUnit = excludedReason === "basic_land" ? 0 : rawUnit;
+    const displayLine = excludedReason === "basic_land" ? 0 : round2(lineRaw);
+
     cardBreakdown.push({
       ...pc,
-      unit_price: rawUnit,
-      line_total: round2(lineRaw),
+      unit_price: displayUnit,
+      line_total: displayLine,
       ...(excludedReason ? { excluded_reason: excludedReason } : {}),
     });
   }

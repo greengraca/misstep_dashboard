@@ -166,7 +166,9 @@ function SealedPriceInput({
 function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const countOn = product.count_basic_lands === true;
+  // The DB field is `count_basic_lands` (false = ignore). The user-facing
+  // toggle is the inverse for clarity: "Ignore basic lands" defaults to on.
+  const ignoreOn = product.count_basic_lands !== true;
 
   async function toggle() {
     setSaving(true);
@@ -175,7 +177,7 @@ function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged
       const { _id, seeded_at, ...rest } = product;
       void _id;
       void seeded_at;
-      const payload = { ...rest, count_basic_lands: !countOn, overwrite: true };
+      const payload = { ...rest, count_basic_lands: ignoreOn, overwrite: true };
       const res = await fetch("/api/ev/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,12 +205,12 @@ function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged
       >
         <input
           type="checkbox"
-          checked={countOn}
+          checked={ignoreOn}
           onChange={toggle}
           disabled={saving}
           className="accent-[var(--accent)]"
         />
-        Count basic lands
+        Ignore basic lands
       </label>
       {saving && <span style={{ color: "var(--text-muted)" }}>saving…</span>}
       {error && <span style={{ color: "var(--error)" }}>{error}</span>}
