@@ -180,7 +180,13 @@ export default function EvProductDetail({ slug }: Props) {
           className="text-base font-semibold mb-3"
           style={{ color: "var(--text-primary)" }}
         >
-          Decklist
+          Decklist{" "}
+          <span
+            className="text-sm font-normal"
+            style={{ color: "var(--text-muted)" }}
+          >
+            ({ev.card_count_total})
+          </span>
         </h2>
         <div style={{ overflowX: "auto" }}>
           <table
