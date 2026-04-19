@@ -567,16 +567,16 @@ export function getDefaultPlayBoosterConfig(): EvBoosterConfig {
     packs_per_box: 36,
     cards_per_pack: 14,
     slots: [
-      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
+      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
       {
         slot_number: 7, label: "Common / SPG", is_foil: false,
         outcomes: [
-          { probability: 0.96875, filter: { rarity: ["common"], treatment: ["normal"], booster: true } },
+          { probability: 0.96875, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } },
           { probability: 0.03125, filter: { promo_types: ["spg"] } },
         ],
       },
@@ -595,7 +595,7 @@ export function getDefaultPlayBoosterConfig(): EvBoosterConfig {
       {
         slot_number: 12, label: "Foil Wildcard", is_foil: true,
         outcomes: [
-          { probability: 0.667, filter: { rarity: ["common"], booster: true } },
+          { probability: 0.667, filter: { rarity: ["common"], booster: true, type_line_not_contains: "Basic Land" } },
           { probability: 0.250, filter: { rarity: ["uncommon"], booster: true } },
           { probability: 0.069, filter: { rarity: ["rare"], booster: true } },
           { probability: 0.014, filter: { rarity: ["mythic"], booster: true } },
@@ -791,8 +791,8 @@ export function getDefaultDraftBoosterConfig(options: { masterpiece?: Masterpiec
   const pFoilMythic = pFoilAny * (1 / 37);
 
   const slot10Outcomes: EvSlotOutcome[] = [
-    { probability: pCommonPlain, filter: { rarity: ["common"], treatment: ["normal"], booster: true } },
-    { probability: pFoilCommon, is_foil: true, filter: { rarity: ["common"], finishes: ["foil"], booster: true } },
+    { probability: pCommonPlain, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } },
+    { probability: pFoilCommon, is_foil: true, filter: { rarity: ["common"], finishes: ["foil"], booster: true, type_line_not_contains: "Basic Land" } },
     { probability: pFoilUncommon, is_foil: true, filter: { rarity: ["uncommon"], finishes: ["foil"], booster: true } },
     { probability: pFoilRare, is_foil: true, filter: { rarity: ["rare"], finishes: ["foil"], booster: true } },
     { probability: pFoilMythic, is_foil: true, filter: { rarity: ["mythic"], finishes: ["foil"], booster: true } },
@@ -813,15 +813,15 @@ export function getDefaultDraftBoosterConfig(options: { masterpiece?: Masterpiec
     packs_per_box: 36,
     cards_per_pack: 15,
     slots: [
-      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 7, label: "Common 7", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 8, label: "Common 8", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
-      { slot_number: 9, label: "Common 9", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true } }] },
+      { slot_number: 1, label: "Common 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 2, label: "Common 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 3, label: "Common 3", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 4, label: "Common 4", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 5, label: "Common 5", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 6, label: "Common 6", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 7, label: "Common 7", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 8, label: "Common 8", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
+      { slot_number: 9, label: "Common 9", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } }] },
       { slot_number: 10, label: masterpiece ? "Common / Foil / Masterpiece" : "Common / Foil wildcard", is_foil: false, outcomes: slot10Outcomes },
       { slot_number: 11, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
       { slot_number: 12, label: "Uncommon 2", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
@@ -833,7 +833,15 @@ export function getDefaultDraftBoosterConfig(options: { masterpiece?: Masterpiec
           { probability: 0.125, filter: { rarity: ["mythic"], treatment: ["normal"], booster: true } },
         ],
       },
-      { slot_number: 15, label: "Basic Land / Checklist", is_foil: false, outcomes: [] },
+      {
+        // 1 basic land per pack, equal probability across all printed basic
+        // arts in the set. Modern full-art / desert basics (e.g. Amonkhet)
+        // have meaningful market value and contribute real EV here.
+        slot_number: 15, label: "Basic Land", is_foil: false,
+        outcomes: [
+          { probability: 1, filter: { type_line_contains: "Basic Land", booster: true } },
+        ],
+      },
     ],
   };
 }
