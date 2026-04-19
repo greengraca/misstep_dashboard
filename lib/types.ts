@@ -130,6 +130,10 @@ export interface CmStockListing {
   language: string;
   foil: boolean;
   set: string;
+  // Signed listings carry a huge legitimate premium over the Scryfall trend.
+  // Captured by the ext (v1.7.0+); older ext versions omit the fields.
+  signed?: boolean;
+  signedComment?: string | null;
   dedupKey: string;
   source: "stock_page" | "import" | "product_page";
   firstSeenAt?: string;
@@ -179,6 +183,8 @@ export interface CmProductStockListing {
   condition: string;
   language: string;
   foil: boolean;
+  signed?: boolean;
+  signedComment?: string | null;
 }
 
 export interface ExtSyncBatchItem {

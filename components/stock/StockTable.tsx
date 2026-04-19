@@ -1,8 +1,7 @@
 "use client";
 
-import { ChevronDown, ChevronUp } from "lucide-react";
-import type { CmStockListing } from "@/lib/types";
-import type { StockSortField } from "@/lib/stock-types";
+import { ChevronDown, ChevronUp, PenLine } from "lucide-react";
+import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import Select from "@/components/dashboard/select";
 import CardHoverPreview from "./CardHoverPreview";
 
@@ -45,7 +44,7 @@ function SetCell({ setName, meta }: { setName: string; meta?: SetMeta }) {
 }
 
 interface StockTableProps {
-  rows: CmStockListing[];
+  rows: StockListingWithTrend[];
   sort: StockSortField;
   dir: "asc" | "desc";
   onSortChange: (sort: StockSortField, dir: "asc" | "desc") => void;
@@ -63,11 +62,59 @@ interface Column {
   key: StockSortField;
   label: string;
   align?: "left" | "right";
-  render: (row: CmStockListing, setMap?: SetMap) => React.ReactNode;
+  render: (row: StockListingWithTrend, setMap?: SetMap) => React.ReactNode;
+}
+
+// Cardmarket slugifies to Products/Singles/{Set}/{Card} by collapsing any
+// non-alphanumeric run (spaces, colons, apostrophes, "//", etc.) to a
+// single dash and preserving capitalization. The ?idProduct= search URL
+// doesn't reliably redirect to the correct product page — the slug URL
+// does, so we use it unconditionally.
+function cardmarketSlug(input: string): string {
+  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function CardmarketLink({ row }: { row: StockListingWithTrend }) {
+  const href = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(row.set)}/${cardmarketSlug(row.name)}`;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="transition-colors no-underline hover:underline hover:text-[var(--accent)]"
+        style={{ color: "var(--text-primary)" }}
+        title="Open on Cardmarket"
+      >
+        {row.name}
+      </a>
+      {row.signed && (
+        <span
+          title={row.signedComment || "Signed"}
+          style={{ display: "inline-flex", color: "var(--accent)" }}
+          aria-label={row.signedComment || "Signed"}
+        >
+          <PenLine size={12} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+function OverpricedCell({ pct }: { pct: number | null }) {
+  if (pct == null) return <span style={{ color: "var(--text-muted)" }}>—</span>;
+  const color =
+    pct >= 0.2
+      ? "var(--danger, #f87171)"
+      : pct <= -0.2
+        ? "var(--success, #4ade80)"
+        : "var(--text-secondary)";
+  const sign = pct > 0 ? "+" : "";
+  return <span style={{ color }}>{`${sign}${(pct * 100).toFixed(0)}%`}</span>;
 }
 
 const columns: Column[] = [
-  { key: "name", label: "Name", render: (r) => r.name },
+  { key: "name", label: "Name", render: (r) => <CardmarketLink row={r} /> },
   {
     key: "set",
     label: "Set",
@@ -82,6 +129,25 @@ const columns: Column[] = [
     label: "Price",
     align: "right",
     render: (r) => `€${r.price.toFixed(2)}`,
+  },
+  {
+    // Not independently sortable — clicking falls back to overpriced_pct so
+    // the user gets a useful "sort by how off-trend this row is" experience.
+    key: "overpriced_pct",
+    label: "Trend",
+    align: "right",
+    render: (r) =>
+      r.trend_eur != null ? (
+        `€${r.trend_eur.toFixed(2)}`
+      ) : (
+        <span style={{ color: "var(--text-muted)" }}>—</span>
+      ),
+  },
+  {
+    key: "overpriced_pct",
+    label: "Δ vs trend",
+    align: "right",
+    render: (r) => <OverpricedCell pct={r.overpriced_pct} />,
   },
   {
     key: "lastSeenAt",
@@ -169,7 +235,7 @@ export default function StockTable({
                 const align = col.align || "left";
                 return (
                   <th
-                    key={col.key}
+                    key={col.label}
                     style={{ ...thStyle, textAlign: align }}
                   >
                     <button
@@ -230,7 +296,7 @@ export default function StockTable({
                 </td>
                 {columns.map((col) => (
                   <td
-                    key={col.key}
+                    key={col.label}
                     style={{ ...tdStyle, textAlign: col.align || "left" }}
                   >
                     {col.render(row, setMap)}

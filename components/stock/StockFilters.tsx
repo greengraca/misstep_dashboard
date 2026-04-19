@@ -10,10 +10,12 @@ export interface StockFilterState {
   set: string;
   condition: StockCondition | "";
   foil: "" | "true" | "false";
+  signed: "" | "true" | "false";
   language: string;
   minPrice: string;
   maxPrice: string;
   minQty: string;
+  minOverpricedPct: string;
   hasStock: boolean;
 }
 
@@ -22,10 +24,12 @@ export const emptyStockFilters: StockFilterState = {
   set: "",
   condition: "",
   foil: "",
+  signed: "",
   language: "",
   minPrice: "",
   maxPrice: "",
   minQty: "",
+  minOverpricedPct: "",
   hasStock: true,
 };
 
@@ -130,6 +134,19 @@ export default function StockFilters({
         />
       </label>
       <label style={labelCol}>
+        <span style={labelText}>Signed</span>
+        <Select
+          size="sm"
+          value={value.signed}
+          onChange={(v) => set("signed", v as "" | "true" | "false")}
+          options={[
+            { value: "", label: "Any" },
+            { value: "true", label: "Signed" },
+            { value: "false", label: "Unsigned" },
+          ]}
+        />
+      </label>
+      <label style={labelCol}>
         <span style={labelText}>Language</span>
         <Select
           size="sm"
@@ -171,6 +188,17 @@ export default function StockFilters({
           min="0"
           value={value.minQty}
           onChange={(e) => set("minQty", e.target.value)}
+        />
+      </label>
+      <label style={labelCol} title="Only show listings priced at least this % above Scryfall trend">
+        <span style={labelText}>Overpriced ≥ %</span>
+        <input
+          style={inputStyle}
+          type="number"
+          step="1"
+          value={value.minOverpricedPct}
+          onChange={(e) => set("minOverpricedPct", e.target.value)}
+          placeholder="e.g. 20"
         />
       </label>
       <label

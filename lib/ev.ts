@@ -58,9 +58,11 @@ async function ensureIndexes(): Promise<void> {
     await Promise.all([
       db.collection(COL_SETS).createIndex({ code: 1 }, { unique: true, name: "code_unique" }),
       db.collection(COL_SETS).createIndex({ released_at: -1 }, { name: "released_desc" }),
+      db.collection(COL_SETS).createIndex({ name: 1 }, { name: "name" }),
       db.collection(COL_CARDS).createIndex({ scryfall_id: 1 }, { unique: true, name: "scryfall_id_unique" }),
       db.collection(COL_CARDS).createIndex({ set: 1, rarity: 1 }, { name: "set_rarity" }),
       db.collection(COL_CARDS).createIndex({ set: 1, booster: 1 }, { name: "set_booster" }),
+      db.collection(COL_CARDS).createIndex({ set: 1, name: 1 }, { name: "set_name" }),
       db.collection(COL_CONFIG).createIndex({ set_code: 1 }, { unique: true, name: "set_code_unique" }),
       db.collection(COL_SNAPSHOTS).createIndex(
         { set_code: 1, date: -1 },

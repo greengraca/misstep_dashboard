@@ -39,9 +39,19 @@ export const GET = withAuthRead(async (req) => {
     foil = foilRaw === "true";
   }
 
+  const signedRaw = sp.get("signed");
+  let signed: boolean | undefined;
+  if (signedRaw !== null && signedRaw !== "") {
+    if (signedRaw !== "true" && signedRaw !== "false") {
+      return NextResponse.json({ error: "invalid signed" }, { status: 400 });
+    }
+    signed = signedRaw === "true";
+  }
+
   const minPrice = parseOptionalNumber(sp.get("minPrice"));
   const maxPrice = parseOptionalNumber(sp.get("maxPrice"));
   const minQty = parseOptionalNumber(sp.get("minQty"));
+  const minOverpricedPct = parseOptionalNumber(sp.get("minOverpricedPct"));
   for (const [label, v] of [
     ["minPrice", minPrice],
     ["maxPrice", maxPrice],
@@ -53,6 +63,9 @@ export const GET = withAuthRead(async (req) => {
     if (typeof v === "number" && v < 0) {
       return NextResponse.json({ error: `${label} must be >= 0` }, { status: 400 });
     }
+  }
+  if (Number.isNaN(minOverpricedPct)) {
+    return NextResponse.json({ error: "invalid minOverpricedPct" }, { status: 400 });
   }
 
   const sortRaw = sp.get("sort") || "lastSeenAt";
@@ -83,6 +96,9 @@ export const GET = withAuthRead(async (req) => {
     minPrice: typeof minPrice === "number" ? minPrice : undefined,
     maxPrice: typeof maxPrice === "number" ? maxPrice : undefined,
     minQty: typeof minQty === "number" ? minQty : undefined,
+    minOverpricedPct:
+      typeof minOverpricedPct === "number" ? minOverpricedPct / 100 : undefined,
+    signed,
     sort,
     dir: dirRaw,
     page,

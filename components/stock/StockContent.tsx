@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Package, Coins, ListOrdered, Layers, Filter } from "lucide-react";
-import type { CmStockListing } from "@/lib/types";
-import type { StockSortField } from "@/lib/stock-types";
+import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import { STOCK_SORT_FIELDS } from "@/lib/stock-types";
 import StockFilters, {
   emptyStockFilters,
@@ -30,7 +29,7 @@ interface SummaryResponse {
 }
 
 interface SearchResponse {
-  rows: CmStockListing[];
+  rows: StockListingWithTrend[];
   total: number;
   totalQty: number;
   totalValue: number;
@@ -68,10 +67,12 @@ function hasAnyFilter(filters: StockFilterState): boolean {
     "set",
     "condition",
     "foil",
+    "signed",
     "language",
     "minPrice",
     "maxPrice",
     "minQty",
+    "minOverpricedPct",
   ];
   return k.some((key) => filters[key] !== base[key]);
 }
@@ -88,11 +89,15 @@ function buildQuery(
   if (filters.set.trim()) sp.set("set", filters.set.trim());
   if (filters.condition) sp.set("condition", filters.condition);
   if (filters.foil) sp.set("foil", filters.foil);
+  if (filters.signed) sp.set("signed", filters.signed);
   if (filters.language.trim()) sp.set("language", filters.language.trim());
   if (filters.minPrice.trim()) sp.set("minPrice", filters.minPrice.trim());
   if (filters.maxPrice.trim()) sp.set("maxPrice", filters.maxPrice.trim());
   const minQty = resolveMinQty(filters);
   if (minQty != null) sp.set("minQty", String(minQty));
+  if (filters.minOverpricedPct.trim()) {
+    sp.set("minOverpricedPct", filters.minOverpricedPct.trim());
+  }
   sp.set("sort", sort);
   sp.set("dir", dir);
   sp.set("page", String(page));
@@ -113,10 +118,12 @@ function parseStateFromUrl(sp: URLSearchParams): {
     condition:
       (sp.get("condition") as StockFilterState["condition"]) ?? "",
     foil: (sp.get("foil") as StockFilterState["foil"]) ?? "",
+    signed: (sp.get("signed") as StockFilterState["signed"]) ?? "",
     language: sp.get("language") ?? "",
     minPrice: sp.get("minPrice") ?? "",
     maxPrice: sp.get("maxPrice") ?? "",
     minQty: sp.get("minQty") ?? "",
+    minOverpricedPct: sp.get("minOverpricedPct") ?? "",
     hasStock: sp.get("hasStock") !== "0",
   };
   const sortRaw = sp.get("sort") ?? "lastSeenAt";
@@ -147,10 +154,14 @@ function stateToUrl(
   if (filters.set.trim()) sp.set("set", filters.set.trim());
   if (filters.condition) sp.set("condition", filters.condition);
   if (filters.foil) sp.set("foil", filters.foil);
+  if (filters.signed) sp.set("signed", filters.signed);
   if (filters.language.trim()) sp.set("language", filters.language.trim());
   if (filters.minPrice.trim()) sp.set("minPrice", filters.minPrice.trim());
   if (filters.maxPrice.trim()) sp.set("maxPrice", filters.maxPrice.trim());
   if (filters.minQty.trim()) sp.set("minQty", filters.minQty.trim());
+  if (filters.minOverpricedPct.trim()) {
+    sp.set("minOverpricedPct", filters.minOverpricedPct.trim());
+  }
   if (!filters.hasStock) sp.set("hasStock", "0");
   if (sort !== "lastSeenAt") sp.set("sort", sort);
   if (dir !== "desc") sp.set("dir", dir);

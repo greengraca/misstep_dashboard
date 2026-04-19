@@ -1,4 +1,3 @@
-import type { Collection, Document } from "mongodb";
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 import type { CmStockListing, CmStockSnapshot } from "@/lib/types";
@@ -57,6 +56,11 @@ export async function buildStockFilter(
   if (typeof params.foil === "boolean") {
     filter.foil = params.foil;
   }
+  if (typeof params.signed === "boolean") {
+    // "false" should match rows that are explicitly signed: false AND rows
+    // synced before the ext started sending the field (no `signed` property).
+    filter.signed = params.signed ? true : { $ne: true };
+  }
   if (params.language && params.language.trim()) {
     filter.language = { $regex: escapeRegex(params.language.trim()), $options: "i" };
   }
@@ -70,64 +74,207 @@ export async function buildStockFilter(
   return filter;
 }
 
-async function computeFilteredAggregates<T extends Document>(
-  col: Collection<T>,
-  filter: Record<string, unknown>
-): Promise<{ total: number; totalQty: number; totalValue: number; distinctNameSet: number }> {
-  const pipeline: Record<string, unknown>[] = [];
-  if (Object.keys(filter).length > 0) pipeline.push({ $match: filter });
-  pipeline.push({
-    $facet: {
-      totals: [
-        {
-          $group: {
-            _id: null,
-            count: { $sum: 1 },
-            qty: { $sum: "$qty" },
-            value: { $sum: { $multiply: ["$qty", "$price"] } },
-          },
-        },
-      ],
-      distinct: [
-        { $group: { _id: { name: "$name", set: "$set" } } },
-        { $count: "count" },
-      ],
-    },
+// ── Trend-join helper (in-memory) ────────────────────────────────────
+//
+// Stock rows carry the Cardmarket-flavored set name (e.g. "Adventures in
+// the Forgotten Realms"). Scryfall's price_eur lives on ev_cards keyed by
+// { name, set: <Scryfall code> }. So we hop:
+//   stock.set → ev_sets.name → ev_sets.code → ev_cards{ name, set: code }.
+//
+// The naive MongoDB $lookup with a 2-field `let`+pipeline join runs at
+// ~30ms/row on Atlas M0, which blows up to 3 minutes on 6k rows. We do
+// the join in Node instead: fetch all matching stock rows (indexed, fast),
+// resolve set codes (small), then batch-fetch ev_cards per set.
+//
+// Set-name variants ": Extras", ": Promos", ": Tokens" currently don't
+// resolve to Scryfall codes — those rows get `trend_eur: null` (see
+// CLAUDE.md TODO for the normalization table).
+
+interface _JoinedStockRow extends CmStockListing {
+  trend_eur: number | null;
+  overpriced_pct: number | null;
+  cardmarket_id: number | null;
+}
+
+async function enrichWithTrend(
+  db: Awaited<ReturnType<typeof getDb>>,
+  rows: CmStockListing[]
+): Promise<_JoinedStockRow[]> {
+  if (rows.length === 0) return [];
+
+  const setNames = Array.from(new Set(rows.map((r) => r.set)));
+  const setDocs = await db
+    .collection(`${COLLECTION_PREFIX}ev_sets`)
+    .find({ name: { $in: setNames } }, { projection: { _id: 0, name: 1, code: 1 } })
+    .toArray();
+  const nameToCode = new Map<string, string>();
+  for (const d of setDocs) nameToCode.set(d.name as string, d.code as string);
+
+  const byCode = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const code = nameToCode.get(r.set);
+    if (!code) continue;
+    if (!byCode.has(code)) byCode.set(code, new Set());
+    byCode.get(code)!.add(r.name);
+  }
+
+  const cardMap = new Map<
+    string,
+    { price_eur: number | null; price_eur_foil: number | null; cardmarket_id: number | null }
+  >();
+  await Promise.all(
+    Array.from(byCode.entries()).map(async ([code, names]) => {
+      const cards = await db
+        .collection(`${COLLECTION_PREFIX}ev_cards`)
+        .find(
+          { set: code, name: { $in: Array.from(names) } },
+          {
+            projection: {
+              _id: 0,
+              name: 1,
+              set: 1,
+              price_eur: 1,
+              price_eur_foil: 1,
+              cardmarket_id: 1,
+            },
+          }
+        )
+        .toArray();
+      for (const c of cards) {
+        cardMap.set(`${c.set}\u241F${c.name}`, {
+          price_eur: (c.price_eur as number | null) ?? null,
+          price_eur_foil: (c.price_eur_foil as number | null) ?? null,
+          cardmarket_id: (c.cardmarket_id as number | null) ?? null,
+        });
+      }
+    })
+  );
+
+  return rows.map((r) => {
+    const code = nameToCode.get(r.set);
+    const card = code ? cardMap.get(`${code}\u241F${r.name}`) : null;
+    const trend_eur = card ? (r.foil ? card.price_eur_foil : card.price_eur) : null;
+    const overpriced_pct =
+      trend_eur != null && trend_eur > 0 ? r.price / trend_eur - 1 : null;
+    return {
+      ...r,
+      trend_eur,
+      overpriced_pct,
+      cardmarket_id: card?.cardmarket_id ?? null,
+    };
   });
-  const aggResult = await col.aggregate(pipeline).toArray();
-  const totals = aggResult[0]?.totals?.[0] || {};
-  const distinct = aggResult[0]?.distinct?.[0]?.count || 0;
-  return {
-    total: totals.count || 0,
-    totalQty: totals.qty || 0,
-    totalValue: Math.round((totals.value || 0) * 100) / 100,
-    distinctNameSet: distinct,
-  };
+}
+
+function cmpValues(a: unknown, b: unknown, dir: 1 | -1): number {
+  // Null-last regardless of direction so sort by overpriced_pct doesn't
+  // surface the unjoinable rows at the top.
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === "string" && typeof b === "string") return dir * a.localeCompare(b);
+  if (typeof a === "boolean" && typeof b === "boolean") {
+    return dir * (Number(a) - Number(b));
+  }
+  return dir * (Number(a) - Number(b));
 }
 
 export async function searchStock(params: StockSearchParams): Promise<StockSearchResult> {
   const db = await getDb();
   const col = db.collection<CmStockListing>(COL_STOCK);
   const filter = await buildStockFilter(params);
-  const sortDir = params.dir === "asc" ? 1 : -1;
+  const sortDir: 1 | -1 = params.dir === "asc" ? 1 : -1;
   const skip = (params.page - 1) * params.pageSize;
 
-  const [rows, aggs] = await Promise.all([
-    col
-      .find(filter)
-      .sort({ [params.sort]: sortDir })
-      .skip(skip)
-      .limit(params.pageSize)
-      .toArray(),
-    computeFilteredAggregates(col, filter),
-  ]);
+  // Fast path: no overpriced-aware filter/sort. Paginate in the DB, then
+  // enrich the ≤pageSize rows we actually return.
+  const needsInMemoryPass =
+    params.minOverpricedPct != null || params.sort === "overpriced_pct";
+
+  if (!needsInMemoryPass) {
+    const [pageRows, totalsAgg] = await Promise.all([
+      col
+        .find(filter)
+        .sort({ [params.sort]: sortDir })
+        .skip(skip)
+        .limit(params.pageSize)
+        .toArray(),
+      col
+        .aggregate([
+          ...(Object.keys(filter).length ? [{ $match: filter }] : []),
+          {
+            $facet: {
+              totals: [
+                {
+                  $group: {
+                    _id: null,
+                    count: { $sum: 1 },
+                    qty: { $sum: "$qty" },
+                    value: { $sum: { $multiply: ["$qty", "$price"] } },
+                  },
+                },
+              ],
+              distinct: [
+                { $group: { _id: { name: "$name", set: "$set" } } },
+                { $count: "count" },
+              ],
+            },
+          },
+        ])
+        .toArray(),
+    ]);
+
+    const enriched = await enrichWithTrend(db, pageRows as unknown as CmStockListing[]);
+    const tBucket = totalsAgg[0] || {};
+    const totals = tBucket.totals?.[0] || {};
+    return {
+      rows: enriched,
+      total: totals.count || 0,
+      totalQty: totals.qty || 0,
+      totalValue: Math.round((totals.value || 0) * 100) / 100,
+      distinctNameSet: tBucket.distinct?.[0]?.count || 0,
+      page: params.page,
+      pageSize: params.pageSize,
+    };
+  }
+
+  // Slow path: the overpriced filter or sort depends on the trend join.
+  // Pull everything matching the basic filter, enrich in memory, then
+  // filter/sort/paginate. Stock is small enough (≤6k rows today) for this
+  // to comfortably beat the $lookup pipeline on Atlas M0.
+  const allRows = (await col.find(filter).toArray()) as unknown as CmStockListing[];
+  const enrichedAll = await enrichWithTrend(db, allRows);
+
+  const filtered =
+    params.minOverpricedPct != null
+      ? enrichedAll.filter(
+          (r) => r.overpriced_pct != null && r.overpriced_pct >= params.minOverpricedPct!
+        )
+      : enrichedAll;
+
+  filtered.sort((a, b) =>
+    cmpValues(
+      (a as unknown as Record<string, unknown>)[params.sort],
+      (b as unknown as Record<string, unknown>)[params.sort],
+      sortDir
+    )
+  );
+
+  const total = filtered.length;
+  let totalQty = 0;
+  let totalValue = 0;
+  const distinctKeys = new Set<string>();
+  for (const r of filtered) {
+    totalQty += r.qty;
+    totalValue += r.qty * r.price;
+    distinctKeys.add(`${r.name}\u241F${r.set}`);
+  }
 
   return {
-    rows: rows as unknown as CmStockListing[],
-    total: aggs.total,
-    totalQty: aggs.totalQty,
-    totalValue: aggs.totalValue,
-    distinctNameSet: aggs.distinctNameSet,
+    rows: filtered.slice(skip, skip + params.pageSize),
+    total,
+    totalQty,
+    totalValue: Math.round(totalValue * 100) / 100,
+    distinctNameSet: distinctKeys.size,
     page: params.page,
     pageSize: params.pageSize,
   };

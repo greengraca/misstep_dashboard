@@ -1,7 +1,7 @@
 try {
   process.loadEnvFile(".env");
 } catch {
-  // .env missing — MONGODB_URI check inside getDb will surface a useful error.
+  // .env missing
 }
 
 import { getDb, getClient } from "../lib/mongodb";
@@ -17,40 +17,34 @@ async function main() {
   const distinctCards = await col.distinct("s");
   console.log(`Distinct cards with at least one snapshot: ${distinctCards.length}`);
 
-  const dateRange = await col
+  // Per-date counts
+  const byDate = await col
     .aggregate([
-      { $group: { _id: null, min: { $min: "$d" }, max: { $max: "$d" } } },
+      { $group: { _id: "$d", n: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
     ])
     .toArray();
-  if (dateRange[0]) {
-    console.log(`Date range:      ${dateRange[0].min.toISOString()} → ${dateRange[0].max.toISOString()}`);
+  console.log("\nSnapshots per sync:");
+  for (const row of byDate) {
+    console.log(`  ${row._id.toISOString()}   ${row.n} inserts`);
   }
 
-  const withEur = await col.countDocuments({ e: { $ne: null } });
-  const withFoil = await col.countDocuments({ f: { $ne: null } });
-  const bothNull = await col.countDocuments({ e: null, f: null });
-  console.log(`  e (price_eur) non-null:      ${withEur}`);
-  console.log(`  f (price_eur_foil) non-null: ${withFoil}`);
-  console.log(`  both null:                   ${bothNull}`);
-
-  console.log("\nSample snapshots:");
-  const samples = await col.find({}).limit(5).toArray();
-  for (const s of samples) {
-    console.log(`  ${JSON.stringify(s)}`);
-  }
-
-  // Cross-check: pick one random snapshot and verify it matches the source
-  // ev_cards.price_eur for that scryfall_id.
-  console.log("\nCross-check against ev_cards:");
-  const checkSample = await col.aggregate([{ $sample: { size: 3 } }]).toArray();
-  for (const snap of checkSample) {
-    const card = await db.collection("dashboard_ev_cards").findOne({ scryfall_id: snap.s });
-    if (!card) { console.log(`  ${snap.s} — NO MATCH in ev_cards`); continue; }
-    const eMatch = card.price_eur === snap.e ? "✓" : "✗";
-    const fMatch = card.price_eur_foil === snap.f ? "✓" : "✗";
-    console.log(
-      `  ${card.name.padEnd(30)} (${card.set}) ${eMatch} e=${snap.e} vs card.price_eur=${card.price_eur}, ${fMatch} f=${snap.f} vs card.price_eur_foil=${card.price_eur_foil}`
-    );
+  // Cards with more than one snapshot (i.e. changed between syncs)
+  const changed = await col
+    .aggregate([
+      { $group: { _id: "$s", n: { $sum: 1 } } },
+      { $match: { n: { $gt: 1 } } },
+      { $limit: 20 },
+    ])
+    .toArray();
+  console.log(`\nCards with >1 snapshot (sampled 20):`);
+  for (const c of changed.slice(0, 10)) {
+    const snaps = await col.find({ s: c._id }).sort({ d: 1 }).toArray();
+    const card = await db.collection("dashboard_ev_cards").findOne({ scryfall_id: c._id });
+    console.log(`  ${(card?.name ?? "?").padEnd(32)} (${card?.set ?? "?"})`);
+    for (const s of snaps) {
+      console.log(`    ${s.d.toISOString()}  e=${s.e}  f=${s.f}`);
+    }
   }
 
   await (await getClient()).close();

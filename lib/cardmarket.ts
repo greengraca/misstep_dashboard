@@ -739,12 +739,16 @@ async function processStock(
     };
     const hit = byTupleKey.get(tupleKey(t));
     if (hit) {
-      // Row already exists (product_page or prior stock_page) — just
-      // refresh its lastSeenAt so it stays fresh.
+      // Row already exists (product_page or prior stock_page) — refresh
+      // lastSeenAt and any fields that can change (signed was added in ext
+      // v1.7.0 and may now be present on previously-unsigned rows).
+      const refreshSet: Record<string, unknown> = { lastSeenAt: now, submittedBy };
+      if (typeof listing.signed === "boolean") refreshSet.signed = listing.signed;
+      if (listing.signedComment !== undefined) refreshSet.signedComment = listing.signedComment;
       updateOps.push({
         updateOne: {
           filter: { _id: hit._id as never },
-          update: { $set: { lastSeenAt: now, submittedBy } },
+          update: { $set: refreshSet },
         },
       });
       updated++;
@@ -753,23 +757,26 @@ async function processStock(
     const dedupKey =
       listing.dedupKey ||
       `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}`;
+    const setOnInsert: Record<string, unknown> = {
+      name: listing.name,
+      qty: listing.qty,
+      price: listing.price,
+      condition: listing.condition,
+      language: listing.language || "English",
+      foil: listing.foil || false,
+      set: listing.set,
+      dedupKey,
+      source: "stock_page" as const,
+      firstSeenAt: now,
+    };
+    if (typeof listing.signed === "boolean") setOnInsert.signed = listing.signed;
+    if (listing.signedComment !== undefined) setOnInsert.signedComment = listing.signedComment;
     updateOps.push({
       updateOne: {
         filter: { dedupKey },
         update: {
           $set: { lastSeenAt: now, submittedBy },
-          $setOnInsert: {
-            name: listing.name,
-            qty: listing.qty,
-            price: listing.price,
-            condition: listing.condition,
-            language: listing.language || "English",
-            foil: listing.foil || false,
-            set: listing.set,
-            dedupKey,
-            source: "stock_page" as const,
-            firstSeenAt: now,
-          },
+          $setOnInsert: setOnInsert,
         },
         upsert: true,
       },
@@ -815,12 +822,24 @@ async function processProductStock(
       continue;
     }
 
+    const signedFields: Record<string, unknown> = {};
+    if (typeof listing.signed === "boolean") signedFields.signed = listing.signed;
+    if (listing.signedComment !== undefined) signedFields.signedComment = listing.signedComment;
+
     // First check if we already track this by articleId
     const existing = await col.findOne({ articleId: listing.articleId });
     if (existing) {
       await col.updateOne(
         { _id: existing._id },
-        { $set: { qty: listing.qty, price: listing.price, lastSeenAt: now, submittedBy } }
+        {
+          $set: {
+            qty: listing.qty,
+            price: listing.price,
+            lastSeenAt: now,
+            submittedBy,
+            ...signedFields,
+          },
+        }
       );
       updated++;
       continue;
@@ -849,6 +868,7 @@ async function processProductStock(
             lastSeenAt: now,
             submittedBy,
             source: "product_page" as const,
+            ...signedFields,
           },
         }
       );
@@ -862,6 +882,7 @@ async function processProductStock(
       name: listing.name, qty: listing.qty, price: listing.price,
       condition: listing.condition, language: listing.language || "English",
       foil: listing.foil || false, set: listing.set,
+      ...signedFields,
       dedupKey: `article:${listing.articleId}`,
       source: "product_page" as const,
       firstSeenAt: now, lastSeenAt: now, submittedBy,
