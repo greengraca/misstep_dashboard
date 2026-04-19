@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import type { EvSimulationResult } from "@/lib/types";
+import { useDiscount } from "@/lib/discount";
 import { Dices, TrendingUp } from "lucide-react";
 
 const inputStyle = {
@@ -18,6 +19,7 @@ interface EvSimulationPanelProps {
 }
 
 export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: EvSimulationPanelProps) {
+  const { apply } = useDiscount();
   const [boxCost, setBoxCost] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("1");
   const [iterations, setIterations] = useState(10000);
@@ -122,11 +124,11 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
               style={{ gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))" }}
             >
               {[
-                { label: "Mean", value: `€${result.mean.toFixed(2)}`, tip: "Average box value across all simulations. The expected value you'd get if you opened many boxes." },
-                { label: "Median", value: `€${result.median.toFixed(2)}`, tip: "The middle value — 50% of boxes are worth more, 50% less. More representative than mean when distribution is skewed." },
-                { label: "Std Dev", value: `€${result.stddev.toFixed(2)}`, tip: "Standard deviation — measures how spread out box values are. Higher means more variance between boxes." },
-                { label: "Min", value: `€${result.min.toFixed(2)}`, tip: "Worst box in the simulation — the floor of what you might get." },
-                { label: "Max", value: `€${result.max.toFixed(2)}`, tip: "Best box in the simulation — the ceiling with perfect luck." },
+                { label: "Mean", value: `€${apply(result.mean).toFixed(2)}`, tip: "Average box value across all simulations. The expected value you'd get if you opened many boxes." },
+                { label: "Median", value: `€${apply(result.median).toFixed(2)}`, tip: "The middle value — 50% of boxes are worth more, 50% less. More representative than mean when distribution is skewed." },
+                { label: "Std Dev", value: `€${apply(result.stddev).toFixed(2)}`, tip: "Standard deviation — measures how spread out box values are. Higher means more variance between boxes." },
+                { label: "Min", value: `€${apply(result.min).toFixed(2)}`, tip: "Worst box in the simulation — the floor of what you might get." },
+                { label: "Max", value: `€${apply(result.max).toFixed(2)}`, tip: "Best box in the simulation — the ceiling with perfect luck." },
                 { label: "Time", value: `${result.duration_ms}ms`, tip: `Time to simulate ${result.iterations.toLocaleString()} box openings.` },
               ].map((s) => (
                 <div
@@ -158,13 +160,13 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
             {/* Confidence intervals */}
             <div className="flex flex-wrap gap-4 text-xs" style={{ fontFamily: "var(--font-mono)" }}>
               <span style={{ color: "var(--text-muted)" }}>
-                68% CI: <span style={{ color: "var(--text-primary)" }}>€{result.percentiles.p16.toFixed(2)} – €{result.percentiles.p84.toFixed(2)}</span>
+                68% CI: <span style={{ color: "var(--text-primary)" }}>€{apply(result.percentiles.p16).toFixed(2)} – €{apply(result.percentiles.p84).toFixed(2)}</span>
               </span>
               <span style={{ color: "var(--text-muted)" }}>
-                90% CI: <span style={{ color: "var(--text-primary)" }}>€{result.percentiles.p5.toFixed(2)} – €{result.percentiles.p95.toFixed(2)}</span>
+                90% CI: <span style={{ color: "var(--text-primary)" }}>€{apply(result.percentiles.p5).toFixed(2)} – €{apply(result.percentiles.p95).toFixed(2)}</span>
               </span>
               <span style={{ color: "var(--text-muted)" }}>
-                95% CI: <span style={{ color: "var(--text-primary)" }}>€{result.percentiles.p2_5.toFixed(2)} – €{result.percentiles.p97_5.toFixed(2)}</span>
+                95% CI: <span style={{ color: "var(--text-primary)" }}>€{apply(result.percentiles.p2_5).toFixed(2)} – €{apply(result.percentiles.p97_5).toFixed(2)}</span>
               </span>
             </div>
 
@@ -224,11 +226,11 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
             <div className="flex flex-wrap gap-4 text-[10px]" style={{ color: "var(--text-muted)" }}>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(99,102,241,0.5)" }} />
-                Likely range (68%): €{result.percentiles.p16.toFixed(0)}–€{result.percentiles.p84.toFixed(0)}
+                Likely range (68%): €{apply(result.percentiles.p16).toFixed(0)}–€{apply(result.percentiles.p84).toFixed(0)}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(234,179,8,0.3)" }} />
-                Almost certain (95%): €{result.percentiles.p2_5.toFixed(0)}–€{result.percentiles.p97_5.toFixed(0)}
+                Almost certain (95%): €{apply(result.percentiles.p2_5).toFixed(0)}–€{apply(result.percentiles.p97_5).toFixed(0)}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-4 border-t-2 border-dashed" style={{ borderColor: "rgba(255,255,255,0.6)" }} />
@@ -246,39 +248,44 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
               )}
             </div>
 
-            {/* ROI */}
-            {result.roi && (
+            {/* ROI — recomputed against the discounted mean so undercut
+                flows through to profit/loss numbers. Box cost is unchanged. */}
+            {result.roi && (() => {
+              const profitPerBox = apply(result.mean) - result.roi.box_cost;
+              const totalProfit = profitPerBox * result.roi.quantity;
+              const roiPercent = result.roi.box_cost > 0 ? (profitPerBox / result.roi.box_cost) * 100 : 0;
+              return (
               <div
                 className="p-3 rounded-lg flex flex-wrap gap-4"
                 style={{
-                  background: result.roi.profit_per_box >= 0
+                  background: profitPerBox >= 0
                     ? "rgba(34, 197, 94, 0.08)"
                     : "rgba(239, 68, 68, 0.08)",
-                  border: `1px solid ${result.roi.profit_per_box >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
+                  border: `1px solid ${profitPerBox >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <TrendingUp size={16} style={{ color: result.roi.profit_per_box >= 0 ? "var(--success)" : "var(--error)" }} />
+                  <TrendingUp size={16} style={{ color: profitPerBox >= 0 ? "var(--success)" : "var(--error)" }} />
                   <div>
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>ROI</p>
                     <p className="text-sm font-bold" style={{
-                      color: result.roi.roi_percent >= 0 ? "var(--success)" : "var(--error)",
+                      color: roiPercent >= 0 ? "var(--success)" : "var(--error)",
                       fontFamily: "var(--font-mono)",
                     }}>
-                      {result.roi.roi_percent >= 0 ? "+" : ""}{result.roi.roi_percent.toFixed(1)}%
+                      {roiPercent >= 0 ? "+" : ""}{roiPercent.toFixed(1)}%
                     </p>
                   </div>
                 </div>
                 <div>
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>Profit / Box</p>
                   <p className="text-sm font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                    {result.roi.profit_per_box >= 0 ? "+" : ""}&euro;{result.roi.profit_per_box.toFixed(2)}
+                    {profitPerBox >= 0 ? "+" : ""}&euro;{profitPerBox.toFixed(2)}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>Total ({result.roi.quantity} boxes)</p>
                   <p className="text-sm font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                    {result.roi.total_profit >= 0 ? "+" : ""}&euro;{result.roi.total_profit.toFixed(2)}
+                    {totalProfit >= 0 ? "+" : ""}&euro;{totalProfit.toFixed(2)}
                   </p>
                 </div>
                 <div>
@@ -288,7 +295,8 @@ export default function EvSimulationPanel({ setCode, boosterType, siftFloor }: E
                   </p>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>
