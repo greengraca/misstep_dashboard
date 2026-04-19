@@ -32,6 +32,7 @@ yarn-error.log*
 .claude/*
 !.claude/skills/
 CLAUDE.md
+notes/
 
 # vercel
 .vercel
