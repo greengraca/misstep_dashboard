@@ -63,14 +63,7 @@ export function calculateProductEv(
     cardBreakdown.push({ ...pc, unit_price: unit, line_total: round2(line) });
   }
 
-  // Sort by per-card unit price desc — most valuable card first. Falls back
-  // to line_total as a tiebreaker so 1×€0.30 ranks above 24×€0 basics.
-  cardBreakdown.sort((a, b) => {
-    const ap = a.unit_price ?? 0;
-    const bp = b.unit_price ?? 0;
-    if (bp !== ap) return bp - ap;
-    return b.line_total - a.line_total;
-  });
+  cardBreakdown.sort((a, b) => b.line_total - a.line_total);
 
   const ib = product.included_boosters ?? [];
   const hasBoosters = ib.length > 0;
