@@ -333,7 +333,7 @@ export async function getSets(): Promise<EvSet[]> {
         jumpstartSet.has(s.code) ||
         s.code in JUMPSTART_SEED_DATA ||
         s.code === "mb2" ||
-        isDraftBoosterEra(s),
+        isDraftBoosterEra({ set_type: s.set_type as string | undefined, released_at: s.released_at as string | undefined }),
       play_ev_net: snap?.play_ev_net ?? null,
       collector_ev_net: snap?.collector_ev_net ?? null,
     } as EvSet;
