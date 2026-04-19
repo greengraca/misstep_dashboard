@@ -194,6 +194,43 @@ export async function syncSets(): Promise<{ added: number; updated: number }> {
   return { added, updated };
 }
 
+/**
+ * Sync a single Scryfall set by code (bypasses the MIN_RELEASE_YEAR UI filter
+ * and the BOOSTER_SET_TYPES gate — meant for ad-hoc admin syncing, e.g.
+ * pulling in a pre-2020 parent set when seeding a fixed-pool product).
+ *
+ * Use this alongside `syncCards(code)` to populate both sets and cards for one code.
+ */
+export async function syncOneSet(code: string): Promise<{ added: number; updated: number }> {
+  await ensureIndexes();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = (await scryfallGet(`/sets/${code}`)) as any;
+  const db = await getDb();
+  const col = db.collection(COL_SETS);
+  const now = new Date().toISOString();
+  const result = await col.updateOne(
+    { code: s.code },
+    {
+      $set: {
+        name: s.name,
+        released_at: s.released_at,
+        card_count: s.card_count,
+        icon_svg_uri: s.icon_svg_uri,
+        set_type: s.set_type,
+        scryfall_id: s.id,
+        parent_set_code: s.parent_set_code ?? null,
+        digital: s.digital ?? false,
+        synced_at: now,
+      },
+    },
+    { upsert: true }
+  );
+  return {
+    added: result.upsertedCount ? 1 : 0,
+    updated: result.modifiedCount && !result.upsertedCount ? 1 : 0,
+  };
+}
+
 export async function getSets(): Promise<EvSet[]> {
   await ensureIndexes();
   const db = await getDb();
