@@ -7,7 +7,7 @@
 // custom `ev-discount-change` event so all subscribers re-render in sync
 // (the native `storage` event only fires across tabs, not within one).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "ev:discount";
 const EVENT_NAME = "ev-discount-change";
@@ -45,6 +45,14 @@ function save(state: DiscountState): void {
 export function useDiscount() {
   // SSR-safe initial state. We hydrate from localStorage in the effect below.
   const [state, setState] = useState<DiscountState>({ enabled: false, percent: DEFAULT_PERCENT });
+  // Mirror state into a ref so `update()` can compute the next value without
+  // performing side effects inside React's setState reducer (doing
+  // window.dispatchEvent during a reducer triggers other useDiscount()
+  // subscribers' setState during render, which React forbids).
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     setState(load());
@@ -58,12 +66,13 @@ export function useDiscount() {
   }, []);
 
   const update = useCallback((partial: Partial<DiscountState>) => {
-    setState((prev) => {
-      const next = { ...prev, ...partial };
-      save(next);
-      window.dispatchEvent(new Event(EVENT_NAME));
-      return next;
-    });
+    const next = { ...stateRef.current, ...partial };
+    stateRef.current = next;
+    setState(next);
+    save(next);
+    // Notify other useDiscount() instances. Safe here — we're in an event
+    // handler (the toggle's onChange), not inside a render or reducer.
+    window.dispatchEvent(new Event(EVENT_NAME));
   }, []);
 
   const apply = useCallback(

@@ -325,15 +325,18 @@ export async function getSets(): Promise<EvSet[]> {
       ...s,
       _id: s._id.toString(),
       card_count: s.code === "mb2" && mb2ListCount > 0 ? s.card_count + mb2ListCount : s.card_count,
-      // Sets count as "configured" when EITHER a saved config exists OR a
-      // sensible default applies — draft-booster-era expansions all share
-      // the same default config so they shouldn't read as un-configured.
+      // "Configured" = we've actually iterated on this set's EV. That means
+      // a saved config, a Jumpstart theme list, the special MB2 case, OR an
+      // existing snapshot (we wouldn't have generated one without manual
+      // attention). Just having a default config available isn't enough —
+      // draft-booster-era expansions all share defaults but only the ones
+      // we've snapshotted should read as configured.
       config_exists:
         configSet.has(s.code) ||
         jumpstartSet.has(s.code) ||
         s.code in JUMPSTART_SEED_DATA ||
         s.code === "mb2" ||
-        isDraftBoosterEra({ set_type: s.set_type as string | undefined, released_at: s.released_at as string | undefined }),
+        snapMap.has(s.code),
       play_ev_net: snap?.play_ev_net ?? null,
       collector_ev_net: snap?.collector_ev_net ?? null,
     } as EvSet;
