@@ -66,8 +66,8 @@ For each parsed line, resolve the exact `scryfall_id` using the Scryfall public 
 
 **Disambiguation rules (in order):**
 
-1. If the card is foil AND `promo_types` on any returned printing includes `"planeswalker_deck"`: pick that printing. Typically in a promo set like `p<parent>`.
-2. If foil and the parent set has no printing: search `!"<name>" set:p<parent>` and pick the foil printing.
+1. If the card is foil AND `promo_types` on any returned printing includes `"planeswalkerdeck"` (Scryfall writes it as one word, no underscore): pick that printing. Depending on the year, this printing may live in the parent set directly (older sets like Amonkhet/Kaladesh/Ixalan keep PW-deck-exclusive cards in the main expansion, foil-only) OR in a dedicated promo set like `p<parent>` (some newer sets). Either location is fine; the `promo_types` tag is the authoritative signal.
+2. If foil and nothing matches the `promo_types` rule: search `!"<name>" set:p<parent>` and pick the foil printing.
 3. Default: the primary-lookup result (earliest printing in parent set).
 
 Between each Scryfall request, sleep 80 ms (Scryfall rate limit) — use `sleep 0.08` in bash or a small JS delay if scripting.
@@ -85,7 +85,7 @@ Build `cards: EvProductCard[]`:
       role: "foil_premium_pw" if this is the foil PW card, else undefined
     }
 
-Heuristic for `role: "foil_premium_pw"`: the card is foil, its `promo_types` includes `"planeswalker_deck"`, AND its `type_line` contains "Planeswalker".
+Heuristic for `role: "foil_premium_pw"`: the card is foil, its `promo_types` includes `"planeswalkerdeck"` (one word, no underscore — Scryfall's vocabulary), AND its `type_line` contains "Planeswalker".
 
 Present the full resolved list to the user in a tidy table (name | scryfall_id | set | foil | role) before proceeding. Any row the user flags as wrong → re-resolve that one card.
 
