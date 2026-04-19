@@ -875,14 +875,19 @@ export function isDraftBoosterEra(set: { set_type?: string; released_at?: string
 const MB2_NON_FUTURE_FRAMES = ["2015", "2003", "1997", "1993"];
 
 export function getDefaultMB2BoosterConfig(): EvBoosterConfig {
-  const base: Omit<EvCardFilter, "colors"> = { rarity: ["common", "uncommon"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: true };
+  // NOTE: do NOT add `booster: true` here. Mystery Booster 2 cards in
+  // Scryfall are flagged `booster: false` (because they only appear in this
+  // sealed product, not regular boosters), so a booster:true filter would
+  // match zero cards. The slot config relies on border / frame / finishes /
+  // colors to constrain the pool instead.
+  const base: Omit<EvCardFilter, "colors"> = { rarity: ["common", "uncommon"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], mono_color: true };
   const cuW: EvCardFilter = { ...base, colors: ["W"] };
   const cuU: EvCardFilter = { ...base, colors: ["U"] };
   const cuB: EvCardFilter = { ...base, colors: ["B"] };
   const cuR: EvCardFilter = { ...base, colors: ["R"] };
   const cuG: EvCardFilter = { ...base, colors: ["G"] };
-  const rmFilter: EvCardFilter = { rarity: ["rare", "mythic"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: true };
-  const slot11Filter: EvCardFilter = { border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], booster: true, mono_color: false };
+  const rmFilter: EvCardFilter = { rarity: ["rare", "mythic"], border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], mono_color: true };
+  const slot11Filter: EvCardFilter = { border_color: ["black"], frame: MB2_NON_FUTURE_FRAMES, finishes: ["nonfoil"], mono_color: false };
 
   return {
     packs_per_box: 24,
