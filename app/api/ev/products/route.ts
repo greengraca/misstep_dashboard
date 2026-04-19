@@ -53,21 +53,42 @@ async function setMetaByCode(codes: string[]): Promise<Record<string, { name: st
   return out;
 }
 
+/** Returns the set_code that the most cards in the product belong to. */
+function dominantCardSetCode(product: { cards: { set_code: string }[] }): string | null {
+  const counts = new Map<string, number>();
+  for (const c of product.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
+  let best: { code: string; n: number } | null = null;
+  for (const [code, n] of counts) {
+    if (!best || n > best.n) best = { code, n };
+  }
+  return best?.code ?? null;
+}
+
 export const GET = withAuthRead(async () => {
   const products = await listProducts();
   const slugs = products.map((p) => p.slug);
   const snaps = await latestProductSnapshotsMap(slugs);
-  const parentCodes = [
-    ...new Set(products.map((p) => p.parent_set_code).filter((c): c is string => Boolean(c))),
-  ];
-  const setMeta = await setMetaByCode(parentCodes);
+  // Collect both parent set codes (for the title abbreviation) and dominant
+  // card set codes (for the displayed icon — commander precons live in their
+  // own set like `drc` even when their parent expansion is `dft`).
+  const referencedCodes = new Set<string>();
+  for (const p of products) {
+    if (p.parent_set_code) referencedCodes.add(p.parent_set_code);
+    const dom = dominantCardSetCode(p);
+    if (dom) referencedCodes.add(dom);
+  }
+  const setMeta = await setMetaByCode([...referencedCodes]);
   const data = products.map((p) => {
-    const meta = p.parent_set_code ? setMeta[p.parent_set_code] : null;
+    const parentMeta = p.parent_set_code ? setMeta[p.parent_set_code] : null;
+    const iconCode = dominantCardSetCode(p);
+    const iconMeta = iconCode ? setMeta[iconCode] : null;
     return {
       ...p,
       latest_snapshot: snaps.get(p.slug) ?? null,
-      parent_set_icon: meta?.icon ?? null,
-      parent_set_name: meta?.name ?? null,
+      // Icon comes from the set most cards belong to (so Aetherdrift commander
+      // precons show the `drc` symbol, not the `dft` symbol).
+      parent_set_icon: iconMeta?.icon ?? parentMeta?.icon ?? null,
+      parent_set_name: parentMeta?.name ?? null,
     };
   });
   return { data };

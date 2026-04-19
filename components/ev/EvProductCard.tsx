@@ -17,7 +17,7 @@ interface Props {
 
 const TYPE_LABEL: Record<EvProduct["product_type"], string> = {
   planeswalker_deck: "PW Deck",
-  commander: "Commander",
+  commander: "Cmd. Deck",
   starter: "Starter",
   welcome: "Welcome",
   duel: "Duel",
@@ -41,6 +41,7 @@ function shortenProductName(name: string, parentSetName: string | null | undefin
     out = out.replace(parentSetName, parentSetCode.toUpperCase());
   }
   out = out.replace(/Planeswalker/g, "PW");
+  out = out.replace(/Commander/g, "Cmd.");
   return out;
 }
 
