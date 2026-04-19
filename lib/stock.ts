@@ -2,6 +2,7 @@ import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 import type { CmStockListing, CmStockSnapshot } from "@/lib/types";
 import { getSetNameByCode } from "@/lib/scryfall-sets";
+import { getEffectivePrice } from "@/lib/ev-prices";
 import type {
   StockSortField,
   StockSearchParams,
@@ -107,35 +108,10 @@ interface _JoinedCard {
   price_eur_foil: number | null;
   prices_updated_at: string | null;
   cardmarket_id: number | null;
-  cm_nonfoil_trend: number | null;
-  cm_nonfoil_updated_at: string | null;
-  cm_foil_trend: number | null;
-  cm_foil_updated_at: string | null;
-}
-
-// Picks the freshest trend source for a given variant. The extension's
-// cm_prices.*.trend is scraped from the CM product page itself and typically
-// lags real-time by <24h when the user visits that card; the Scryfall bulk
-// refreshes every 3 days. So we compare timestamps and use the newer value.
-// Falls back to whichever source is present when one is missing.
-function pickTrend(
-  foil: boolean,
-  card: _JoinedCard
-): { trend: number | null; source: "scryfall" | "cm_ext" | null; updatedAt: string | null } {
-  const scryfallPrice = foil ? card.price_eur_foil : card.price_eur;
-  const scryfallAt = card.prices_updated_at;
-  const cmPrice = foil ? card.cm_foil_trend : card.cm_nonfoil_trend;
-  const cmAt = foil ? card.cm_foil_updated_at : card.cm_nonfoil_updated_at;
-
-  if (cmPrice != null && scryfallPrice != null && cmAt && scryfallAt) {
-    return cmAt >= scryfallAt
-      ? { trend: cmPrice, source: "cm_ext", updatedAt: cmAt }
-      : { trend: scryfallPrice, source: "scryfall", updatedAt: scryfallAt };
-  }
-  if (cmPrice != null) return { trend: cmPrice, source: "cm_ext", updatedAt: cmAt };
-  if (scryfallPrice != null)
-    return { trend: scryfallPrice, source: "scryfall", updatedAt: scryfallAt };
-  return { trend: null, source: null, updatedAt: null };
+  cm_prices: {
+    nonfoil?: { trend?: number; updatedAt: string };
+    foil?: { trend?: number; updatedAt: string };
+  } | null;
 }
 
 async function enrichWithTrend(
@@ -190,16 +166,12 @@ async function enrichWithTrend(
       )
       .toArray();
     for (const c of byIdCards) {
-      const cm = (c.cm_prices as Record<string, { trend?: number; updatedAt?: string }> | undefined) ?? {};
       cardByProductId.set(c.cardmarket_id as number, {
         price_eur: (c.price_eur as number | null) ?? null,
         price_eur_foil: (c.price_eur_foil as number | null) ?? null,
         prices_updated_at: (c.prices_updated_at as string | null) ?? null,
         cardmarket_id: (c.cardmarket_id as number | null) ?? null,
-        cm_nonfoil_trend: cm.nonfoil?.trend ?? null,
-        cm_nonfoil_updated_at: cm.nonfoil?.updatedAt ?? null,
-        cm_foil_trend: cm.foil?.trend ?? null,
-        cm_foil_updated_at: cm.foil?.updatedAt ?? null,
+        cm_prices: (c.cm_prices as _JoinedCard["cm_prices"]) ?? null,
       });
     }
   }
@@ -229,17 +201,13 @@ async function enrichWithTrend(
         )
         .toArray();
       for (const c of cards) {
-        const cm = (c.cm_prices as Record<string, { trend?: number; updatedAt?: string }> | undefined) ?? {};
         const key = `${c.set}\u241F${c.name}`;
         const variant: _JoinedCard = {
           price_eur: (c.price_eur as number | null) ?? null,
           price_eur_foil: (c.price_eur_foil as number | null) ?? null,
           prices_updated_at: (c.prices_updated_at as string | null) ?? null,
           cardmarket_id: (c.cardmarket_id as number | null) ?? null,
-          cm_nonfoil_trend: cm.nonfoil?.trend ?? null,
-          cm_nonfoil_updated_at: cm.nonfoil?.updatedAt ?? null,
-          cm_foil_trend: cm.foil?.trend ?? null,
-          cm_foil_updated_at: cm.foil?.updatedAt ?? null,
+          cm_prices: (c.cm_prices as _JoinedCard["cm_prices"]) ?? null,
         };
         const bucket = cardsByNameSet.get(key);
         if (bucket) bucket.push(variant);
@@ -261,15 +229,15 @@ async function enrichWithTrend(
       else if (variants && variants.length > 1) ambiguous = true;
     }
 
-    const { trend, source, updatedAt } = card
-      ? pickTrend(r.foil, card)
-      : { trend: null, source: null, updatedAt: null };
-    const overpriced_pct = trend != null && trend > 0 ? r.price / trend - 1 : null;
+    const eff = card
+      ? getEffectivePrice(card, r.foil)
+      : { price: null, source: null, updatedAt: null };
+    const overpriced_pct = eff.price != null && eff.price > 0 ? r.price / eff.price - 1 : null;
     return {
       ...r,
-      trend_eur: trend,
-      trend_source: source,
-      trend_updated_at: updatedAt,
+      trend_eur: eff.price,
+      trend_source: eff.source,
+      trend_updated_at: eff.updatedAt,
       trend_ambiguous: ambiguous,
       overpriced_pct,
       cardmarket_id: card?.cardmarket_id ?? null,

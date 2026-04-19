@@ -164,3 +164,45 @@ describe("calculateProductEv — included boosters", () => {
     expect(r.totals.opened?.net).toBeCloseTo((10 + 10) * 0.9, 10);
   });
 });
+
+describe("calculateProductEv — basic lands", () => {
+  it("zeroes basic land prices by default (count_basic_lands undefined)", () => {
+    const cards = [
+      card("a", "Swamp", 0.29),
+      card("b", "Liliana, Death Wielder", 5.27, 5.27),
+    ];
+    const p = product({
+      cards: [
+        productCard({ scryfall_id: "a", name: "Swamp", count: 11 }),
+        productCard({ scryfall_id: "b", name: "Liliana, Death Wielder", count: 1, is_foil: true }),
+      ],
+    });
+    const r = calculateProductEv(p, cards, { feeRate: 0 });
+    expect(r.cards_subtotal_gross).toBe(5.27);
+    // Swamp line appears in breakdown but with unit_price 0 and line_total 0.
+    const swampLine = r.card_breakdown.find((c) => c.name === "Swamp");
+    expect(swampLine?.unit_price).toBe(0);
+    expect(swampLine?.line_total).toBe(0);
+  });
+
+  it("counts basic lands when count_basic_lands is true", () => {
+    const cards = [card("a", "Swamp", 0.29)];
+    const p = product({
+      count_basic_lands: true,
+      cards: [productCard({ scryfall_id: "a", name: "Swamp", count: 10 })],
+    });
+    const r = calculateProductEv(p, cards, { feeRate: 0 });
+    expect(r.cards_subtotal_gross).toBe(2.9);
+    expect(r.card_breakdown[0].unit_price).toBe(0.29);
+  });
+
+  it("zeroes all six basic land names", () => {
+    const names = ["Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes"];
+    const cards = names.map((n, i) => card(`id-${i}`, n, 1));
+    const p = product({
+      cards: names.map((n, i) => productCard({ scryfall_id: `id-${i}`, name: n, count: 1 })),
+    });
+    const r = calculateProductEv(p, cards, { feeRate: 0 });
+    expect(r.cards_subtotal_gross).toBe(0);
+  });
+});

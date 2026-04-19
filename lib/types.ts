@@ -227,6 +227,22 @@ export interface EvSet {
   config_exists?: boolean;
 }
 
+// Per-variant market-price snapshot captured by the extension's card_prices
+// sync. One branch per variant under `cm_prices`. `trend` is Cardmarket's
+// Trend Price at the time we last visited the product page; `updatedAt` lets
+// downstream code compare against the Scryfall bulk (`prices_updated_at`)
+// and use whichever is fresher (see lib/ev-prices.ts#getEffectivePrice).
+export interface EvCardCmPriceSnapshot {
+  from?: number;
+  trend?: number;
+  avg30d?: number;
+  avg7d?: number;
+  avg1d?: number;
+  available?: number;
+  chart?: Array<{ date: string; avg_sell: number }>;
+  updatedAt: string;
+}
+
 export interface EvCard {
   _id: string;
   scryfall_id: string;
@@ -253,6 +269,10 @@ export interface EvCard {
   released_at: string;
   layout: string;
   frame: string;
+  cm_prices?: {
+    nonfoil?: EvCardCmPriceSnapshot;
+    foil?: EvCardCmPriceSnapshot;
+  } | null;
   pull_rate_per_box?: number;
   ev_contribution?: number;
 }
@@ -493,6 +513,12 @@ export interface EvProduct {
   included_boosters?: EvIncludedBooster[];
   image_uri?: string;
   notes?: string;
+  /**
+   * When false/undefined (default behavior), basic lands (Plains, Island,
+   * Swamp, Mountain, Forest, Wastes) are treated as €0 in the EV calc.
+   * Set true to include their market price (rarely meaningful for precons).
+   */
+  count_basic_lands?: boolean;
   seeded_at: string;
 }
 

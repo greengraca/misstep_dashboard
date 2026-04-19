@@ -3,8 +3,10 @@ import type {
   EvProductResult,
   EvProductCardBreakdown,
   EvProductBoosterBreakdown,
+  EvCardCmPriceSnapshot,
 } from "./types";
 import { getDb } from "./mongodb";
+import { getEffectivePrice } from "./ev-prices";
 
 // The calc only reads these fields from ev_cards. Accepting a structural
 // subset keeps the function trivially mockable in tests.
@@ -13,6 +15,11 @@ export interface EvCardPriceRef {
   name?: string;
   price_eur: number | null;
   price_eur_foil: number | null;
+  prices_updated_at?: string | null;
+  cm_prices?: {
+    nonfoil?: EvCardCmPriceSnapshot;
+    foil?: EvCardCmPriceSnapshot;
+  } | null;
 }
 
 export interface CalculateProductEvOptions {
@@ -23,12 +30,17 @@ export interface CalculateProductEvOptions {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+const BASIC_LAND_NAMES = new Set([
+  "Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes",
+]);
+
 export function calculateProductEv(
   product: EvProduct,
   cards: EvCardPriceRef[],
   options: CalculateProductEvOptions
 ): EvProductResult {
   const { feeRate, boosterEvBySet = {} } = options;
+  const countBasicLands = product.count_basic_lands === true;
 
   const cardById = new Map<string, EvCardPriceRef>();
   for (const c of cards) cardById.set(c.scryfall_id, c);
@@ -40,8 +52,10 @@ export function calculateProductEv(
 
   for (const pc of product.cards) {
     const c = cardById.get(pc.scryfall_id);
-    const unit = c ? (pc.is_foil ? c.price_eur_foil : c.price_eur) : null;
+    const rawUnit = c ? getEffectivePrice(c, pc.is_foil).price : null;
     if (!c) missing.push(pc.scryfall_id);
+    const isBasicLandSkipped = !countBasicLands && BASIC_LAND_NAMES.has(pc.name);
+    const unit = isBasicLandSkipped ? 0 : rawUnit;
     const price = unit ?? 0;
     const line = price * pc.count;
     cardsTotal += line;
@@ -231,7 +245,16 @@ export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPric
     .collection("dashboard_ev_cards")
     .find(
       { scryfall_id: { $in: ids } },
-      { projection: { scryfall_id: 1, name: 1, price_eur: 1, price_eur_foil: 1 } }
+      {
+        projection: {
+          scryfall_id: 1,
+          name: 1,
+          price_eur: 1,
+          price_eur_foil: 1,
+          prices_updated_at: 1,
+          cm_prices: 1,
+        },
+      }
     )
     .toArray();
   return docs.map((d) => ({
@@ -239,6 +262,8 @@ export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPric
     name: d.name as string | undefined,
     price_eur: (d.price_eur ?? null) as number | null,
     price_eur_foil: (d.price_eur_foil ?? null) as number | null,
+    prices_updated_at: (d.prices_updated_at ?? null) as string | null,
+    cm_prices: (d.cm_prices ?? null) as EvCardPriceRef["cm_prices"],
   }));
 }
 

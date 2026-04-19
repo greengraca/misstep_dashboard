@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
+import { effectivePriceValue, effectivePriceWithFallback } from "@/lib/ev-prices";
 import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
 import { generateAllProductSnapshots, COL_EV_SNAPSHOTS as COL_SNAPSHOTS } from "./ev-products";
 import type {
@@ -1007,7 +1008,11 @@ export function matchCardsToFilter(cards: EvCard[], filter: EvCardFilter): EvCar
 // ── EV Calculation (Deterministic) ─────────────────────────────
 
 function getCardPrice(card: EvCard, isFoil: boolean, siftFloor: number): number {
-  const price = isFoil ? (card.price_eur_foil ?? card.price_eur ?? 0) : (card.price_eur ?? card.price_eur_foil ?? 0);
+  // Pull the freshest EUR we have for this variant (Scryfall bulk vs CM-ext
+  // scrape, picked by timestamp). Fall back to the other variant if the
+  // requested one is missing — matches the pre-effective-price behaviour
+  // of `card.price_eur_foil ?? card.price_eur ?? 0`.
+  const price = effectivePriceWithFallback(card, isFoil);
   return price >= siftFloor ? price : 0;
 }
 
@@ -1307,7 +1312,7 @@ export function calculateJumpstartEv(
 
     for (const cardName of theme.cards) {
       const card = cardByName.get(cardName.toLowerCase());
-      const price = card?.price_eur ?? 0;
+      const price = card ? effectivePriceValue(card, false) : 0;
       const effectivePrice = price >= siftFloor ? price : 0;
       themeEvGross += effectivePrice;
 
@@ -1402,7 +1407,7 @@ export function simulateJumpstartBox(
     let ev = 0;
     for (const name of theme.cards) {
       const card = cardByName.get(name.toLowerCase());
-      const price = card?.price_eur ?? 0;
+      const price = card ? effectivePriceValue(card, false) : 0;
       if (price >= siftFloor) ev += price;
     }
     return { tier: theme.tier, evGross: ev, key: themeKey(theme.name, theme.variant) };
