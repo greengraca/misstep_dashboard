@@ -49,6 +49,7 @@ export interface AppraiserCardDoc {
   imageUrl: string;
   trendPrice: number | null;
   fromPrice: number | null;
+  /** Last time trend/from prices were refreshed — set on Scryfall resolve or CM scrape fan-out. Null until first resolve. */
   pricedAt: Date | null;
   cm_prices: CmPricesSnapshot | null;
   status: "pending" | "priced" | "error" | "manual";
@@ -74,6 +75,7 @@ export interface AppraiserCard {
   pricedAt: string | null;
   cm_prices: CmPricesSnapshot | null;
   status: "pending" | "priced" | "error" | "manual";
+  createdAt: string;
 }
 
 export interface CardInput {
