@@ -95,24 +95,37 @@ export async function hydrateAppraiserCards(
     const ev = evByCmId.get(c.cardmarket_id);
     if (!ev) return payload;
 
-    // Prefer the requested variant. Fall back to the other one if empty —
-    // foil-only promos (PLG21, G11, V13, FTV, etc.) have no foil toggle on
-    // Cardmarket, so the extension reads foilMode:false and writes to
-    // cm_prices.nonfoil even though the listings ARE foil. A foil-tagged
-    // appraiser card for one of those would otherwise never show prices.
+    // Variant fallback on the CM side is deliberately conservative. A
+    // cross-variant fallback is only valid when the card is single-variant
+    // on CM — otherwise we'd surface a foil scrape on a non-foil appraiser
+    // card just because the user scraped foil but hasn't scraped non-foil
+    // yet (both variants genuinely exist with different prices).
+    //
+    // Scryfall's price_eur / price_eur_foil nullability reflects whether CM
+    // lists that variant at all. If the opposite variant's Scryfall price is
+    // null, the card is single-variant on CM — classic case is foil-only
+    // promos (PLG21, G11, V13, FTV, etc.) whose product page has no foil
+    // toggle, so the extension reads foilMode:false and writes to
+    // cm_prices.nonfoil even though the listings ARE foil.
     const requestedVariant = c.foil ? ev.cm_prices?.foil : ev.cm_prices?.nonfoil;
     const fallbackVariant = c.foil ? ev.cm_prices?.nonfoil : ev.cm_prices?.foil;
-    const variant = requestedVariant && (requestedVariant.from != null || requestedVariant.trend != null)
+    const oppositeScryfall = c.foil ? ev.price_eur : ev.price_eur_foil;
+    const isSingleVariantOnCm = oppositeScryfall == null;
+    const requestedHasData =
+      !!requestedVariant && (requestedVariant.from != null || requestedVariant.trend != null);
+    const variant = requestedHasData
       ? requestedVariant
-      : fallbackVariant;
+      : isSingleVariantOnCm
+      ? fallbackVariant
+      : undefined;
     const fromFromCm = variant?.from ?? null;
 
-    // Same fallback on the Scryfall side: some cards only have one of
-    // price_eur / price_eur_foil populated even though they exist in both
-    // finishes on CM. Pick the requested first, fall back to the other.
-    const scryfallPrice = c.foil
-      ? (ev.price_eur_foil ?? ev.price_eur ?? null)
-      : (ev.price_eur ?? ev.price_eur_foil ?? null);
+    // Scryfall bulk fallback follows the same rule: only substitute the
+    // opposite finish's price when Scryfall confirms the requested one
+    // doesn't exist (the null one IS the signal that the finish isn't on CM).
+    const requestedScryfall = c.foil ? ev.price_eur_foil : ev.price_eur;
+    const scryfallPrice = requestedScryfall ?? (isSingleVariantOnCm ? oppositeScryfall : null);
+
     const eff = getEffectivePrice(
       {
         price_eur: scryfallPrice,
