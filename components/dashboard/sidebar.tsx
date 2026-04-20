@@ -10,14 +10,14 @@ const navSections = [
     { href: "/", label: "Home", icon: LayoutDashboard },
     { href: "/stock", label: "Stock", icon: Package },
   ]},
-  { label: "TOOLS", items: [
-    { href: "/ev", label: "EV Calculator", icon: Calculator },
-    { href: "/appraiser", label: "Appraiser", icon: Scale },
-  ]},
   { label: "MANAGEMENT", items: [
     { href: "/finance", label: "Finance", icon: Wallet },
     { href: "/cardmarket", label: "Cardmarket", icon: ShoppingBag },
     { href: "/storage", label: "Storage", icon: Library },
+  ]},
+  { label: "TOOLS", items: [
+    { href: "/ev", label: "EV Calculator", icon: Calculator },
+    { href: "/appraiser", label: "Appraiser", icon: Scale },
   ]},
   { label: "TEAM", items: [
     { href: "/meetings", label: "Meetings", icon: MessageCircle },
