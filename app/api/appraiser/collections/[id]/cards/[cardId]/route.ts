@@ -6,12 +6,37 @@ import { resolveScryfall } from "@/lib/appraiser/scryfall-resolve";
 import {
   COL_APPRAISER_CARDS,
   COL_APPRAISER_COLLECTIONS,
+  type AppraiserCard,
   type AppraiserCardDoc,
   type AppraiserCollectionDoc,
 } from "@/lib/appraiser/types";
 
 function parseId(id: string): ObjectId | null {
   try { return new ObjectId(id); } catch { return null; }
+}
+
+function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
+  return {
+    _id: String(d._id),
+    collectionId: String(d.collectionId),
+    name: d.name,
+    set: d.set,
+    setName: d.setName,
+    collectorNumber: d.collectorNumber,
+    language: d.language,
+    foil: d.foil,
+    qty: d.qty,
+    scryfallId: d.scryfallId,
+    cardmarket_id: d.cardmarket_id,
+    cardmarketUrl: d.cardmarketUrl,
+    imageUrl: d.imageUrl,
+    trendPrice: d.trendPrice,
+    fromPrice: d.fromPrice,
+    pricedAt: d.pricedAt ? d.pricedAt.toISOString() : null,
+    cm_prices: d.cm_prices,
+    status: d.status,
+    createdAt: d.createdAt.toISOString(),
+  };
 }
 
 // Fields the client may send. Some trigger a Scryfall re-resolve.
@@ -101,7 +126,7 @@ export const PUT = withAuthParams<{ id: string; cardId: string }>(
       .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
       .findOne({ _id: cardOid });
 
-    return { card: updated };
+    return { card: updated ? cardDocToPayload(updated) : null };
   },
   "appraiser-card-update"
 );
