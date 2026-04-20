@@ -167,9 +167,16 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                   <button
                     onClick={() => putCard(c._id, { foil: !c.foil })}
                     title={c.foil ? "Click to un-foil" : "Click to mark foil"}
-                    style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center" }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 0,
+                      lineHeight: 0,
+                      verticalAlign: "middle",
+                    }}
                   >
-                    {c.foil ? <FoilStar /> : <span style={{ color: "var(--text-muted)" }}>—</span>}
+                    {c.foil ? <FoilStar /> : <span style={{ color: "var(--text-muted)", lineHeight: 1, fontSize: 12 }}>—</span>}
                   </button>
                 </td>
                 <td style={td}>
