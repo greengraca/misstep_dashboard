@@ -95,17 +95,34 @@ export async function hydrateAppraiserCards(
     const ev = evByCmId.get(c.cardmarket_id);
     if (!ev) return payload;
 
-    const variant = c.foil ? ev.cm_prices?.foil : ev.cm_prices?.nonfoil;
+    // Prefer the requested variant. Fall back to the other one if empty —
+    // foil-only promos (PLG21, G11, V13, FTV, etc.) have no foil toggle on
+    // Cardmarket, so the extension reads foilMode:false and writes to
+    // cm_prices.nonfoil even though the listings ARE foil. A foil-tagged
+    // appraiser card for one of those would otherwise never show prices.
+    const requestedVariant = c.foil ? ev.cm_prices?.foil : ev.cm_prices?.nonfoil;
+    const fallbackVariant = c.foil ? ev.cm_prices?.nonfoil : ev.cm_prices?.foil;
+    const variant = requestedVariant && (requestedVariant.from != null || requestedVariant.trend != null)
+      ? requestedVariant
+      : fallbackVariant;
     const fromFromCm = variant?.from ?? null;
 
+    // Same fallback on the Scryfall side: some cards only have one of
+    // price_eur / price_eur_foil populated even though they exist in both
+    // finishes on CM. Pick the requested first, fall back to the other.
+    const scryfallPrice = c.foil
+      ? (ev.price_eur_foil ?? ev.price_eur ?? null)
+      : (ev.price_eur ?? ev.price_eur_foil ?? null);
     const eff = getEffectivePrice(
       {
-        price_eur: ev.price_eur,
-        price_eur_foil: ev.price_eur_foil,
+        price_eur: scryfallPrice,
+        price_eur_foil: null,
         prices_updated_at: ev.prices_updated_at,
-        cm_prices: ev.cm_prices,
+        // Feed the picked variant under `nonfoil` so getEffectivePrice uses it
+        // regardless of the `foil` flag we pass in below.
+        cm_prices: variant ? { nonfoil: variant } : null,
       },
-      c.foil
+      false
     );
 
     // Prefer ev_cards' full CM snapshot so the UI sees avg30d/avg7d/chart too.
