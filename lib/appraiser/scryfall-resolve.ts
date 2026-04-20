@@ -41,22 +41,52 @@ function parsePrice(raw: string | null | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** Scryfall-attached tracking params we always want to drop from CM URLs. */
+const TRACKING_PARAMS = new Set([
+  "referrer",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+]);
+
 /**
- * Scryfall's `purchase_uris.cardmarket` is `.../Products?idProduct=N&referrer=scryfall&utm_*`
- * — the UTM params are Scryfall's referral tracking and aren't needed for CM to
- * resolve the product. Strip them so stored/displayed links stay clean.
+ * Scryfall's `purchase_uris.cardmarket` is typically
+ * `.../Products?idProduct=N&referrer=scryfall&utm_*` for cards CM has as a
+ * discrete product, or `.../Products/Search?searchFor=<name>&utm_*` for
+ * cards CM doesn't (niche promos, some tokens) — in which case Scryfall
+ * hands off to a search page.
+ *
+ * Strip only the tracking params. Keep `idProduct`, `searchFor`, and any
+ * other semantic query bits untouched so search-fallback URLs don't become
+ * a bare `/Products/Search`.
  */
 export function cleanCardmarketUrl(raw: string | undefined): string {
   if (!raw) return "";
   try {
     const u = new URL(raw);
-    const keep = new URLSearchParams();
-    const idProduct = u.searchParams.get("idProduct");
-    if (idProduct) keep.set("idProduct", idProduct);
-    const query = keep.toString();
-    return query ? `${u.origin}${u.pathname}?${query}` : `${u.origin}${u.pathname}`;
+    for (const k of TRACKING_PARAMS) u.searchParams.delete(k);
+    return u.toString();
   } catch {
     return raw;
+  }
+}
+
+/**
+ * Only URLs pointing at a specific CM product (idProduct query or
+ * /Products/Singles/... path) should get the `?isFoil=Y` hack appended —
+ * CM's search results page has no foil mode.
+ */
+export function isCardmarketProductUrl(raw: string | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    if (u.searchParams.get("idProduct")) return true;
+    if (/\/Products\/Singles\//i.test(u.pathname)) return true;
+    return false;
+  } catch {
+    return false;
   }
 }
 

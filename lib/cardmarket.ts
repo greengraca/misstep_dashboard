@@ -988,9 +988,9 @@ async function processCardPrices(
   const evPart = matched
     ? `${cardName} (#${productId}) ${isFoil ? "foil" : "nonfoil"}${prices.trend != null ? ` — trend €${prices.trend.toFixed(2)}` : ""}`
     : `${cardName} (#${productId}) — card not in ev_cards`;
-  const appraiserPart = appraiserMatched > 0
-    ? ` → ${appraiserMatched} appraiser doc${appraiserMatched === 1 ? "" : "s"}`
-    : "";
+  // Always surface the appraiser fan-out count (even 0) so we can tell
+  // whether the code path is running at all from the sync log alone.
+  const appraiserPart = ` → ${appraiserMatched} appraiser doc${appraiserMatched === 1 ? "" : "s"}`;
   const detailsMsg = evPart + appraiserPart;
 
   return {

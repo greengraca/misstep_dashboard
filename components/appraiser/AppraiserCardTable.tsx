@@ -4,7 +4,7 @@ import { useState } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
-import { cleanCardmarketUrl } from "@/lib/appraiser/scryfall-resolve";
+import { cleanCardmarketUrl, isCardmarketProductUrl } from "@/lib/appraiser/scryfall-resolve";
 import type { AppraiserCard } from "@/lib/appraiser/types";
 import { sectionHeader, btnSecondaryClass, btnSecondary } from "./ui";
 
@@ -143,13 +143,20 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                       <a
                         href={(() => {
                           const clean = cleanCardmarketUrl(c.cardmarketUrl);
-                          return c.foil ? `${clean}${clean.includes("?") ? "&" : "?"}isFoil=Y` : clean;
+                          // Only product URLs have a foil mode to toggle. Appending
+                          // ?isFoil=Y to a search URL breaks it (the search page ignores it).
+                          if (c.foil && isCardmarketProductUrl(clean)) {
+                            return `${clean}${clean.includes("?") ? "&" : "?"}isFoil=Y`;
+                          }
+                          return clean;
                         })()}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:underline"
                         style={{ color: "var(--accent)", textDecoration: "none" }}
-                        title="Open on Cardmarket — your extension will scrape prices"
+                        title={isCardmarketProductUrl(c.cardmarketUrl)
+                          ? "Open on Cardmarket — your extension will scrape prices"
+                          : "Scryfall didn't have a direct Cardmarket product link — opens a CM search instead"}
                       >
                         {c.name} ↗
                       </a>
