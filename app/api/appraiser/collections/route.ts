@@ -70,15 +70,23 @@ export const POST = withAuth(async (req: NextRequest, session) => {
   const now = new Date();
 
   const db = await getDb();
-  const result = await db.collection(COL_APPRAISER_COLLECTIONS).insertOne({
-    name,
-    notes,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const result = await db
+    .collection<Omit<AppraiserCollectionDoc, "_id">>(COL_APPRAISER_COLLECTIONS)
+    .insertOne({
+      name,
+      notes,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-  const actor = session.user?.name || "unknown";
-  logActivity("create", "appraiser_collection", String(result.insertedId), { name }, "user", actor);
+  logActivity(
+    "create",
+    "appraiser_collection",
+    String(result.insertedId),
+    { name },
+    session.user?.id ?? "system",
+    session.user?.name ?? "unknown",
+  );
 
   return {
     collection: {
