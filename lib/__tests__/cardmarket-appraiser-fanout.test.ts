@@ -113,4 +113,57 @@ describe("processCardPrices — appraiser fan-out", () => {
     expect(appraiserCards.docs[1].fromPrice).toBe(0.50);
     expect(appraiserCards.docs[2].fromPrice).toBe(null);
   });
+
+  it("fan-out on isFoil=true touches only foil appraiser docs", async () => {
+    // Reset fromPrice so the prior test's writes don't contaminate this one
+    appraiserCards.docs[0].fromPrice = null;
+    appraiserCards.docs[1].fromPrice = null;
+    appraiserCards.docs[2].fromPrice = null;
+
+    await processSync("tester", [
+      {
+        type: "card_prices",
+        data: {
+          productId: 555123,
+          cardName: "Lightning Bolt",
+          isFoil: true,
+          prices: { from: 1.80, trend: 2.20 },
+          available: 30,
+          chart: null,
+          pageUrl: "https://cardmarket.example/bolt?isFoil=Y",
+        },
+      },
+    ]);
+
+    expect(appraiserCards.updateMany).toHaveBeenCalledOnce();
+    const [filter] = appraiserCards.updateMany.mock.calls[0];
+    expect(filter).toEqual({ cardmarket_id: 555123, foil: true });
+
+    // Only the foil doc (index 2) should have been updated
+    expect(appraiserCards.docs[0].fromPrice).toBe(null);
+    expect(appraiserCards.docs[1].fromPrice).toBe(null);
+    expect(appraiserCards.docs[2].fromPrice).toBe(1.80);
+  });
+
+  it("skips both ev_cards and appraiser writes when no useful prices parsed", async () => {
+    await processSync("tester", [
+      {
+        type: "card_prices",
+        data: {
+          productId: 555123,
+          cardName: "Lightning Bolt",
+          isFoil: false,
+          prices: {}, // no from/trend/avg*
+          available: null,
+          chart: null,
+          pageUrl: "https://cardmarket.example/bolt",
+        },
+      },
+    ]);
+
+    // Early-return in processCardPrices prevents both writes when no
+    // parseable prices made it into the snapshot.
+    expect(evCards.updateOne).not.toHaveBeenCalled();
+    expect(appraiserCards.updateMany).not.toHaveBeenCalled();
+  });
 });
