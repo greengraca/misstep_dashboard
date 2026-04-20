@@ -17,11 +17,71 @@ function parseId(id: string): ObjectId | null {
  * Not linked from the UI; hit directly:
  *   /api/appraiser/collections/<id>/debug
  */
-export const GET = withAuthReadParams<{ id: string }>(async (_req, { id }) => {
+export const GET = withAuthReadParams<{ id: string }>(async (req, { id }) => {
   const oid = parseId(id);
   if (!oid) return new Response(JSON.stringify({ error: "Invalid id" }), { status: 400 });
 
+  const { searchParams } = new URL(req.url);
+  const nameFilter = searchParams.get("name");
+  const cmIdFilter = searchParams.get("cardmarket_id");
+
   const db = await getDb();
+
+  // If the caller is hunting a specific card, return the full matching docs
+  // + the matching sync_log entries for that cardmarket_id so we can see
+  // exactly what the extension scraped vs what the appraiser has stored.
+  if (nameFilter || cmIdFilter) {
+    const cardQuery: Record<string, unknown> = { collectionId: oid };
+    if (nameFilter) cardQuery.name = { $regex: nameFilter, $options: "i" };
+    if (cmIdFilter) cardQuery.cardmarket_id = parseInt(cmIdFilter, 10);
+    const matched = await db
+      .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
+      .find(cardQuery)
+      .toArray();
+
+    const cmIds = matched
+      .map((c) => c.cardmarket_id)
+      .filter((x): x is number => x != null);
+    // Sync log entries touching any of those cardmarket_ids — surfaces what
+    // the extension actually sent for those cards.
+    const syncLogHits = cmIds.length
+      ? await db
+          .collection("dashboard_sync_log")
+          .find({
+            $or: cmIds.map((id) => ({
+              "details.card_prices.details": { $regex: `#${id}\\b` },
+            })),
+          })
+          .sort({ receivedAt: -1 })
+          .limit(20)
+          .toArray()
+      : [];
+
+    return {
+      matched: matched.map((c) => ({
+        _id: String(c._id),
+        name: c.name,
+        set: c.set,
+        collectorNumber: c.collectorNumber,
+        scryfallId: c.scryfallId,
+        cardmarket_id: c.cardmarket_id,
+        cardmarketUrl: c.cardmarketUrl,
+        foil: c.foil,
+        qty: c.qty,
+        trendPrice: c.trendPrice,
+        fromPrice: c.fromPrice,
+        cm_prices: c.cm_prices,
+        pricedAt: c.pricedAt,
+        status: c.status,
+      })),
+      syncLogHits: syncLogHits.map((l) => ({
+        receivedAt: l.receivedAt,
+        submittedBy: l.submittedBy,
+        details: l.details,
+      })),
+    };
+  }
+
   const cards = await db
     .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
     .find({ collectionId: oid })

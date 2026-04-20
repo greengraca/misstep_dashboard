@@ -32,7 +32,8 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
     if (res.ok) onCardChanged();
   };
 
-  const deleteCard = async (cardId: string) => {
+  const deleteCard = async (cardId: string, name: string) => {
+    if (!confirm(`Remove "${name}" from this collection?`)) return;
     await fetch(`/api/appraiser/collections/${collectionId}/cards/${cardId}`, { method: "DELETE" });
     onCardChanged();
   };
@@ -227,7 +228,7 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                 </td>
                 <td style={{ ...td, textAlign: "right" }}>
                   <button
-                    onClick={() => deleteCard(c._id)}
+                    onClick={() => deleteCard(c._id, c.name)}
                     title="Remove card"
                     className="hover:text-[var(--error)] transition-colors"
                     style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "2px 4px" }}
