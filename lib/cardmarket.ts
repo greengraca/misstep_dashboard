@@ -955,6 +955,21 @@ async function processCardPrices(
     { $set: { [`cm_prices.${variantKey}`]: snapshot } }
   );
 
+  // Fan out to any dashboard_appraiser_cards with the same (cardmarket_id, foil).
+  // Safe no-op when the collection is empty or nothing matches.
+  const appraiserSet: Record<string, unknown> = {
+    cm_prices: snapshot,
+    pricedAt: new Date(now),
+    status: "priced",
+  };
+  if (prices.from != null) appraiserSet.fromPrice = prices.from;
+  if (prices.trend != null) appraiserSet.trendPrice = prices.trend;
+
+  await db.collection("dashboard_appraiser_cards").updateMany(
+    { cardmarket_id: productId, foil: isFoil },
+    { $set: appraiserSet }
+  );
+
   const matched = result.matchedCount || 0;
   const detailsMsg = matched
     ? `${cardName} (#${productId}) ${isFoil ? "foil" : "nonfoil"}${prices.trend != null ? ` — trend €${prices.trend.toFixed(2)}` : ""}`
