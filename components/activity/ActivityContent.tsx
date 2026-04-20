@@ -12,8 +12,14 @@ interface ActivityEntry {
   action: string;
   entity_type: string;
   entity_id: string;
-  details: string;
+  details: string | Record<string, unknown>;
   [key: string]: unknown;
+}
+
+function formatDetails(d: ActivityEntry["details"]): string {
+  if (typeof d === "string") return d;
+  if (d == null) return "";
+  try { return JSON.stringify(d); } catch { return String(d); }
 }
 
 const columns: Column<ActivityEntry>[] = [
@@ -40,7 +46,7 @@ const columns: Column<ActivityEntry>[] = [
     label: "Details",
     sortable: false,
     render: (e: ActivityEntry) => (
-      <span style={{ color: "var(--text-muted)", fontSize: "13px" }}>{e.details}</span>
+      <span style={{ color: "var(--text-muted)", fontSize: "13px" }}>{formatDetails(e.details)}</span>
     ),
   },
 ];
@@ -139,7 +145,7 @@ export default function ActivityContent() {
               className="text-xs break-words"
               style={{ color: "var(--text-muted)", margin: 0 }}
             >
-              {e.user} · {e.details}
+              {e.user} · {formatDetails(e.details)}
             </p>
           </div>
         )}

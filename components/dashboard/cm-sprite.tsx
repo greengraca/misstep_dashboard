@@ -26,6 +26,26 @@ export const LANGUAGE_COL: Record<string, number> = {
   "T-Chinese": 11,
 };
 
+/** Lowercased aliases → canonical LANGUAGE_COL key. Delver Lens exports language
+ *  names like 'Chinese Simplified' that we'd otherwise miss. */
+const LANGUAGE_ALIASES: Record<string, string> = {
+  "simplified chinese": "S-Chinese",
+  "chinese simplified": "S-Chinese",
+  "s-chinese": "S-Chinese",
+  "traditional chinese": "T-Chinese",
+  "chinese traditional": "T-Chinese",
+  "t-chinese": "T-Chinese",
+  english: "English",
+  french: "French",
+  german: "German",
+  spanish: "Spanish",
+  italian: "Italian",
+  japanese: "Japanese",
+  portuguese: "Portuguese",
+  russian: "Russian",
+  korean: "Korean",
+};
+
 interface CmSpriteProps {
   /** 0-indexed column in the sprite sheet (each sprite is 16px at natural size). */
   col: number;
@@ -62,7 +82,8 @@ export function FoilStar({ size = 14 }: { size?: number }) {
 }
 
 export function LanguageFlag({ language, size = 16 }: { language: string; size?: number }) {
-  const col = LANGUAGE_COL[language];
+  const canonical = LANGUAGE_ALIASES[language.toLowerCase()] ?? language;
+  const col = LANGUAGE_COL[canonical];
   if (col === undefined) return <span>{language}</span>;
-  return <CmSprite col={col} row={0} size={size} title={language} />;
+  return <CmSprite col={col} row={0} size={size} title={canonical} />;
 }

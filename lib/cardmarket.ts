@@ -955,10 +955,43 @@ async function processCardPrices(
     { $set: { [`cm_prices.${variantKey}`]: snapshot } }
   );
 
+  // Fan out to any dashboard_appraiser_cards with the same (cardmarket_id, foil).
+  // Safe no-op when the collection is empty or nothing matches.
+  // Wrapped in try/catch so a failure here never breaks the load-bearing
+  // ev_cards sync path for the extension.
+  // Reuses `snapshot` — do not mutate below this line.
+  let appraiserMatched = 0;
+  try {
+    const appraiserSet: Record<string, unknown> = {
+      cm_prices: snapshot,
+      pricedAt: new Date(now),
+      status: "priced",
+    };
+    if (prices.from != null) appraiserSet.fromPrice = prices.from;
+    if (prices.trend != null) appraiserSet.trendPrice = prices.trend;
+
+    const appraiserResult = await db.collection("dashboard_appraiser_cards").updateMany(
+      { cardmarket_id: productId, foil: isFoil },
+      { $set: appraiserSet }
+    );
+    appraiserMatched = appraiserResult.matchedCount || 0;
+  } catch (err) {
+    logError(
+      "error",
+      "processCardPrices-appraiser-fanout",
+      err instanceof Error ? err.message : "unknown error",
+      { productId, isFoil },
+    );
+  }
+
   const matched = result.matchedCount || 0;
-  const detailsMsg = matched
+  const evPart = matched
     ? `${cardName} (#${productId}) ${isFoil ? "foil" : "nonfoil"}${prices.trend != null ? ` — trend €${prices.trend.toFixed(2)}` : ""}`
     : `${cardName} (#${productId}) — card not in ev_cards`;
+  // Always surface the appraiser fan-out count (even 0) so we can tell
+  // whether the code path is running at all from the sync log alone.
+  const appraiserPart = ` → ${appraiserMatched} appraiser doc${appraiserMatched === 1 ? "" : "s"}`;
+  const detailsMsg = evPart + appraiserPart;
 
   return {
     added: 0,
