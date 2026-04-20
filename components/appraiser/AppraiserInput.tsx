@@ -3,6 +3,13 @@
 import { useState, useRef, useCallback } from "react";
 import { parseDelverCsv, DelverCsvError } from "@/lib/appraiser/delver-csv";
 import type { AppraiserCard, CardInput } from "@/lib/appraiser/types";
+import {
+  card,
+  sectionHeader,
+  textarea as textareaStyle,
+  btnPrimary,
+  statusStyle,
+} from "./ui";
 
 interface Props {
   collectionId: string;
@@ -14,13 +21,11 @@ type Status = { msg: string; type: "success" | "error" | "info" } | null;
 function parseTextLines(text: string): CardInput[] {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   return lines.map((line) => {
-    // "4 MH3 332" or "MH3 332" or "mh3/332"
     const setNumMatch = line.match(/^(?:(\d+)\s+)?([a-zA-Z][a-zA-Z0-9]*)[\s/\-#]+([a-zA-Z0-9][\w\-]*)$/);
     if (setNumMatch && /\d/.test(setNumMatch[3])) {
       const [, qty, set, num] = setNumMatch;
       return { name: `${set} ${num}`, set: set.toLowerCase(), collectorNumber: num, qty: qty ? parseInt(qty, 10) : 1 };
     }
-    // "4 Lightning Bolt"
     const qtyMatch = line.match(/^(\d+)\s+(.+)$/);
     if (qtyMatch) return { name: qtyMatch[2], qty: parseInt(qtyMatch[1], 10) };
     return { name: line, qty: 1 };
@@ -114,45 +119,24 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
     if (e.dataTransfer.files.length) handleCsvFiles(e.dataTransfer.files);
   }, [adding, handleCsvFiles]);
 
-  const inputStyle = {
-    padding: "10px 12px",
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    color: "var(--text-primary)",
-    fontSize: 14,
-    fontFamily: "inherit",
-    width: "100%",
-    minHeight: 120,
-    resize: "vertical" as const,
-  };
-  const btn = {
-    padding: "8px 16px",
-    background: "var(--accent)",
-    color: "var(--bg)",
-    border: "none",
-    borderRadius: "var(--radius)",
-    cursor: "pointer",
-    fontSize: 14,
-    fontWeight: 500,
-  };
   const drop = {
-    padding: 20,
+    padding: 24,
     border: `2px dashed ${dragging ? "var(--accent)" : "var(--border)"}`,
     borderRadius: "var(--radius)",
     color: "var(--text-secondary)",
     textAlign: "center" as const,
-    cursor: "pointer",
-    background: dragging ? "rgba(255,255,255,0.04)" : "transparent",
+    cursor: adding ? "default" : "pointer",
+    background: dragging ? "var(--accent-light)" : "transparent",
     transition: "background 120ms, border-color 120ms",
+    fontSize: 13,
   };
-  const statusColors = { success: "#4ade80", error: "#f87171", info: "var(--text-secondary)" };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}>
-      <h3 style={{ margin: 0, fontSize: 14, color: "var(--text-muted)", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>Add Cards</h3>
+    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 12 }}>
+      <h3 style={sectionHeader}>Add Cards</h3>
 
       <textarea
+        className="appraiser-field"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -160,11 +144,11 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
         }}
         placeholder={`One per line — name or set+number:\nLightning Bolt\n4 Counterspell\nMH3 332\nPLST LRW-256`}
         disabled={adding}
-        style={inputStyle}
+        style={textareaStyle}
       />
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button style={btn} onClick={handleAddText} disabled={adding || !text.trim()}>
+        <button style={btnPrimary} onClick={handleAddText} disabled={adding || !text.trim()}>
           {adding ? "Adding…" : "Add Cards"}
         </button>
       </div>
@@ -182,9 +166,7 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
         {dragging ? "Drop CSV" : adding ? "Parsing…" : "Drop a Delver Lens CSV or click to browse"}
       </div>
 
-      {status && (
-        <div style={{ fontSize: 13, color: statusColors[status.type] }}>{status.msg}</div>
-      )}
+      {status && <div style={statusStyle(status.type)}>{status.msg}</div>}
     </div>
   );
 }

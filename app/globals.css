@@ -120,3 +120,19 @@ button, [role="button"], summary {
   animation: shimmer 1.5s infinite;
   border-radius: var(--radius);
 }
+
+.appraiser-field {
+  outline: none;
+  transition: border-color 120ms, background 120ms;
+}
+.appraiser-field:hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+.appraiser-field:focus:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+}
+.appraiser-field:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
