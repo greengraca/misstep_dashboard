@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
+import { SetSymbol } from "@/components/dashboard/set-symbol";
 import type { AppraiserCard } from "@/lib/appraiser/types";
 import { sectionHeader, btnSecondaryClass, btnSecondary } from "./ui";
 
@@ -153,12 +154,12 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                 </td>
                 <td style={td}>
                   {c.set ? (
-                    <>
-                      <span style={{ color: "var(--text-secondary)" }}>{c.set.toUpperCase()}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <SetSymbol code={c.set} size={16} />
                       {c.collectorNumber && (
-                        <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>#{c.collectorNumber}</span>
+                        <span style={{ color: "var(--text-muted)" }}>#{c.collectorNumber}</span>
                       )}
-                    </>
+                    </span>
                   ) : "?"}
                 </td>
                 <td style={td}>
