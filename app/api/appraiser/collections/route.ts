@@ -83,7 +83,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     "create",
     "appraiser_collection",
     String(result.insertedId),
-    { name },
+    `Created appraiser collection "${name}"`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown",
   );

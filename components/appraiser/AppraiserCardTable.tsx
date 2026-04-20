@@ -96,6 +96,25 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
         </div>
       </div>
 
+      {/* Summary bar (moved to top: totals + offer tiers always visible) */}
+      <div style={{ display: "flex", gap: 14, padding: "10px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 12, background: "var(--bg-card)" }}>
+        <span style={{ color: "var(--text-muted)" }}>{totalCards} card{totalCards !== 1 ? "s" : ""}</span>
+        <span>From: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom)}</strong></span>
+        <span style={{ color: "var(--text-secondary)" }}>Trend: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalTrend)}</strong></span>
+        {OFFER_OPTIONS.map((p) => (
+          <span key={p} style={{ color: p === offerPct ? "var(--accent)" : "var(--text-muted)" }}>
+            -{p}%: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom * (1 - p / 100))}</strong>
+          </span>
+        ))}
+        <button
+          onClick={copyAll}
+          className={btnSecondaryClass}
+          style={{ ...btnSecondary, marginLeft: "auto" }}
+        >
+          Copy
+        </button>
+      </div>
+
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -215,23 +234,6 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
         </table>
       </div>
 
-      <div style={{ display: "flex", gap: 14, padding: "10px 14px", borderTop: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 12, background: "var(--bg-card)" }}>
-        <span style={{ color: "var(--text-muted)" }}>{totalCards} card{totalCards !== 1 ? "s" : ""}</span>
-        <span>From: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom)}</strong></span>
-        <span style={{ color: "var(--text-secondary)" }}>Trend: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalTrend)}</strong></span>
-        {OFFER_OPTIONS.map((p) => (
-          <span key={p} style={{ color: p === offerPct ? "var(--accent)" : "var(--text-muted)" }}>
-            -{p}%: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom * (1 - p / 100))}</strong>
-          </span>
-        ))}
-        <button
-          onClick={copyAll}
-          className={btnSecondaryClass}
-          style={{ ...btnSecondary, marginLeft: "auto" }}
-        >
-          Copy
-        </button>
-      </div>
     </div>
   );
 }

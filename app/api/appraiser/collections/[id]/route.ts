@@ -105,11 +105,15 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const updateBits = [
+    update.name !== undefined ? `name="${update.name}"` : null,
+    update.notes !== undefined ? `notes=${update.notes.length} chars` : null,
+  ].filter(Boolean).join(", ");
   logActivity(
     "update",
     "appraiser_collection",
     id,
-    update,
+    `Updated appraiser collection (${updateBits || "no-op"})`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown",
   );
@@ -138,7 +142,7 @@ export const DELETE = withAuthParams<{ id: string }>(async (_req, session, { id 
     "delete",
     "appraiser_collection",
     id,
-    { name: collection.name, cardsRemoved: cardsResult.deletedCount ?? 0 },
+    `Deleted appraiser collection "${collection.name}" (${cardsResult.deletedCount ?? 0} cards cascaded)`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown",
   );

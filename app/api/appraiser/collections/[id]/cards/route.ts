@@ -159,16 +159,16 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       .updateOne({ _id: oid }, { $set: { updatedAt: now } });
   }
 
+  const bits = [
+    `${insertedCards.length} added`,
+    mergedCardIds.length ? `${mergedCardIds.length} merged` : null,
+    errors.length ? `${errors.length} failed` : null,
+  ].filter(Boolean).join(", ");
   logActivity(
     "update",
     "appraiser_collection",
     id,
-    {
-      event: "cards.add",
-      added: insertedCards.length,
-      merged: mergedCardIds.length,
-      errors: errors.length,
-    },
+    `Added cards: ${bits || "no-op"}`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown",
   );
