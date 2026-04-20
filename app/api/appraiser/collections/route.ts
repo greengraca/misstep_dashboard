@@ -5,9 +5,11 @@ import { logActivity } from "@/lib/activity";
 import {
   COL_APPRAISER_COLLECTIONS,
   COL_APPRAISER_CARDS,
+  type AppraiserCardDoc,
   type AppraiserCollection,
   type AppraiserCollectionDoc,
 } from "@/lib/appraiser/types";
+import { hydrateAppraiserCards, computeCollectionTotals } from "@/lib/appraiser/ev-join";
 
 export const GET = withAuthRead(async (_req: NextRequest) => {
   const db = await getDb();
@@ -20,28 +22,26 @@ export const GET = withAuthRead(async (_req: NextRequest) => {
   if (collections.length === 0) return { collections: [] };
 
   const ids = collections.map((c) => c._id);
-  const agg = await db
-    .collection(COL_APPRAISER_CARDS)
-    .aggregate([
-      { $match: { collectionId: { $in: ids } } },
-      {
-        $group: {
-          _id: "$collectionId",
-          cardCount: { $sum: "$qty" },
-          totalTrend: { $sum: { $multiply: [{ $ifNull: ["$trendPrice", 0] }, "$qty"] } },
-          totalFrom: { $sum: { $multiply: [{ $ifNull: ["$fromPrice", 0] }, "$qty"] } },
-        },
-      },
-    ])
+  // Fetch every card across every collection once, hydrate prices from
+  // dashboard_ev_cards in a single batch, then bucket + total in memory.
+  // Works for the expected scale (small number of collections, a few hundred
+  // cards each). If this ever grows, swap for a $lookup aggregation.
+  const allCardDocs = await db
+    .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
+    .find({ collectionId: { $in: ids } })
     .toArray();
+  const hydrated = await hydrateAppraiserCards(db, allCardDocs);
 
   const statsById = new Map<string, { cardCount: number; totalTrend: number; totalFrom: number }>();
-  for (const a of agg) {
-    statsById.set(String(a._id), {
-      cardCount: (a.cardCount as number) ?? 0,
-      totalTrend: (a.totalTrend as number) ?? 0,
-      totalFrom: (a.totalFrom as number) ?? 0,
-    });
+  const cardsByCollection = new Map<string, typeof hydrated>();
+  for (const c of hydrated) {
+    const key = c.collectionId;
+    const bucket = cardsByCollection.get(key);
+    if (bucket) bucket.push(c);
+    else cardsByCollection.set(key, [c]);
+  }
+  for (const [key, bucket] of cardsByCollection) {
+    statsById.set(key, computeCollectionTotals(bucket));
   }
 
   const payload: AppraiserCollection[] = collections.map((c) => {

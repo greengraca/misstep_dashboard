@@ -11,6 +11,7 @@ import {
   type AppraiserCollection,
   type AppraiserCollectionDoc,
 } from "@/lib/appraiser/types";
+import { hydrateAppraiserCards, computeCollectionTotals } from "@/lib/appraiser/ev-join";
 
 function parseId(id: string): ObjectId | null {
   try {
@@ -54,21 +55,17 @@ export const GET = withAuthReadParams<{ id: string }>(async (_req, { id }) => {
     .findOne({ _id: oid });
   if (!c) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const cards = await db
+  const cardDocs = await db
     .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
     .find({ collectionId: oid })
     .sort({ createdAt: 1 })
     .toArray();
 
-  const totals = cards.reduce(
-    (acc, card) => {
-      acc.totalTrend += (card.trendPrice ?? 0) * card.qty;
-      acc.totalFrom += (card.fromPrice ?? 0) * card.qty;
-      acc.cardCount += card.qty;
-      return acc;
-    },
-    { cardCount: 0, totalTrend: 0, totalFrom: 0 }
-  );
+  // Hydrate each card's prices from dashboard_ev_cards at read time — if the
+  // extension has ever scraped this card's CM product page, the from/trend/avg
+  // values live there and flow in without needing a per-card click.
+  const cards = await hydrateAppraiserCards(db, cardDocs);
+  const totals = computeCollectionTotals(cards);
 
   const payload: AppraiserCollection = {
     _id: String(c._id),
@@ -81,7 +78,7 @@ export const GET = withAuthReadParams<{ id: string }>(async (_req, { id }) => {
     updatedAt: c.updatedAt.toISOString(),
   };
 
-  return { collection: payload, cards: cards.map(cardDocToPayload) };
+  return { collection: payload, cards };
 }, "appraiser-collection-get");
 
 export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) => {
