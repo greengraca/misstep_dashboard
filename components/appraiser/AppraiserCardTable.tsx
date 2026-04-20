@@ -93,6 +93,8 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                     <a href={c.foil ? `${c.cardmarketUrl}${c.cardmarketUrl.includes("?") ? "&" : "?"}isFoil=Y` : c.cardmarketUrl}
                       target="_blank" rel="noopener noreferrer"
                       style={{ color: "var(--accent)", textDecoration: "none" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
                       title="Open on Cardmarket — your extension will scrape prices">
                       {c.name} ↗
                     </a>
@@ -125,7 +127,24 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                       style={{ width: 48, padding: "2px 6px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-primary)" }} />
                   ) : (
                     <span onClick={() => { setEditingQty(c._id); setQtyValue(String(c.qty)); }}
-                      style={{ cursor: "pointer" }}>{c.qty}</span>
+                      title="Click to edit quantity"
+                      style={{
+                        cursor: "pointer",
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        borderBottom: "1px dashed var(--text-muted)",
+                        transition: "background 120ms, color 120ms",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+                        e.currentTarget.style.color = "var(--text-primary)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = "inherit";
+                      }}>
+                      {c.qty}
+                    </span>
                   )}
                 </td>
                 <td style={td}>{eur(c.fromPrice)}</td>
