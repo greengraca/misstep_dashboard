@@ -42,15 +42,27 @@ export const GET = withAuthReadParams<{ id: string }>(async (req, { id }) => {
     const cmIds = matched
       .map((c) => c.cardmarket_id)
       .filter((x): x is number => x != null);
-    // Sync log entries touching any of those cardmarket_ids — surfaces what
-    // the extension actually sent for those cards.
+
+    // What the extension actually wrote to ev_cards for the same cardmarket_id.
+    // This is the ground truth: if ev_cards has cm_prices.nonfoil.from for
+    // productId 6425, the scrape worked and the fan-out is the break point.
+    // If ev_cards has no cm_prices at all, the CM page itself didn't expose
+    // a From price (or the scrape failed upstream).
+    const evCards = cmIds.length
+      ? await db
+          .collection("dashboard_ev_cards")
+          .find({ cardmarket_id: { $in: cmIds } })
+          .toArray()
+      : [];
+
+    // Recent sync_log rows for those cardmarket_ids (correct schema: top-level
+    // `details` is a string like 'Pyroblast (#6425) nonfoil — trend €8.98').
     const syncLogHits = cmIds.length
       ? await db
           .collection("dashboard_sync_log")
           .find({
-            $or: cmIds.map((id) => ({
-              "details.card_prices.details": { $regex: `#${id}\\b` },
-            })),
+            dataType: "card_prices",
+            $or: cmIds.map((id) => ({ details: { $regex: `#${id}\\b` } })),
           })
           .sort({ receivedAt: -1 })
           .limit(20)
@@ -65,14 +77,26 @@ export const GET = withAuthReadParams<{ id: string }>(async (req, { id }) => {
         collectorNumber: c.collectorNumber,
         scryfallId: c.scryfallId,
         cardmarket_id: c.cardmarket_id,
+        cardmarket_id_type: typeof c.cardmarket_id,
         cardmarketUrl: c.cardmarketUrl,
         foil: c.foil,
+        foil_type: typeof c.foil,
         qty: c.qty,
         trendPrice: c.trendPrice,
         fromPrice: c.fromPrice,
         cm_prices: c.cm_prices,
         pricedAt: c.pricedAt,
         status: c.status,
+      })),
+      evCards: evCards.map((e) => ({
+        _id: String(e._id),
+        name: e.name,
+        set: e.set,
+        cardmarket_id: e.cardmarket_id,
+        cardmarket_id_type: typeof e.cardmarket_id,
+        cm_prices: e.cm_prices ?? null,
+        price_eur: e.price_eur,
+        price_eur_foil: e.price_eur_foil,
       })),
       syncLogHits: syncLogHits.map((l) => ({
         receivedAt: l.receivedAt,
