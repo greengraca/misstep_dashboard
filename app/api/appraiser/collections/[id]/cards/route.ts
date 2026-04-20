@@ -53,6 +53,15 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
   if (!Array.isArray(body.cards) || body.cards.length === 0) {
     return NextResponse.json({ error: "cards array is required" }, { status: 400 });
   }
+  // Cap batch size: Scryfall's 150ms delay × 500 cards ≈ 75s, safely under
+  // Vercel Pro's 300s maxDuration. Prevents huge CSVs from timing out
+  // mid-loop with partial writes and no activity log.
+  if (body.cards.length > 500) {
+    return NextResponse.json(
+      { error: `Too many cards in one batch (max 500, got ${body.cards.length})` },
+      { status: 413 },
+    );
+  }
   const inputs = body.cards as CardInput[];
 
   const db = await getDb();
