@@ -76,6 +76,10 @@ export interface AppraiserCard {
   cm_prices: CmPricesSnapshot | null;
   status: "pending" | "priced" | "error" | "manual";
   createdAt: string;
+  /** Where the displayed trendPrice came from — 'cm_ext' means fresher than Scryfall bulk. Null when no price. */
+  trend_source?: "scryfall" | "cm_ext" | null;
+  /** ISO timestamp of the trend source (scryfall's prices_updated_at or CM scrape's updatedAt). */
+  trend_updated_at?: string | null;
 }
 
 export interface CardInput {

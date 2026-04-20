@@ -135,6 +135,8 @@ export async function hydrateAppraiserCards(
       cm_prices,
       pricedAt,
       status,
+      trend_source: eff.price != null ? eff.source : null,
+      trend_updated_at: eff.price != null ? eff.updatedAt : null,
     };
   });
 }

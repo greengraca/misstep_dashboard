@@ -222,7 +222,17 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                   )}
                 </td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>{eur(c.fromPrice)}</td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>{eur(c.trendPrice)}</td>
+                <td
+                  style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}
+                  title={c.trendPrice != null && c.trend_source
+                    ? `${c.trend_source === "cm_ext" ? "ext" : "scryfall"} · ${c.trend_updated_at ? new Date(c.trend_updated_at).toLocaleDateString() : "?"}`
+                    : undefined}
+                >
+                  {eur(c.trendPrice)}
+                  {c.trend_source === "cm_ext" && (
+                    <span style={{ marginLeft: 4, fontSize: 9, color: "var(--accent)", verticalAlign: "top" }}>•</span>
+                  )}
+                </td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 600 }}>
                   {eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null)}
                 </td>
