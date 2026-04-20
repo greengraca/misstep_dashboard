@@ -1,21 +1,22 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import Select from "@/components/dashboard/select";
 import type { AppraiserCollection } from "@/lib/appraiser/types";
 import {
   card,
   sectionHeader,
-  input,
-  textarea as textareaStyle,
-  btnPrimary,
-  btnPrimaryHover,
+  btnBaseClass,
+  btnSecondaryClass,
+  btnPrimaryClass,
+  btnDangerClass,
   btnSecondary,
-  btnSecondaryHover,
+  btnPrimary,
   btnDanger,
-  btnDangerHover,
-  hoverHandlers,
+  inputClass,
+  textareaClass,
+  inputStyle,
 } from "./ui";
 
 interface Props {
@@ -23,19 +24,22 @@ interface Props {
   selectedId: string;
   onSelect: (id: string) => void;
   onChanged: () => void;
-  onRefresh: () => void | Promise<void>;
+  onAfterRefresh: () => void | Promise<void>;
 }
+
+type RefreshProgress = { processed: number; total: number } | null;
 
 function eur(n: number) {
   return n.toFixed(2).replace(".", ",") + " €";
 }
 
-export default function CollectionSelector({ collections, selectedId, onSelect, onChanged, onRefresh }: Props) {
+export default function CollectionSelector({ collections, selectedId, onSelect, onChanged, onAfterRefresh }: Props) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [progress, setProgress] = useState<RefreshProgress>(null);
 
   const current = collections.find((c) => c._id === selectedId);
   const [notes, setNotes] = useState(current?.notes ?? "");
@@ -44,17 +48,42 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
     setNotes(current?.notes ?? "");
   }, [current?._id, current?.notes]);
 
-  const handleRefresh = async () => {
-    if (refreshing) return;
+  async function handleRefresh() {
+    if (!selectedId || refreshing) return;
     setRefreshing(true);
+    setProgress(null);
     try {
-      await onRefresh();
+      const res = await fetch(`/api/appraiser/collections/${selectedId}/refresh`, { method: "POST" });
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line);
+            if (typeof msg.total === "number" && typeof msg.processed === "number") {
+              setProgress({ processed: msg.processed, total: msg.total });
+            }
+          } catch {
+            // skip malformed lines
+          }
+        }
+      }
+      await onAfterRefresh();
     } finally {
       setRefreshing(false);
+      setProgress(null);
     }
-  };
+  }
 
-  const handleCreate = async () => {
+  async function handleCreate() {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
@@ -72,15 +101,15 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
     } finally {
       setCreating(false);
     }
-  };
+  }
 
-  const startRename = () => {
+  function startRename() {
     if (!current) return;
     setRenameName(current.name);
     setRenaming(true);
-  };
+  }
 
-  const saveRename = async () => {
+  async function saveRename() {
     const n = renameName.trim();
     if (!n || !selectedId) return;
     await fetch(`/api/appraiser/collections/${selectedId}`, {
@@ -90,9 +119,9 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
     });
     setRenaming(false);
     onChanged();
-  };
+  }
 
-  const saveNotes = async () => {
+  async function saveNotes() {
     if (!selectedId || notes === (current?.notes ?? "")) return;
     await fetch(`/api/appraiser/collections/${selectedId}`, {
       method: "PUT",
@@ -100,15 +129,15 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
       body: JSON.stringify({ notes }),
     });
     onChanged();
-  };
+  }
 
-  const handleDelete = async () => {
+  async function handleDelete() {
     if (!current) return;
     if (!confirm(`Delete "${current.name}" and all its cards?`)) return;
     await fetch(`/api/appraiser/collections/${selectedId}`, { method: "DELETE" });
     onSelect("");
     onChanged();
-  };
+  }
 
   const selectOptions = [
     { value: "", label: "-- Select collection --" },
@@ -118,13 +147,20 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
     })),
   ];
 
+  const refreshLabel = progress
+    ? `${progress.processed}/${progress.total}`
+    : refreshing
+    ? "Refreshing…"
+    : "Refresh Prices";
+
   return (
-    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
       <h3 style={sectionHeader}>Collection</h3>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 260 }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
           <Select
+            size="sm"
             value={selectedId}
             onChange={onSelect}
             options={selectOptions}
@@ -134,22 +170,18 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
         {selectedId && !renaming && (
           <>
             <button
-              style={btnSecondary}
-              {...hoverHandlers(btnSecondaryHover)}
               onClick={handleRefresh}
               disabled={refreshing}
+              className={btnSecondaryClass}
+              style={btnSecondary}
             >
-              {refreshing ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <Loader2 size={14} style={{ animation: "appraiserSpin 0.9s linear infinite" }} />
-                  Refreshing…
-                </span>
-              ) : "Refresh Prices"}
+              <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} />
+              {refreshLabel}
             </button>
-            <button style={btnSecondary} {...hoverHandlers(btnSecondaryHover)} onClick={startRename}>
+            <button onClick={startRename} className={btnSecondaryClass} style={btnSecondary}>
               Rename
             </button>
-            <button style={btnDanger} {...hoverHandlers(btnDangerHover)} onClick={handleDelete}>
+            <button onClick={handleDelete} className={btnDangerClass} style={btnDanger}>
               Delete
             </button>
           </>
@@ -157,52 +189,50 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
         {renaming && (
           <>
             <input
-              className="appraiser-field"
-              style={{ ...input, flex: 1, minWidth: 200 }}
+              className={inputClass}
+              style={{ ...inputStyle, flex: 1, minWidth: 200 }}
               value={renameName}
               onChange={(e) => setRenameName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenaming(false); }}
               autoFocus
             />
-            <button style={btnPrimary} {...hoverHandlers(btnPrimaryHover)} onClick={saveRename}>
-              Save
-            </button>
-            <button style={btnSecondary} {...hoverHandlers(btnSecondaryHover)} onClick={() => setRenaming(false)}>
-              Cancel
-            </button>
+            <button onClick={saveRename} className={btnPrimaryClass} style={btnPrimary}>Save</button>
+            <button onClick={() => setRenaming(false)} className={btnSecondaryClass} style={btnSecondary}>Cancel</button>
           </>
         )}
       </div>
 
       {current && (
         <textarea
-          className="appraiser-field"
+          className={textareaClass}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           onBlur={saveNotes}
           placeholder="Notes — asking price, seller, deadline…"
-          style={{ ...textareaStyle, minHeight: 56 }}
+          style={{ ...inputStyle, minHeight: 48, resize: "vertical", width: "100%" }}
         />
       )}
 
-      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-        <input
-          className="appraiser-field"
-          style={{ ...input, flex: 1 }}
-          placeholder="New collection name…"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-        />
-        <button
-          style={btnPrimary}
-          {...hoverHandlers(btnPrimaryHover)}
-          onClick={handleCreate}
-          disabled={creating || !newName.trim()}
-        >
-          {creating ? "Creating…" : "New collection"}
-        </button>
-      </div>
+      {!selectedId && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className={inputClass}
+            style={{ ...inputStyle, flex: 1 }}
+            placeholder="New collection name…"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+          />
+          <button
+            onClick={handleCreate}
+            disabled={creating || !newName.trim()}
+            className={btnPrimaryClass}
+            style={btnPrimary}
+          >
+            {creating ? "Creating…" : "New collection"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

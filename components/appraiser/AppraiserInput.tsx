@@ -7,10 +7,10 @@ import type { AppraiserCard, CardInput } from "@/lib/appraiser/types";
 import {
   card,
   sectionHeader,
-  textarea as textareaStyle,
+  btnPrimaryClass,
   btnPrimary,
-  btnPrimaryHover,
-  hoverHandlers,
+  textareaClass,
+  inputStyle,
   statusStyle,
 } from "./ui";
 
@@ -42,6 +42,7 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
   const [uploadCount, setUploadCount] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [dropHover, setDropHover] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -56,7 +57,7 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
     return data as { cards: AppraiserCard[]; mergedCardIds: string[]; errors: Array<{ error: string }> };
   }, [collectionId]);
 
-  const handleAddText = async () => {
+  async function handleAddText() {
     const cards = parseTextLines(text);
     if (cards.length === 0) {
       setStatus({ msg: "Enter at least one card name", type: "error" });
@@ -78,7 +79,7 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
       setAdding(false);
       setTimeout(() => setStatus(null), 6000);
     }
-  };
+  }
 
   const handleCsvFiles = useCallback(async (files: FileList | File[]) => {
     const arr = Array.from(files).filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv");
@@ -132,37 +133,39 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
   }, [adding, handleCsvFiles]);
 
   const isUploading = uploadPhase !== "idle";
-  const dropClassName = isUploading ? "appraiser-pulsing" : "";
+
+  const dropActive = dragging || isUploading;
+  const dropAccent = dropActive || dropHover;
   const drop: React.CSSProperties = {
-    padding: 24,
-    border: `2px dashed ${dragging || isUploading ? "var(--accent)" : "var(--border)"}`,
-    borderRadius: "var(--radius)",
-    color: dragging || isUploading ? "var(--accent)" : "var(--text-secondary)",
+    padding: 18,
+    border: `1px dashed ${dropAccent ? "var(--accent)" : "var(--border)"}`,
+    borderRadius: 8,
+    color: dropAccent ? "var(--accent)" : "var(--text-secondary)",
     textAlign: "center",
     cursor: adding ? "default" : "pointer",
-    background: dragging ? "var(--accent-light)" : isUploading ? "var(--accent-light)" : "transparent",
+    background: dragging || isUploading ? "var(--accent-light)" : dropHover ? "var(--bg-hover)" : "transparent",
     transition: "background 120ms, border-color 120ms, color 120ms",
-    fontSize: 13,
-    minHeight: 80,
+    fontSize: 12,
+    minHeight: 60,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
   };
 
-  const uploadLabel = () => {
+  function uploadLabel() {
     if (uploadPhase === "parsing") return "Parsing CSV…";
-    if (uploadPhase === "resolving") return `Resolving ${uploadCount} card${uploadCount === 1 ? "" : "s"} via Scryfall…`;
+    if (uploadPhase === "resolving") return `Resolving ${uploadCount} card${uploadCount === 1 ? "" : "s"}…`;
     if (dragging) return "Drop CSV";
     return "Drop a Delver Lens CSV or click to browse";
-  };
+  }
 
   return (
-    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 12 }}>
+    <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
       <h3 style={sectionHeader}>Add Cards</h3>
 
       <textarea
-        className="appraiser-field"
+        className={textareaClass}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
@@ -170,39 +173,38 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
         }}
         placeholder={`One per line — name or set+number:\nLightning Bolt\n4 Counterspell\nMH3 332\nPLST LRW-256`}
         disabled={adding}
-        style={textareaStyle}
+        style={{ ...inputStyle, minHeight: 96, resize: "vertical", width: "100%" }}
       />
 
       <div style={{ display: "flex", gap: 8 }}>
         <button
-          style={btnPrimary}
-          {...hoverHandlers(btnPrimaryHover)}
           onClick={handleAddText}
           disabled={adding || !text.trim()}
+          className={btnPrimaryClass}
+          style={btnPrimary}
         >
           {adding && !isUploading ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <Loader2 size={14} style={{ animation: "appraiserSpin 0.9s linear infinite" }} />
+            <>
+              <Loader2 size={12} className="animate-spin" />
               Adding…
-            </span>
+            </>
           ) : "Add Cards"}
         </button>
       </div>
 
       <div
-        className={dropClassName}
         style={drop}
         onDrop={onDrop}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={(e) => { e.preventDefault(); setDragging(false); }}
+        onMouseEnter={() => setDropHover(true)}
+        onMouseLeave={() => setDropHover(false)}
         onClick={() => !adding && fileInputRef.current?.click()}
       >
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" multiple
           onChange={(e) => { if (e.target.files) { handleCsvFiles(e.target.files); e.target.value = ""; } }}
           style={{ display: "none" }} />
-        {isUploading && (
-          <Loader2 size={16} style={{ animation: "appraiserSpin 0.9s linear infinite" }} />
-        )}
+        {isUploading && <Loader2 size={14} className="animate-spin" />}
         <span>{uploadLabel()}</span>
       </div>
 

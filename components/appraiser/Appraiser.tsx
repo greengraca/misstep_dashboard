@@ -65,11 +65,9 @@ export default function Appraiser() {
     listSwr.mutate();
   }, [detailSwr, listSwr]);
 
-  const handleRefresh = useCallback(async () => {
-    if (!selectedId) return;
-    await fetch(`/api/appraiser/collections/${selectedId}/refresh`, { method: "POST" });
+  const handleAfterRefresh = useCallback(async () => {
     await Promise.all([detailSwr.mutate(), listSwr.mutate()]);
-  }, [selectedId, detailSwr, listSwr]);
+  }, [detailSwr, listSwr]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
@@ -80,7 +78,7 @@ export default function Appraiser() {
         selectedId={selectedId}
         onSelect={handleSelect}
         onChanged={handleCollectionChanged}
-        onRefresh={handleRefresh}
+        onAfterRefresh={handleAfterRefresh}
       />
 
       {selectedId ? (

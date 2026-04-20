@@ -4,7 +4,7 @@ import { useState } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import type { AppraiserCard } from "@/lib/appraiser/types";
-import { sectionHeader, btnSecondary, btnSecondaryHover, btnGhost, hoverHandlers } from "./ui";
+import { sectionHeader, btnSecondaryClass, btnSecondary } from "./ui";
 
 interface Props {
   collectionId: string;
@@ -63,7 +63,7 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
 
   const th: React.CSSProperties = {
     textAlign: "left",
-    padding: "10px 12px",
+    padding: "8px 12px",
     fontSize: 11,
     color: "var(--text-muted)",
     letterSpacing: "0.05em",
@@ -74,18 +74,18 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
     borderBottom: "1px solid var(--border)",
   };
   const td: React.CSSProperties = {
-    padding: "10px 12px",
+    padding: "8px 12px",
     borderTop: "1px solid var(--border)",
-    fontSize: 13,
+    fontSize: 12,
     color: "var(--text-primary)",
     verticalAlign: "middle",
   };
 
   return (
     <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
         <h3 style={sectionHeader}>Cards</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-muted)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-muted)" }}>
           <span>Offer</span>
           <Select
             value={String(offerPct)}
@@ -113,22 +113,19 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
           </thead>
           <tbody>
             {cards.map((c) => (
-              <tr
-                key={c._id}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                style={{ transition: "background 120ms" }}
-              >
+              <tr key={c._id} className="hover:bg-[var(--bg-card-hover)] transition-colors">
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {c.imageUrl && <img src={c.imageUrl} alt="" style={{ width: 24, height: 34, objectFit: "cover", borderRadius: 3 }} />}
+                    {c.imageUrl && <img src={c.imageUrl} alt="" style={{ width: 22, height: 30, objectFit: "cover", borderRadius: 3 }} />}
                     {c.cardmarketUrl ? (
-                      <a href={c.foil ? `${c.cardmarketUrl}${c.cardmarketUrl.includes("?") ? "&" : "?"}isFoil=Y` : c.cardmarketUrl}
-                        target="_blank" rel="noopener noreferrer"
+                      <a
+                        href={c.foil ? `${c.cardmarketUrl}${c.cardmarketUrl.includes("?") ? "&" : "?"}isFoil=Y` : c.cardmarketUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:underline"
                         style={{ color: "var(--accent)", textDecoration: "none" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
-                        title="Open on Cardmarket — your extension will scrape prices">
+                        title="Open on Cardmarket — your extension will scrape prices"
+                      >
                         {c.name} ↗
                       </a>
                     ) : c.name}
@@ -172,32 +169,27 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                       autoFocus
                       style={{
-                        width: 56,
-                        padding: "4px 8px",
+                        width: 48,
+                        padding: "2px 6px",
                         background: "var(--bg-card)",
                         border: "1px solid var(--border)",
                         borderRadius: 6,
                         color: "var(--text-primary)",
-                        fontSize: 13,
+                        fontSize: 12,
                       }}
                     />
                   ) : (
                     <span
                       onClick={() => { setEditingQty(c._id); setQtyValue(String(c.qty)); }}
                       title="Click to edit quantity"
+                      className="hover:bg-[var(--bg-hover)] transition-colors"
                       style={{
                         cursor: "pointer",
                         padding: "2px 6px",
                         borderRadius: 4,
                         borderBottom: "1px dashed var(--text-muted)",
-                        transition: "background 120ms, color 120ms",
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "var(--bg-hover)";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "transparent";
-                      }}>
+                    >
                       {c.qty}
                     </span>
                   )}
@@ -211,9 +203,8 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                   <button
                     onClick={() => deleteCard(c._id)}
                     title="Remove card"
-                    style={{ ...btnGhost, fontSize: 18, lineHeight: 1 }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = "var(--error)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+                    className="hover:text-[var(--error)] transition-colors"
+                    style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "2px 4px" }}
                   >
                     ×
                   </button>
@@ -224,7 +215,7 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
         </table>
       </div>
 
-      <div style={{ display: "flex", gap: 16, padding: "12px 16px", borderTop: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 13, background: "var(--bg-card)" }}>
+      <div style={{ display: "flex", gap: 14, padding: "10px 14px", borderTop: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 12, background: "var(--bg-card)" }}>
         <span style={{ color: "var(--text-muted)" }}>{totalCards} card{totalCards !== 1 ? "s" : ""}</span>
         <span>From: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom)}</strong></span>
         <span style={{ color: "var(--text-secondary)" }}>Trend: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalTrend)}</strong></span>
@@ -235,8 +226,8 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
         ))}
         <button
           onClick={copyAll}
+          className={btnSecondaryClass}
           style={{ ...btnSecondary, marginLeft: "auto" }}
-          {...hoverHandlers(btnSecondaryHover)}
         >
           Copy
         </button>
