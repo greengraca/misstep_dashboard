@@ -170,6 +170,25 @@ describe("resolveScryfall", () => {
     expect(result.name).toBe("Lightning Bolt");
   });
 
+  it("fast-path: direct Scryfall ID lookup skips fuzzy + printings search", async () => {
+    const fetchMock = mockFetch([
+      { ok: true, body: mockCard },  // only /cards/:id — no fuzzy, no search
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = resolveScryfall({
+      name: "Lightning Bolt",
+      scryfallId: "abc-123",
+    });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain("/cards/abc-123");
+    expect(result.name).toBe("Lightning Bolt");
+    expect(result.printings).toHaveLength(1); // just the one card
+  });
+
   it("fast-path propagates non-404 errors (429 exhaustion, network)", async () => {
     const fetchMock = mockFetch([
       { ok: false, status: 500 },             // first try: 500

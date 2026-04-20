@@ -85,6 +85,8 @@ export interface CardInput {
   qty?: number;
   foil?: boolean;
   language?: string;
+  scryfallId?: string;           // fast-path: skip fuzzy resolution
+  cardmarket_id?: number | null; // pre-known from Delver Lens CSV
 }
 
 export interface ScryfallPrinting {

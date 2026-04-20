@@ -41,13 +41,62 @@ function parsePrice(raw: string | null | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
+function buildResult(
+  selected: ScryfallCard,
+  foil: boolean,
+  allPrintings: ScryfallCard[],
+): ScryfallResolveResult {
+  const priceKey: "eur" | "eur_foil" = foil ? "eur_foil" : "eur";
+  const fallbackKey: "eur" | "eur_foil" = foil ? "eur" : "eur_foil";
+
+  const printings: ScryfallPrinting[] = allPrintings.map((p) => ({
+    set: p.set,
+    setName: p.set_name,
+    scryfallId: p.id,
+    collectorNumber: p.collector_number ?? "",
+    cardmarketId: p.cardmarket_id ?? null,
+    cardmarketUrl: p.purchase_uris?.cardmarket ?? "",
+    imageUrl: getImage(p),
+    trendPrice: parsePrice(p.prices?.[priceKey]) ?? parsePrice(p.prices?.[fallbackKey]),
+  }));
+
+  const primary = parsePrice(selected.prices?.[priceKey]);
+  const fallback = parsePrice(selected.prices?.[fallbackKey]);
+  const trendPrice = primary ?? fallback;
+  const foilOnly = primary === null && fallback !== null && priceKey === "eur";
+
+  return {
+    name: selected.name,
+    set: selected.set,
+    setName: selected.set_name,
+    collectorNumber: selected.collector_number ?? "",
+    scryfallId: selected.id,
+    cardmarketId: selected.cardmarket_id ?? null,
+    cardmarketUrl: selected.purchase_uris?.cardmarket ?? "",
+    imageUrl: getImage(selected),
+    trendPrice,
+    foilOnly,
+    printings,
+  };
+}
+
 export async function resolveScryfall(args: {
   name: string;
   set?: string;
   collectorNumber?: string;
   foil?: boolean;
+  scryfallId?: string;
 }): Promise<ScryfallResolveResult> {
-  const { name, set, collectorNumber, foil } = args;
+  const { name, set, collectorNumber, foil, scryfallId } = args;
+
+  // Fastest path: direct Scryfall ID lookup. Skips fuzzy + printings search.
+  if (scryfallId) {
+    const direct = await scryfallFetch<ScryfallCard>(
+      `https://api.scryfall.com/cards/${encodeURIComponent(scryfallId)}`
+    );
+    return buildResult(direct, foil ?? false, [direct]);
+  }
+
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Card name is required");
 
@@ -86,20 +135,6 @@ export async function resolveScryfall(args: {
     `https://api.scryfall.com/cards/search?q=${q}&unique=prints&order=released&dir=desc`
   ).catch(() => ({ data: [card as ScryfallCard] }));
 
-  const priceKey: "eur" | "eur_foil" = foil ? "eur_foil" : "eur";
-  const fallbackKey: "eur" | "eur_foil" = foil ? "eur" : "eur_foil";
-
-  const printings: ScryfallPrinting[] = printingsRes.data.map((p) => ({
-    set: p.set,
-    setName: p.set_name,
-    scryfallId: p.id,
-    collectorNumber: p.collector_number ?? "",
-    cardmarketId: p.cardmarket_id ?? null,
-    cardmarketUrl: p.purchase_uris?.cardmarket ?? "",
-    imageUrl: getImage(p),
-    trendPrice: parsePrice(p.prices?.[priceKey]) ?? parsePrice(p.prices?.[fallbackKey]),
-  }));
-
   let selected: ScryfallCard = card;
   if (set && card.set.toLowerCase() !== set.toLowerCase()) {
     const match = printingsRes.data.find((p) => p.set.toLowerCase() === set.toLowerCase());
@@ -109,22 +144,5 @@ export async function resolveScryfall(args: {
     if (match) selected = match;
   }
 
-  const primary = parsePrice(selected.prices?.[priceKey]);
-  const fallback = parsePrice(selected.prices?.[fallbackKey]);
-  const trendPrice = primary ?? fallback;
-  const foilOnly = primary === null && fallback !== null && priceKey === "eur";
-
-  return {
-    name: selected.name,
-    set: selected.set,
-    setName: selected.set_name,
-    collectorNumber: selected.collector_number ?? "",
-    scryfallId: selected.id,
-    cardmarketId: selected.cardmarket_id ?? null,
-    cardmarketUrl: selected.purchase_uris?.cardmarket ?? "",
-    imageUrl: getImage(selected),
-    trendPrice,
-    foilOnly,
-    printings,
-  };
+  return buildResult(selected, foil ?? false, printingsRes.data);
 }

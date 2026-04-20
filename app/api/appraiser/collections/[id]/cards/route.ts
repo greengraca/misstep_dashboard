@@ -92,6 +92,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
         set: input.set,
         collectorNumber: input.collectorNumber,
         foil,
+        scryfallId: input.scryfallId,
       });
     } catch (err) {
       errors.push({ input, error: err instanceof Error ? err.message : "resolve failed" });
@@ -127,7 +128,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       foil: resolved.foilOnly ? true : foil,
       qty,
       scryfallId: resolved.scryfallId,
-      cardmarket_id: resolved.cardmarketId,
+      cardmarket_id: input.cardmarket_id ?? resolved.cardmarketId,
       cardmarketUrl: resolved.cardmarketUrl,
       imageUrl: resolved.imageUrl,
       trendPrice: resolved.trendPrice,
