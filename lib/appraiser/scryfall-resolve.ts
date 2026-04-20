@@ -41,6 +41,25 @@ function parsePrice(raw: string | null | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
+/**
+ * Scryfall's `purchase_uris.cardmarket` is `.../Products?idProduct=N&referrer=scryfall&utm_*`
+ * — the UTM params are Scryfall's referral tracking and aren't needed for CM to
+ * resolve the product. Strip them so stored/displayed links stay clean.
+ */
+export function cleanCardmarketUrl(raw: string | undefined): string {
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    const keep = new URLSearchParams();
+    const idProduct = u.searchParams.get("idProduct");
+    if (idProduct) keep.set("idProduct", idProduct);
+    const query = keep.toString();
+    return query ? `${u.origin}${u.pathname}?${query}` : `${u.origin}${u.pathname}`;
+  } catch {
+    return raw;
+  }
+}
+
 function buildResult(
   selected: ScryfallCard,
   foil: boolean,
@@ -55,7 +74,7 @@ function buildResult(
     scryfallId: p.id,
     collectorNumber: p.collector_number ?? "",
     cardmarketId: p.cardmarket_id ?? null,
-    cardmarketUrl: p.purchase_uris?.cardmarket ?? "",
+    cardmarketUrl: cleanCardmarketUrl(p.purchase_uris?.cardmarket),
     imageUrl: getImage(p),
     trendPrice: parsePrice(p.prices?.[priceKey]) ?? parsePrice(p.prices?.[fallbackKey]),
   }));
@@ -72,7 +91,7 @@ function buildResult(
     collectorNumber: selected.collector_number ?? "",
     scryfallId: selected.id,
     cardmarketId: selected.cardmarket_id ?? null,
-    cardmarketUrl: selected.purchase_uris?.cardmarket ?? "",
+    cardmarketUrl: cleanCardmarketUrl(selected.purchase_uris?.cardmarket),
     imageUrl: getImage(selected),
     trendPrice,
     foilOnly,

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
+import { cleanCardmarketUrl } from "@/lib/appraiser/scryfall-resolve";
 import type { AppraiserCard } from "@/lib/appraiser/types";
 import { sectionHeader, btnSecondaryClass, btnSecondary } from "./ui";
 
@@ -140,7 +141,10 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                     {c.imageUrl && <img src={c.imageUrl} alt="" style={{ width: 22, height: 30, objectFit: "cover", borderRadius: 3 }} />}
                     {c.cardmarketUrl ? (
                       <a
-                        href={c.foil ? `${c.cardmarketUrl}${c.cardmarketUrl.includes("?") ? "&" : "?"}isFoil=Y` : c.cardmarketUrl}
+                        href={(() => {
+                          const clean = cleanCardmarketUrl(c.cardmarketUrl);
+                          return c.foil ? `${clean}${clean.includes("?") ? "&" : "?"}isFoil=Y` : clean;
+                        })()}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:underline"
