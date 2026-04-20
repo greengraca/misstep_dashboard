@@ -68,8 +68,7 @@ export default function Appraiser() {
   const handleRefresh = useCallback(async () => {
     if (!selectedId) return;
     await fetch(`/api/appraiser/collections/${selectedId}/refresh`, { method: "POST" });
-    detailSwr.mutate();
-    listSwr.mutate();
+    await Promise.all([detailSwr.mutate(), listSwr.mutate()]);
   }, [selectedId, detailSwr, listSwr]);
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { Loader2 } from "lucide-react";
 import { parseDelverCsv, DelverCsvError } from "@/lib/appraiser/delver-csv";
 import type { AppraiserCard, CardInput } from "@/lib/appraiser/types";
 import {
@@ -8,6 +9,8 @@ import {
   sectionHeader,
   textarea as textareaStyle,
   btnPrimary,
+  btnPrimaryHover,
+  hoverHandlers,
   statusStyle,
 } from "./ui";
 
@@ -17,6 +20,7 @@ interface Props {
 }
 
 type Status = { msg: string; type: "success" | "error" | "info" } | null;
+type UploadPhase = "idle" | "parsing" | "resolving";
 
 function parseTextLines(text: string): CardInput[] {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -35,6 +39,8 @@ function parseTextLines(text: string): CardInput[] {
 export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
   const [text, setText] = useState("");
   const [adding, setAdding] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
+  const [uploadCount, setUploadCount] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,6 +87,8 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
       return;
     }
     setAdding(true);
+    setUploadPhase("parsing");
+    setUploadCount(0);
     try {
       const all: CardInput[] = [];
       for (const f of arr) {
@@ -99,6 +107,8 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
         setStatus({ msg: "CSV contained no rows", type: "error" });
         return;
       }
+      setUploadPhase("resolving");
+      setUploadCount(all.length);
       const data = await postCards(all);
       setStatus({
         msg: `CSV: added ${data.cards.length}${data.mergedCardIds.length ? `, ${data.mergedCardIds.length} merged` : ""}${data.errors.length ? `, ${data.errors.length} failed` : ""}`,
@@ -109,6 +119,8 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
       setStatus({ msg: (err as Error).message, type: "error" });
     } finally {
       setAdding(false);
+      setUploadPhase("idle");
+      setUploadCount(0);
       setTimeout(() => setStatus(null), 6000);
     }
   }, [onCardsAdded, postCards]);
@@ -119,16 +131,30 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
     if (e.dataTransfer.files.length) handleCsvFiles(e.dataTransfer.files);
   }, [adding, handleCsvFiles]);
 
-  const drop = {
+  const isUploading = uploadPhase !== "idle";
+  const dropClassName = isUploading ? "appraiser-pulsing" : "";
+  const drop: React.CSSProperties = {
     padding: 24,
-    border: `2px dashed ${dragging ? "var(--accent)" : "var(--border)"}`,
+    border: `2px dashed ${dragging || isUploading ? "var(--accent)" : "var(--border)"}`,
     borderRadius: "var(--radius)",
-    color: "var(--text-secondary)",
-    textAlign: "center" as const,
+    color: dragging || isUploading ? "var(--accent)" : "var(--text-secondary)",
+    textAlign: "center",
     cursor: adding ? "default" : "pointer",
-    background: dragging ? "var(--accent-light)" : "transparent",
-    transition: "background 120ms, border-color 120ms",
+    background: dragging ? "var(--accent-light)" : isUploading ? "var(--accent-light)" : "transparent",
+    transition: "background 120ms, border-color 120ms, color 120ms",
     fontSize: 13,
+    minHeight: 80,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  };
+
+  const uploadLabel = () => {
+    if (uploadPhase === "parsing") return "Parsing CSV…";
+    if (uploadPhase === "resolving") return `Resolving ${uploadCount} card${uploadCount === 1 ? "" : "s"} via Scryfall…`;
+    if (dragging) return "Drop CSV";
+    return "Drop a Delver Lens CSV or click to browse";
   };
 
   return (
@@ -148,12 +174,23 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
       />
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button style={btnPrimary} onClick={handleAddText} disabled={adding || !text.trim()}>
-          {adding ? "Adding…" : "Add Cards"}
+        <button
+          style={btnPrimary}
+          {...hoverHandlers(btnPrimaryHover)}
+          onClick={handleAddText}
+          disabled={adding || !text.trim()}
+        >
+          {adding && !isUploading ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Loader2 size={14} style={{ animation: "appraiserSpin 0.9s linear infinite" }} />
+              Adding…
+            </span>
+          ) : "Add Cards"}
         </button>
       </div>
 
       <div
+        className={dropClassName}
         style={drop}
         onDrop={onDrop}
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -163,7 +200,10 @@ export default function AppraiserInput({ collectionId, onCardsAdded }: Props) {
         <input ref={fileInputRef} type="file" accept=".csv,text/csv" multiple
           onChange={(e) => { if (e.target.files) { handleCsvFiles(e.target.files); e.target.value = ""; } }}
           style={{ display: "none" }} />
-        {dragging ? "Drop CSV" : adding ? "Parsing…" : "Drop a Delver Lens CSV or click to browse"}
+        {isUploading && (
+          <Loader2 size={16} style={{ animation: "appraiserSpin 0.9s linear infinite" }} />
+        )}
+        <span>{uploadLabel()}</span>
       </div>
 
       {status && <div style={statusStyle(status.type)}>{status.msg}</div>}

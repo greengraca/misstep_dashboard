@@ -17,13 +17,19 @@ export const sectionHeader: CSSProperties = {
   fontFamily: "var(--font-mono)",
 };
 
+// Base dimensions shared by input + button so they line up perfectly in a row
+const FIELD_PADDING_Y = 9;
+const FIELD_FONT_SIZE = 14;
+const FIELD_LINE_HEIGHT = 1.4;
+
 export const input: CSSProperties = {
-  padding: "8px 12px",
+  padding: `${FIELD_PADDING_Y}px 12px`,
   background: "var(--bg-card)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius)",
   color: "var(--text-primary)",
-  fontSize: 14,
+  fontSize: FIELD_FONT_SIZE,
+  lineHeight: FIELD_LINE_HEIGHT,
   fontFamily: "inherit",
 };
 
@@ -36,21 +42,28 @@ export const textarea: CSSProperties = {
 };
 
 export const btnBase: CSSProperties = {
-  padding: "8px 14px",
+  padding: `${FIELD_PADDING_Y}px 14px`,
   borderRadius: "var(--radius)",
-  fontSize: 13,
+  fontSize: FIELD_FONT_SIZE,
+  lineHeight: FIELD_LINE_HEIGHT,
   fontWeight: 500,
   cursor: "pointer",
-  transition: "background 120ms, border-color 120ms, color 120ms",
+  transition: "background 120ms, border-color 120ms, color 120ms, opacity 120ms",
   border: "1px solid transparent",
   fontFamily: "inherit",
+  whiteSpace: "nowrap",
 };
 
 export const btnPrimary: CSSProperties = {
   ...btnBase,
   background: "var(--accent)",
   color: "var(--accent-text)",
-  border: "none",
+  border: "1px solid var(--accent)", // transparent-equivalent: same color as bg, keeps height parity with bordered inputs
+};
+
+export const btnPrimaryHover: CSSProperties = {
+  background: "var(--accent-hover)",
+  borderColor: "var(--accent-hover)",
 };
 
 export const btnSecondary: CSSProperties = {
@@ -60,6 +73,12 @@ export const btnSecondary: CSSProperties = {
   color: "var(--text-secondary)",
 };
 
+export const btnSecondaryHover: CSSProperties = {
+  background: "var(--bg-hover)",
+  borderColor: "var(--border-hover)",
+  color: "var(--text-primary)",
+};
+
 export const btnDanger: CSSProperties = {
   ...btnBase,
   background: "transparent",
@@ -67,13 +86,37 @@ export const btnDanger: CSSProperties = {
   color: "var(--error)",
 };
 
+export const btnDangerHover: CSSProperties = {
+  background: "var(--error-light)",
+};
+
 export const btnGhost: CSSProperties = {
   ...btnBase,
   background: "transparent",
-  border: "none",
+  border: "1px solid transparent",
   color: "var(--text-muted)",
   padding: "4px 6px",
 };
+
+/**
+ * Apply a hover style on any button via inline mouse handlers.
+ *
+ *   <button style={btnSecondary} {...hoverHandlers(btnSecondaryHover)} />
+ */
+export function hoverHandlers(hoverStyle: CSSProperties) {
+  return {
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      if ((e.currentTarget as HTMLButtonElement).disabled) return;
+      Object.assign(e.currentTarget.style, hoverStyle);
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
+      // Reset the properties we set — re-applying the base style as a delta.
+      for (const key of Object.keys(hoverStyle)) {
+        (e.currentTarget.style as unknown as Record<string, string>)[key] = "";
+      }
+    },
+  };
+}
 
 export const statusStyle = (type: "success" | "error" | "info"): CSSProperties => {
   const map = {
@@ -88,3 +131,5 @@ export const statusStyle = (type: "success" | "error" | "info"): CSSProperties =
     borderRadius: "var(--radius)",
   };
 };
+
+export const spinKeyframes = "appraiserSpin";

@@ -121,18 +121,37 @@ button, [role="button"], summary {
   border-radius: var(--radius);
 }
 
+.appraiser-field,
+.appraiser-field:focus,
+.appraiser-field:focus-visible,
+.appraiser-field:hover {
+  outline: none !important;
+  box-shadow: none;
+}
 .appraiser-field {
-  outline: none;
   transition: border-color 120ms, background 120ms;
 }
 .appraiser-field:hover:not(:disabled) {
   border-color: var(--border-hover);
 }
-.appraiser-field:focus:not(:disabled) {
+.appraiser-field:focus:not(:disabled),
+.appraiser-field:focus-visible:not(:disabled) {
   border-color: var(--accent);
   background: var(--bg-card-hover);
 }
 .appraiser-field:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+@keyframes appraiserSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes appraiserPulse {
+  0%, 100% { border-color: var(--accent); background: var(--accent-light); }
+  50% { border-color: var(--accent-border-strong); background: var(--bg-card-hover); }
+}
+.appraiser-pulsing {
+  animation: appraiserPulse 1.2s ease-in-out infinite;
 }

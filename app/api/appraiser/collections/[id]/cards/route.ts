@@ -128,7 +128,14 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       foil: resolved.foilOnly ? true : foil,
       qty,
       scryfallId: resolved.scryfallId,
-      cardmarket_id: input.cardmarket_id ?? resolved.cardmarketId,
+      // Always use Scryfall's cardmarket_id — the card-name link opens
+      // Scryfall's purchase_uris.cardmarket (built from this field), and
+      // the extension scrape sends the productId of the page it lands on.
+      // If we stored a different CM ID (e.g. the one from the Delver Lens
+      // CSV, which can diverge for some variants), the fan-out filter
+      // {cardmarket_id: productId} would miss and prices would land in the
+      // DB but never flow back to the appraiser doc.
+      cardmarket_id: resolved.cardmarketId,
       cardmarketUrl: resolved.cardmarketUrl,
       imageUrl: resolved.imageUrl,
       trendPrice: resolved.trendPrice,

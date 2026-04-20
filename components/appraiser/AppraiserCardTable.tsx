@@ -4,7 +4,7 @@ import { useState } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import type { AppraiserCard } from "@/lib/appraiser/types";
-import { sectionHeader, btnSecondary, btnGhost } from "./ui";
+import { sectionHeader, btnSecondary, btnSecondaryHover, btnGhost, hoverHandlers } from "./ui";
 
 interface Props {
   collectionId: string;
@@ -134,8 +134,15 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                     ) : c.name}
                   </div>
                 </td>
-                <td style={{ ...td, color: "var(--text-secondary)" }}>
-                  {c.set ? `${c.set.toUpperCase()}${c.collectorNumber ? " #" + c.collectorNumber : ""}` : "?"}
+                <td style={td}>
+                  {c.set ? (
+                    <>
+                      <span style={{ color: "var(--text-secondary)" }}>{c.set.toUpperCase()}</span>
+                      {c.collectorNumber && (
+                        <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>#{c.collectorNumber}</span>
+                      )}
+                    </>
+                  ) : "?"}
                 </td>
                 <td style={td}>
                   <LanguageFlag language={c.language} />
@@ -226,7 +233,13 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
             -{p}%: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom * (1 - p / 100))}</strong>
           </span>
         ))}
-        <button onClick={copyAll} style={{ ...btnSecondary, marginLeft: "auto" }}>Copy</button>
+        <button
+          onClick={copyAll}
+          style={{ ...btnSecondary, marginLeft: "auto" }}
+          {...hoverHandlers(btnSecondaryHover)}
+        >
+          Copy
+        </button>
       </div>
     </div>
   );

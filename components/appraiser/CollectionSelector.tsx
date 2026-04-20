@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import Select from "@/components/dashboard/select";
 import type { AppraiserCollection } from "@/lib/appraiser/types";
 import {
@@ -9,8 +10,12 @@ import {
   input,
   textarea as textareaStyle,
   btnPrimary,
+  btnPrimaryHover,
   btnSecondary,
+  btnSecondaryHover,
   btnDanger,
+  btnDangerHover,
+  hoverHandlers,
 } from "./ui";
 
 interface Props {
@@ -18,7 +23,7 @@ interface Props {
   selectedId: string;
   onSelect: (id: string) => void;
   onChanged: () => void;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
 }
 
 function eur(n: number) {
@@ -30,6 +35,7 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   const current = collections.find((c) => c._id === selectedId);
   const [notes, setNotes] = useState(current?.notes ?? "");
@@ -37,6 +43,16 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
   useEffect(() => {
     setNotes(current?.notes ?? "");
   }, [current?._id, current?.notes]);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -117,9 +133,25 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
         </div>
         {selectedId && !renaming && (
           <>
-            <button style={btnSecondary} onClick={onRefresh}>Refresh Prices</button>
-            <button style={btnSecondary} onClick={startRename}>Rename</button>
-            <button style={btnDanger} onClick={handleDelete}>Delete</button>
+            <button
+              style={btnSecondary}
+              {...hoverHandlers(btnSecondaryHover)}
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              {refreshing ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Loader2 size={14} style={{ animation: "appraiserSpin 0.9s linear infinite" }} />
+                  Refreshing…
+                </span>
+              ) : "Refresh Prices"}
+            </button>
+            <button style={btnSecondary} {...hoverHandlers(btnSecondaryHover)} onClick={startRename}>
+              Rename
+            </button>
+            <button style={btnDanger} {...hoverHandlers(btnDangerHover)} onClick={handleDelete}>
+              Delete
+            </button>
           </>
         )}
         {renaming && (
@@ -132,8 +164,12 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
               onKeyDown={(e) => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenaming(false); }}
               autoFocus
             />
-            <button style={btnPrimary} onClick={saveRename}>Save</button>
-            <button style={btnSecondary} onClick={() => setRenaming(false)}>Cancel</button>
+            <button style={btnPrimary} {...hoverHandlers(btnPrimaryHover)} onClick={saveRename}>
+              Save
+            </button>
+            <button style={btnSecondary} {...hoverHandlers(btnSecondaryHover)} onClick={() => setRenaming(false)}>
+              Cancel
+            </button>
           </>
         )}
       </div>
@@ -149,7 +185,7 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
         />
       )}
 
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
         <input
           className="appraiser-field"
           style={{ ...input, flex: 1 }}
@@ -158,7 +194,12 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
         />
-        <button style={btnPrimary} onClick={handleCreate} disabled={creating || !newName.trim()}>
+        <button
+          style={btnPrimary}
+          {...hoverHandlers(btnPrimaryHover)}
+          onClick={handleCreate}
+          disabled={creating || !newName.trim()}
+        >
           {creating ? "Creating…" : "New collection"}
         </button>
       </div>
