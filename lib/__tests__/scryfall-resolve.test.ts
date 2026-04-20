@@ -28,7 +28,8 @@ const mockPrintings = {
 
 function mockFetch(sequence: Array<{ ok: boolean; status?: number; body?: unknown }>) {
   let i = 0;
-  return vi.fn(async () => {
+  return vi.fn(async (url: string) => {
+    void url;
     const r = sequence[i++];
     return {
       ok: r.ok,
@@ -132,5 +133,56 @@ describe("resolveScryfall", () => {
 
     expect(fetchMock.mock.calls[0][0]).toContain("/cards/mh2/134");
     expect(result.set).toBe("mh2");
+  });
+
+  it("fast-path falls through to fuzzy on name mismatch", async () => {
+    const wrongCard = { ...mockCard, id: "wrong-id", name: "Lightning Not-Bolt" };
+    const fetchMock = mockFetch([
+      { ok: true, body: wrongCard },          // direct returns a different card
+      { ok: true, body: mockCard },           // fuzzy returns the right one
+      { ok: true, body: mockPrintings },      // prints search
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = resolveScryfall({ name: "Lightning Bolt", set: "mh2", collectorNumber: "134" });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0][0]).toContain("/cards/mh2/134");
+    expect(fetchMock.mock.calls[1][0]).toContain("fuzzy=Lightning");
+    expect(result.name).toBe("Lightning Bolt");
+  });
+
+  it("fast-path falls through to fuzzy on 404", async () => {
+    const fetchMock = mockFetch([
+      { ok: false, status: 404 },             // direct 404
+      { ok: true, body: mockCard },           // fuzzy succeeds
+      { ok: true, body: mockPrintings },
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = resolveScryfall({ name: "Lightning Bolt", set: "mh2", collectorNumber: "9999" });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(result.name).toBe("Lightning Bolt");
+  });
+
+  it("fast-path propagates non-404 errors (429 exhaustion, network)", async () => {
+    const fetchMock = mockFetch([
+      { ok: false, status: 500 },             // first try: 500
+      { ok: false, status: 500 },             // retry 1: 500
+      { ok: false, status: 500 },             // retry 2: 500 (exhausted)
+    ]);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = resolveScryfall({ name: "Lightning Bolt", set: "mh2", collectorNumber: "134" });
+    await vi.runAllTimersAsync();
+
+    await expect(promise).rejects.toThrow(/Scryfall error 500/);
+    // Must NOT have fallen through to fuzzy after a 500
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });

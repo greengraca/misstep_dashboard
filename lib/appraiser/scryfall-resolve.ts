@@ -60,15 +60,25 @@ export async function resolveScryfall(args: {
         `https://api.scryfall.com/cards/${encodeURIComponent(set.toLowerCase())}/${encodeURIComponent(collectorNumber)}`
       );
       if (direct.name.toLowerCase() === trimmed.toLowerCase()) card = direct;
-    } catch {
-      // fall through to fuzzy
+      // name mismatch: fall through to fuzzy — user likely typed the wrong CN
+    } catch (err) {
+      // Only 404 (wrong set/CN combo) is an expected fall-through case.
+      // Propagate everything else (429 exhaustion, network errors, etc).
+      if (!(err instanceof Error && /\(404\)/.test(err.message))) throw err;
     }
   }
 
   if (!card) {
-    card = await scryfallFetch<ScryfallCard>(
-      `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(trimmed)}`
-    );
+    try {
+      card = await scryfallFetch<ScryfallCard>(
+        `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(trimmed)}`
+      );
+    } catch (err) {
+      if (err instanceof Error && /\(404\)/.test(err.message)) {
+        throw new Error(`Card not found on Scryfall: "${trimmed}" (404)`);
+      }
+      throw err;
+    }
   }
 
   const q = encodeURIComponent(`!"${card.name}"`);
