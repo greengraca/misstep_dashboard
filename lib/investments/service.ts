@@ -203,18 +203,14 @@ export async function computeBaselineProgress(investmentId: ObjectId): Promise<{
   captured_cardmarket_ids: number;
   target_cardmarket_ids: number;
 }> {
-  const db = await getDb();
-  const inv = await db
-    .collection<Investment>(COL_INVESTMENTS)
-    .findOne({ _id: investmentId });
-  const captured = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .distinct("cardmarket_id", { investment_id: investmentId });
-  if (!inv) return { captured_cardmarket_ids: captured.length, target_cardmarket_ids: 0 };
   const targets = await getBaselineTargets({ id: String(investmentId) });
+  if (!targets) {
+    // Investment doesn't exist — caller should have checked, but return a safe default.
+    return { captured_cardmarket_ids: 0, target_cardmarket_ids: 0 };
+  }
   return {
-    captured_cardmarket_ids: captured.length,
-    target_cardmarket_ids: targets?.cardmarket_ids.length ?? 0,
+    captured_cardmarket_ids: targets.captured_cardmarket_ids.length,
+    target_cardmarket_ids: targets.cardmarket_ids.length,
   };
 }
 
@@ -551,7 +547,10 @@ export async function getBaselineTargets(params: { id: string }): Promise<{
   } else {
     const p = await db
       .collection<EvProduct>(COL_EV_PRODUCTS)
-      .findOne({ slug: inv.source.product_slug });
+      .findOne(
+        { slug: inv.source.product_slug },
+        { projection: { "cards.scryfall_id": 1 } }
+      );
     if (!p) return null;
     const scryfallIds = p.cards.map((c) => c.scryfall_id);
     const cards = await db
