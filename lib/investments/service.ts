@@ -760,9 +760,19 @@ export async function computeBaselineDiagnosis(params: {
     cmExpansionId = set?.cm_expansion_id ?? null;
     const productIds = cardIds.map((c) => c.cardmarket_id as number);
     if (productIds.length > 0) {
-      dbStockCount = await db
+      // IMPORTANT: db_stock_count is a *card* count (sum of qty), not a
+      // listing count. Matches what Cardmarket reports in the
+      // <select name="idExpansion"> dropdown — e.g. "Foundations
+      // Jumpstart (1341)" means 1341 cards across N listings. Comparing
+      // listings to dropdown-cards would be meaningless.
+      const agg = await db
         .collection("dashboard_cm_stock")
-        .countDocuments({ productId: { $in: productIds } });
+        .aggregate<{ total: number }>([
+          { $match: { productId: { $in: productIds } } },
+          { $group: { _id: null, total: { $sum: "$qty" } } },
+        ])
+        .next();
+      dbStockCount = agg?.total ?? 0;
     }
   }
 
