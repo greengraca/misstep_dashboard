@@ -392,6 +392,7 @@ export default function StockContent() {
         loading={isLoading}
         error={search?.error || null}
         total={search?.total || 0}
+        totalQty={search?.totalQty ?? null}
         page={page}
         pageSize={pageSize}
         setMap={setsData?.sets}

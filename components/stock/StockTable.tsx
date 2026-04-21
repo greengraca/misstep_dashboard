@@ -53,6 +53,7 @@ interface StockTableProps {
   loading: boolean;
   error: string | null;
   total: number;
+  totalQty?: number | null;
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
@@ -246,6 +247,7 @@ export default function StockTable({
   loading,
   error,
   total,
+  totalQty,
   page,
   pageSize,
   onPageChange,
@@ -368,7 +370,16 @@ export default function StockTable({
         }}
       >
         <span>
-          Page {page} of {totalPages} · {total} results
+          Page {page} of {totalPages} · {total.toLocaleString()} listing{total === 1 ? "" : "s"}
+          {typeof totalQty === "number" && totalQty > 0 && (
+            <>
+              {" · "}
+              <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                {totalQty.toLocaleString()}
+              </span>{" "}
+              card{totalQty === 1 ? "" : "s"}
+            </>
+          )}
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
