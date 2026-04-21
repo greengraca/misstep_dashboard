@@ -1,195 +1,269 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { TrendingUp, Plus } from "lucide-react";
+import { fetcher } from "@/lib/fetcher";
+import { TrendingUp, Plus, Package, Boxes } from "lucide-react";
+import StatCard from "@/components/dashboard/stat-card";
 import CreateInvestmentModal from "./CreateInvestmentModal";
 import type { InvestmentListItem, InvestmentStatus } from "@/lib/investments/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const surfaceStyle = {
+  background: "var(--surface-gradient)",
+  backdropFilter: "var(--surface-blur)",
+  border: "1px solid rgba(255,255,255,0.10)",
+};
 
-function eur(n: number): string {
-  return `€${n.toFixed(2)}`;
-}
+const formatEur = (n: number | null | undefined) =>
+  n != null ? `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : "—";
 
 function sourceLabel(src: InvestmentListItem["source"]): string {
-  if (src.kind === "box") return `${src.box_count}× ${src.set_code} (${src.booster_type})`;
-  return `${src.unit_count}× ${src.product_slug} (product)`;
+  if (src.kind === "box") {
+    return `${src.box_count}× ${src.set_code.toUpperCase()} · ${src.booster_type}`;
+  }
+  return `${src.unit_count}× ${src.product_slug}`;
 }
 
-type TabKey = "baseline_captured" | "listing" | "closed" | "archived" | "all";
+const STATUS_TABS: { key: InvestmentStatus | "all"; label: string }[] = [
+  { key: "baseline_captured", label: "Pending baseline" },
+  { key: "listing", label: "Listing" },
+  { key: "closed", label: "Closed" },
+  { key: "archived", label: "Archived" },
+  { key: "all", label: "All" },
+];
+
+function statusBadge(status: InvestmentStatus) {
+  const map: Record<InvestmentStatus, { bg: string; color: string; label: string }> = {
+    baseline_captured: { bg: "rgba(251, 191, 36, 0.12)", color: "var(--warning)", label: "pending baseline" },
+    listing: { bg: "rgba(63,206,229,0.15)", color: "var(--accent)", label: "listing" },
+    closed: { bg: "rgba(52, 211, 153, 0.12)", color: "var(--success)", label: "closed" },
+    archived: { bg: "rgba(255,255,255,0.06)", color: "var(--text-muted)", label: "archived" },
+  };
+  const s = map[status];
+  return (
+    <span
+      className="px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap"
+      style={{ background: s.bg, color: s.color }}
+    >
+      {s.label}
+    </span>
+  );
+}
 
 export default function InvestmentsContent() {
-  const [tab, setTab] = useState<TabKey>("listing");
+  const [tab, setTab] = useState<InvestmentStatus | "all">("listing");
   const [showCreate, setShowCreate] = useState(false);
+
+  const url = tab === "all" ? "/api/investments" : `/api/investments?status=${tab}`;
   const { data, mutate, isLoading } = useSWR<{ investments: InvestmentListItem[] }>(
-    tab === "all" ? "/api/investments" : `/api/investments?status=${tab}`,
+    url,
     fetcher,
     { dedupingInterval: 30_000 }
   );
   const rows = data?.investments ?? [];
 
-  const totalCost = rows.reduce((s, r) => s + r.cost_total_eur, 0);
-  const totalNet = rows.reduce(
-    (s, r) => s + r.realized_eur + r.sealed_flips_total_eur - r.cost_total_eur,
-    0
-  );
-
-  const tabLabel: Record<TabKey, string> = {
-    baseline_captured: "Pending baseline",
-    listing: "Listing",
-    closed: "Closed",
-    archived: "Archived",
-    all: "All",
-  };
+  const { deployed, realized, listed, plBlended } = useMemo(() => {
+    let deployed = 0, realized = 0, listed = 0;
+    for (const r of rows) {
+      if (r.status === "archived") continue;
+      deployed += r.cost_total_eur;
+      realized += r.realized_eur + r.sealed_flips_total_eur;
+      listed += r.listed_value_eur;
+    }
+    return { deployed, realized, listed, plBlended: realized + listed - deployed };
+  }, [rows]);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <TrendingUp className="h-6 w-6" /> Investments
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+            Investments
           </h1>
-          <p className="text-sm text-gray-500">Sealed purchases + their attributed singles</p>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Sealed purchases + their attributed singles
+          </p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+          style={{ background: "var(--accent)", color: "var(--accent-text)" }}
         >
-          <Plus className="h-4 w-4" /> New Investment
+          <Plus size={14} /> New Investment
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <StatCard label="Total deployed" value={eur(totalCost)} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
-          label="Net realized (so far)"
-          value={eur(totalNet)}
-          tone={totalNet >= 0 ? "positive" : "negative"}
+          title="Deployed"
+          value={formatEur(deployed)}
+          subtitle={rows.length ? `${rows.length} investment${rows.length === 1 ? "" : "s"}` : undefined}
+          icon={<Boxes size={18} style={{ color: "var(--accent)" }} />}
+        />
+        <StatCard
+          title="Listed value"
+          value={formatEur(listed)}
+          subtitle="Current stock × live price"
+          icon={<Package size={18} style={{ color: "var(--accent)" }} />}
+        />
+        <StatCard
+          title="Realized net"
+          value={formatEur(realized)}
+          subtitle="Sold + sealed flips"
+          icon={<TrendingUp size={18} style={{ color: "var(--accent)" }} />}
+        />
+        <StatCard
+          title="P/L blended"
+          value={formatEur(plBlended)}
+          subtitle={plBlended >= 0 ? "Above cost" : "Below cost"}
+          icon={
+            <TrendingUp
+              size={18}
+              style={{ color: plBlended >= 0 ? "var(--success)" : "var(--error)" }}
+            />
+          }
         />
       </div>
 
-      <div className="flex gap-2 border-b">
-        {(["baseline_captured", "listing", "closed", "archived", "all"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={
-              "px-3 py-2 text-sm " +
-              (tab === t
-                ? "border-b-2 border-indigo-600 text-indigo-600"
-                : "text-gray-500 hover:text-gray-700")
-            }
-          >
-            {tabLabel[t]}
-          </button>
-        ))}
+      <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
+        <div
+          className="flex gap-0 px-4 pt-4 overflow-x-auto"
+          style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
+        >
+          {STATUS_TABS.map((t) => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className="px-3 py-2 text-xs font-medium transition-all whitespace-nowrap shrink-0"
+                style={{
+                  color: active ? "var(--accent)" : "var(--text-muted)",
+                  borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
+                  marginBottom: "-1px",
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="px-4 pb-4">
+          {isLoading ? (
+            <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
+              Loading…
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
+              {tab === "listing" ? "No active investments." : "Nothing here yet."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full text-xs min-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                <thead>
+                  <tr style={{ color: "var(--text-muted)" }}>
+                    <th className="text-left py-2 px-2 font-medium">Status</th>
+                    <th className="text-left py-2 px-2 font-medium">Name</th>
+                    <th className="text-left py-2 px-2 font-medium">Source</th>
+                    <th className="text-right py-2 px-2 font-medium">Cost</th>
+                    <th className="text-right py-2 px-2 font-medium">Listed</th>
+                    <th className="text-right py-2 px-2 font-medium">Realized</th>
+                    <th className="text-left py-2 px-2 font-medium w-40">Break-even</th>
+                    <th className="text-right py-2 px-2 font-medium">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const totalRealized = r.realized_eur + r.sealed_flips_total_eur;
+                    const ratio = r.cost_total_eur > 0 ? totalRealized / r.cost_total_eur : 0;
+                    const clamped = Math.min(Math.max(ratio, 0), 2);
+                    const past = ratio >= 1;
+                    return (
+                      <tr
+                        key={r.id}
+                        className="transition-all"
+                        style={{ borderBottom: "1px solid var(--border)" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <td className="py-2 px-2">{statusBadge(r.status)}</td>
+                        <td className="py-2 px-2">
+                          <Link
+                            href={`/investments/${r.id}`}
+                            style={{ color: "var(--accent)", textDecoration: "none" }}
+                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+                          >
+                            {r.name}
+                          </Link>
+                        </td>
+                        <td className="py-2 px-2" style={{ color: "var(--text-muted)" }}>
+                          {sourceLabel(r.source)}
+                        </td>
+                        <td className="py-2 px-2 text-right" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                          {formatEur(r.cost_total_eur)}
+                        </td>
+                        <td className="py-2 px-2 text-right" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                          {formatEur(r.listed_value_eur)}
+                        </td>
+                        <td
+                          className="py-2 px-2 text-right"
+                          style={{
+                            color: past ? "var(--success)" : "var(--text-secondary)",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          {formatEur(totalRealized)}
+                        </td>
+                        <td className="py-2 px-2">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="flex-1 h-1.5 rounded-full overflow-hidden"
+                              style={{ background: "rgba(255,255,255,0.06)", maxWidth: "120px" }}
+                            >
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${(clamped / 2) * 100}%`,
+                                  background: past ? "var(--success)" : "var(--accent)",
+                                }}
+                              />
+                            </div>
+                            <span
+                              className="text-[10px] tabular-nums"
+                              style={{
+                                color: past ? "var(--success)" : "var(--text-muted)",
+                                minWidth: "32px",
+                                fontFamily: "var(--font-mono)",
+                              }}
+                            >
+                              {Math.round(ratio * 100)}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-2 text-right" style={{ color: "var(--text-muted)" }}>
+                          {new Date(r.created_at).toLocaleDateString("pt-PT")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="text-sm text-gray-500">Loading…</div>
-      ) : rows.length === 0 ? (
-        <div className="text-sm text-gray-500">No investments in this tab.</div>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase text-gray-500 border-b">
-              <th className="py-2">Status</th>
-              <th>Name</th>
-              <th>Source</th>
-              <th className="text-right">Cost</th>
-              <th className="text-right">Listed</th>
-              <th className="text-right">Realized</th>
-              <th>Break-even</th>
-              <th className="text-right">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const realized = r.realized_eur + r.sealed_flips_total_eur;
-              const breakEvenPct =
-                r.cost_total_eur > 0 ? Math.min(realized / r.cost_total_eur, 2) : 0;
-              return (
-                <tr key={r.id} className="border-b hover:bg-gray-50">
-                  <td className="py-2">
-                    <span className={statusPillClass(r.status)}>{statusLabel(r.status)}</span>
-                  </td>
-                  <td>
-                    <Link className="text-indigo-600 hover:underline" href={`/investments/${r.id}`}>
-                      {r.name}
-                    </Link>
-                  </td>
-                  <td className="text-gray-600">{sourceLabel(r.source)}</td>
-                  <td className="text-right">{eur(r.cost_total_eur)}</td>
-                  <td className="text-right">{eur(r.listed_value_eur)}</td>
-                  <td className="text-right">{eur(realized)}</td>
-                  <td>
-                    <div className="h-2 bg-gray-200 rounded w-32">
-                      <div
-                        className={
-                          "h-2 rounded " +
-                          (breakEvenPct >= 1 ? "bg-emerald-500" : "bg-indigo-400")
-                        }
-                        style={{ width: `${Math.min(breakEvenPct, 1) * 100}%` }}
-                      />
-                    </div>
-                  </td>
-                  <td className="text-right text-gray-500">
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      {showCreate && (
-        <CreateInvestmentModal
-          onClose={() => setShowCreate(false)}
-          onCreated={() => {
-            setShowCreate(false);
-            mutate();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function statusLabel(s: InvestmentStatus): string {
-  if (s === "baseline_captured") return "pending baseline";
-  return s;
-}
-
-function statusPillClass(s: InvestmentStatus): string {
-  const base = "inline-block rounded-full px-2 py-0.5 text-xs font-medium";
-  if (s === "listing") return `${base} bg-indigo-100 text-indigo-700`;
-  if (s === "baseline_captured") return `${base} bg-amber-100 text-amber-700`;
-  if (s === "closed") return `${base} bg-emerald-100 text-emerald-700`;
-  return `${base} bg-gray-100 text-gray-600`;
-}
-
-function StatCard({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  tone?: "positive" | "negative" | "neutral";
-}) {
-  const toneClass =
-    tone === "positive"
-      ? "text-emerald-600"
-      : tone === "negative"
-        ? "text-rose-600"
-        : "text-gray-900";
-  return (
-    <div className="rounded-lg border p-4 bg-white">
-      <div className="text-xs uppercase text-gray-500">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${toneClass}`}>{value}</div>
+      <CreateInvestmentModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => {
+          setShowCreate(false);
+          mutate();
+        }}
+      />
     </div>
   );
 }
