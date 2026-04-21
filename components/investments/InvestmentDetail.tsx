@@ -168,14 +168,14 @@ export default function InvestmentDetail({ id }: { id: string }) {
 
       <InvestmentKpiRow kpis={detail.kpis} />
 
+      <InvestmentLotsTable investmentId={detail.id} />
+
       <SealedFlipsSection
         investmentId={detail.id}
         flips={detail.sealed_flips}
         canRecord={detail.status !== "archived"}
         onChanged={() => mutate()}
       />
-
-      <InvestmentLotsTable investmentId={detail.id} />
 
       <CloseInvestmentModal
         open={showClose}
