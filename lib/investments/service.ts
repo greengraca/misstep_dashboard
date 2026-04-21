@@ -363,10 +363,28 @@ export async function closeInvestment(params: { id: string }): Promise<Investmen
   const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
   if (!inv) return null;
   if (inv.status !== "listing" && inv.status !== "baseline_captured") {
-    // Allow closing from either live-listing state or an untouched baseline_captured;
-    // closed/archived are no-ops.
+    // Already closed or archived — no-op.
     return inv;
   }
+
+  const now = new Date();
+
+  // Atomically flip status first so attribution (which filters by
+  // status: "listing") can no longer grow lots for this investment.
+  // This is the load-bearing step — all subsequent lot aggregation happens
+  // against a ledger that can no longer change.
+  const locked = await db.collection<Investment>(COL_INVESTMENTS).findOneAndUpdate(
+    { _id: invId, status: { $in: ["listing", "baseline_captured"] } },
+    { $set: { status: "closed", closed_at: now } },
+    { returnDocument: "after" }
+  );
+  if (!locked) {
+    // A concurrent close already transitioned this investment; return the
+    // fresh state.
+    return db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
+  }
+
+  // Now safely aggregate and freeze lots.
   const totalOpenedAgg = await db
     .collection(COL_INVESTMENT_LOTS)
     .aggregate<{ total: number }>([
@@ -375,20 +393,15 @@ export async function closeInvestment(params: { id: string }): Promise<Investmen
     ])
     .next();
   const totalOpened = totalOpenedAgg?.total ?? 0;
-  const basis = computeCostBasisPerUnit(inv, totalOpened);
-  const now = new Date();
+  const basis = computeCostBasisPerUnit(locked, totalOpened);
   await db
     .collection(COL_INVESTMENT_LOTS)
     .updateMany(
       { investment_id: invId },
       { $set: { frozen_at: now, cost_basis_per_unit: basis } }
     );
-  const res = await db.collection<Investment>(COL_INVESTMENTS).findOneAndUpdate(
-    { _id: invId },
-    { $set: { status: "closed", closed_at: now } },
-    { returnDocument: "after" }
-  );
-  return res ?? null;
+
+  return locked;
 }
 
 // Stubs to be filled in later tasks.
