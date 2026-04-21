@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { fetcher } from "@/lib/fetcher";
-import { ArrowLeft, MoreHorizontal, Archive, Lock } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Archive, Lock, Trash2 } from "lucide-react";
 import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
 import InvestmentKpiRow from "./InvestmentKpiRow";
@@ -50,9 +51,11 @@ export default function InvestmentDetail({ id }: { id: string }) {
     { dedupingInterval: 15_000, refreshInterval: 30_000 }
   );
   const detail = data?.investment;
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showClose, setShowClose] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -110,59 +113,72 @@ export default function InvestmentDetail({ id }: { id: string }) {
             {sourceLabel(detail.source)}
           </p>
         </div>
-        {detail.status !== "archived" && (
-          <div ref={menuRef} className="relative">
-            <button
-              onClick={() => setMenuOpen((x) => !x)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+        <div ref={menuRef} className="relative">
+          <button
+            onClick={() => setMenuOpen((x) => !x)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <MoreHorizontal size={14} /> Actions
+          </button>
+          {menuOpen && (
+            <div
+              className="absolute right-0 mt-1 py-1 rounded-lg shadow-lg z-20 min-w-[200px]"
               style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--border)",
-                color: "var(--text-secondary)",
+                background: "rgba(15, 20, 25, 0.98)",
+                border: "1px solid rgba(255,255,255,0.10)",
+                boxShadow: "0 12px 40px rgba(0, 0, 0, 0.5)",
+                animation: "menuSlideIn 0.15s ease-out",
               }}
             >
-              <MoreHorizontal size={14} /> Actions
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute right-0 mt-1 py-1 rounded-lg shadow-lg z-20 min-w-[180px]"
-                style={{
-                  background: "rgba(15, 20, 25, 0.98)",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  boxShadow: "0 12px 40px rgba(0, 0, 0, 0.5)",
-                  animation: "menuSlideIn 0.15s ease-out",
-                }}
-              >
-                {detail.status !== "closed" && (
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setShowClose(true);
-                    }}
-                    className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs transition-colors"
-                    style={{ color: "var(--text-secondary)" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}
-                  >
-                    <Lock size={13} /> Close investment
-                  </button>
-                )}
+              {detail.status !== "closed" && detail.status !== "archived" && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowClose(true);
+                  }}
+                  className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs transition-colors"
+                  style={{ color: "var(--text-secondary)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+                >
+                  <Lock size={13} /> Close investment
+                </button>
+              )}
+              {detail.status !== "archived" && (
                 <button
                   onClick={() => {
                     setMenuOpen(false);
                     setShowArchive(true);
                   }}
                   className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs transition-colors"
-                  style={{ color: "var(--error)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--error-light)"; }}
+                  style={{ color: "var(--warning)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(251, 191, 36, 0.08)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                 >
                   <Archive size={13} /> Archive
                 </button>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+              <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  setShowDelete(true);
+                }}
+                className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs transition-colors"
+                style={{ color: "var(--error)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--error-light)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <Trash2 size={13} /> Delete permanently
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <BaselineBanner detail={detail} />
@@ -202,6 +218,21 @@ export default function InvestmentDetail({ id }: { id: string }) {
         title="Archive investment?"
         message="Archived investments are hidden from the default lists. Lots are preserved for history. You can still see this investment in the Archived tab."
         confirmLabel="Archive"
+        variant="danger"
+      />
+
+      <ConfirmModal
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        onConfirm={async () => {
+          const r = await fetch(`/api/investments/${detail.id}/permanent`, {
+            method: "DELETE",
+          });
+          if (r.ok) router.push("/investments");
+        }}
+        title="Delete permanently?"
+        message={`This removes "${detail.name}" and every row attached to it — baseline captures, opened lots, and sale-log entries. There is no Archived tab fallback and no way to undo this. Prefer Archive if you just want it out of the way.`}
+        confirmLabel="Delete permanently"
         variant="danger"
       />
     </div>
