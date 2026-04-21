@@ -41,17 +41,32 @@ export interface Investment {
   expected_open_card_count: number;
   baseline_completed_at?: Date;
   closed_at?: Date;
+  /** Legacy — baseline v1 walker's visited-product-page tracking. Kept for
+   *  backward compat; baseline v2 doesn't use it. */
   baseline_visited_cardmarket_ids?: number[];
+  /** Total row-count advertised by Cardmarket's `.bracketed` badge on the
+   *  expansion-scoped stock page at the time of the last baseline batch.
+   *  Baseline is "complete" when the row count stored equals this. Updated
+   *  on every baseline batch so it tracks the most recent walk filter. */
+  baseline_total_expected?: number | null;
 }
 
 export interface InvestmentBaseline {
   _id: ObjectId;
   investment_id: ObjectId;
+  /** Cardmarket article id — unique per stock row within a seller. Key of
+   *  the baseline record in v2 (instead of the {cardmarket_id, foil, ...}
+   *  tuple used in v1). Allows multiple rows per tuple when the seller has
+   *  the same card at different prices. */
+  article_id: string;
   cardmarket_id: number;
   foil: boolean;
   condition: string;
   language: string;
   qty_baseline: number;
+  /** Listed price per card at baseline capture time. Used to compute
+   *  "total listings value at baseline" on the investment detail page. */
+  price_eur: number;
   captured_at: Date;
 }
 
@@ -124,9 +139,14 @@ export interface InvestmentDetail {
     break_even_pct: number;   // 0..∞ (>1 = profit)
   };
   baseline_progress?: {
-    captured_cardmarket_ids: number;
-    target_cardmarket_ids: number;
+    captured_count: number;
+    expected_total_count: number | null;
+    complete: boolean;
   };
+  /** Aggregate of all baseline rows for this investment — shown on the
+   *  detail page so the user can see "at baseline time I had N cards
+   *  listed worth €X". Undefined when there are no baseline rows. */
+  baseline_totals?: BaselineTotals;
 }
 
 export interface CreateInvestmentBody {
@@ -151,19 +171,40 @@ export interface SealedFlipBody {
 
 export interface BaselineBatchBody {
   listings: Array<{
+    /** Cardmarket article id — required. Unique baseline key. */
+    article_id: string;
     cardmarket_id: number;
     foil: boolean;
     condition: string;
     language: string;
     qty: number;
+    price_eur: number;
   }>;
-  // cardmarket_ids the extension visited (even if empty) — so dashboard can
-  // mark them captured even when no listings exist on that page.
-  visited_cardmarket_ids: number[];
+  /** Total row-count advertised by Cardmarket's `.bracketed` badge on the
+   *  current expansion-scoped stock page view. Used for progress; updated
+   *  on the investment doc each time a batch is received. */
+  total_expected?: number;
+  /** Optional — URL query string the extension is currently on (e.g.
+   *  "maxPrice=1"). Stored in the sync_log for debugging; not persisted
+   *  on the investment. */
+  filter_hash?: string;
 }
 
 export interface BaselineTargetsResponse {
-  cardmarket_ids: number[];
+  /** Cardmarket's numeric expansion id, if we've captured it yet via the
+   *  opportunistic mapping on product pages. null → popup falls back to
+   *  the paste-URL input. */
+  cm_expansion_id: number | null;
   cm_set_names: string[];
-  captured_cardmarket_ids: number[];   // for resume / progress
+  /** Number of distinct article_ids captured in the baseline collection. */
+  captured_count: number;
+  /** Most recent CM page-header total for this investment's walk. null
+   *  until the first batch carries total_expected. */
+  expected_total_count: number | null;
+  complete: boolean;
+}
+
+export interface BaselineTotals {
+  total_cards: number;
+  total_value_eur: number;
 }

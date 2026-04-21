@@ -20,9 +20,31 @@ export async function ensureInvestmentIndexes(): Promise<void> {
       { "source.set_code": 1, status: 1 },
       { name: "sourceSetCode_status" }
     );
+    // Baseline v2 → v3 migration: unique key changes from the 5-field
+    // tuple to (investment_id, article_id). A single baseline row can now
+    // exist per Cardmarket article_id, so the same card at different prices
+    // gets one row per price bucket. Drop the old index if present; ignore
+    // errors so fresh DBs and already-migrated DBs both no-op safely.
+    try {
+      await db.collection(COL_INVESTMENT_BASELINE).dropIndex("baseline_unique_v2");
+    } catch {
+      /* index didn't exist — fine */
+    }
+    try {
+      await db.collection(COL_INVESTMENT_BASELINE).dropIndex("baseline_unique");
+    } catch {
+      /* ancient v1 index from before the 5-field rename — fine */
+    }
+    await db.collection(COL_INVESTMENT_BASELINE).createIndex(
+      { investment_id: 1, article_id: 1 },
+      { unique: true, name: "baseline_v3_unique" }
+    );
+    // Attribution joins: maybeGrowLot aggregates baseline rows by the
+    // stock tuple (multiple article_ids can share a tuple when priced in
+    // different buckets). This secondary index covers that lookup.
     await db.collection(COL_INVESTMENT_BASELINE).createIndex(
       { investment_id: 1, cardmarket_id: 1, foil: 1, condition: 1, language: 1 },
-      { unique: true, name: "baseline_unique_v2" }
+      { name: "baseline_attrib_idx" }
     );
     await db.collection(COL_INVESTMENT_LOTS).createIndex(
       { investment_id: 1, cardmarket_id: 1, foil: 1, condition: 1, language: 1 },

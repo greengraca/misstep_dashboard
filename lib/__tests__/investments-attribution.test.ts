@@ -113,9 +113,30 @@ type Collections = {
 function makeDb(state: Collections) {
   const stockCol = col(state.stock);
   const lotsCol = col(state.lots);
+  const baselineCol = col(state.baseline);
   const lookup: Record<string, ReturnType<typeof col>> = {
     dashboard_investments: col(state.investments),
-    dashboard_investment_baseline: col(state.baseline),
+    dashboard_investment_baseline: {
+      ...baselineCol,
+      // Baseline v2: multiple rows can share the same tuple (different
+      // article_ids / price buckets). maybeGrowLot aggregates qty_baseline
+      // across them. Mock handler mirrors production: match on the
+      // pipeline's $match stage, then sum the qty_baseline field.
+      aggregate: (pipeline: Record<string, unknown>[]) => ({
+        next: async () => {
+          const matchStage = pipeline.find((s) => "$match" in s);
+          const filter = (matchStage?.$match as Doc | undefined) ?? {};
+          const filtered = state.baseline.filter((b) => matches(b, filter));
+          if (filtered.length === 0) return null;
+          const total = filtered.reduce(
+            (s, b) => s + ((b.qty_baseline as number) ?? 0),
+            0
+          );
+          return { total };
+        },
+        toArray: async () => [],
+      }),
+    } as ReturnType<typeof col>,
     dashboard_investment_lots: {
       ...lotsCol,
       aggregate: (pipeline: Record<string, unknown>[]) => ({

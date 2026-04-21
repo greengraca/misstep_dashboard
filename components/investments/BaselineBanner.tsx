@@ -5,8 +5,13 @@ import type { InvestmentDetail } from "@/lib/investments/types";
 
 export default function BaselineBanner({ detail }: { detail: InvestmentDetail }) {
   if (detail.status !== "baseline_captured" || !detail.baseline_progress) return null;
-  const { captured_cardmarket_ids: cap, target_cardmarket_ids: tot } = detail.baseline_progress;
-  const pct = tot > 0 ? (cap / tot) * 100 : 0;
+  const {
+    captured_count: cap,
+    expected_total_count: tot,
+    complete,
+  } = detail.baseline_progress;
+  const pct = tot && tot > 0 ? Math.min((cap / tot) * 100, 100) : 0;
+  const showBar = tot != null && tot > 0;
 
   return (
     <div
@@ -28,30 +33,39 @@ export default function BaselineBanner({ detail }: { detail: InvestmentDetail })
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              Baseline capture in progress
+              {complete ? "Baseline ready to close" : "Baseline capture in progress"}
             </h3>
             <span
               className="text-xs tabular-nums"
               style={{ color: "var(--warning)", fontFamily: "var(--font-mono)" }}
             >
-              {cap.toLocaleString()} / {tot.toLocaleString()} · {pct.toFixed(0)}%
+              {showBar
+                ? `${cap.toLocaleString()} / ${tot!.toLocaleString()} · ${pct.toFixed(0)}%`
+                : `${cap.toLocaleString()} captured`}
             </span>
           </div>
           <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            Open the Misstep browser extension and select this investment to walk each
-            card page in the set. Lot attribution begins once baseline is marked complete.
+            Open the Misstep browser extension, pick this investment, and visit
+            your stock page filtered to the expansion (
+            <code style={{ fontFamily: "var(--font-mono)" }}>
+              /Stock/Offers/Singles?idExpansion=N
+            </code>
+            ). The extension captures every listing as you page through price
+            brackets. Mark complete when the page-header count matches.
           </p>
         </div>
       </div>
-      <div
-        className="h-1.5 rounded-full overflow-hidden"
-        style={{ background: "rgba(251, 191, 36, 0.12)" }}
-      >
+      {showBar && (
         <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, background: "var(--warning)" }}
-        />
-      </div>
+          className="h-1.5 rounded-full overflow-hidden"
+          style={{ background: "rgba(251, 191, 36, 0.12)" }}
+        >
+          <div
+            className="h-full rounded-full transition-all"
+            style={{ width: `${pct}%`, background: "var(--warning)" }}
+          />
+        </div>
+      )}
     </div>
   );
 }
