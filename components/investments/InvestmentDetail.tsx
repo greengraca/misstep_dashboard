@@ -7,6 +7,7 @@ import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import InvestmentKpiRow from "./InvestmentKpiRow";
 import BaselineBanner from "./BaselineBanner";
 import SealedFlipsSection from "./SealedFlipsSection";
+import InvestmentLotsTable from "./InvestmentLotsTable";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -40,6 +41,8 @@ export default function InvestmentDetail({ id }: { id: string }) {
         canRecord={detail.status !== "archived"}
         onChanged={() => mutate()}
       />
+
+      <InvestmentLotsTable investmentId={detail.id} />
     </div>
   );
 }
