@@ -572,10 +572,69 @@ export async function getBaselineTargets(params: { id: string }): Promise<{
   };
 }
 
-// Stubs to be filled in later tasks.
-export async function upsertBaselineBatch(): Promise<never> {
-  throw new Error("upsertBaselineBatch: implemented in Task 13");
+export async function upsertBaselineBatch(params: {
+  id: string;
+  body: import("./types").BaselineBatchBody;
+}): Promise<{ upserted: number; visited: number } | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(params.id);
+  const exists = await db
+    .collection(COL_INVESTMENTS)
+    .findOne({ _id: invId }, { projection: { _id: 1 } });
+  if (!exists) return null;
+  const now = new Date();
+  let upserted = 0;
+  for (const l of params.body.listings) {
+    if (
+      typeof l.cardmarket_id !== "number" ||
+      typeof l.foil !== "boolean" ||
+      typeof l.condition !== "string" ||
+      typeof l.qty !== "number" ||
+      l.qty < 0
+    ) {
+      continue;
+    }
+    const res = await db.collection(COL_INVESTMENT_BASELINE).updateOne(
+      {
+        investment_id: invId,
+        cardmarket_id: l.cardmarket_id,
+        foil: l.foil,
+        condition: l.condition,
+      },
+      {
+        $set: {
+          qty_baseline: l.qty,
+          captured_at: now,
+        },
+        $setOnInsert: {
+          investment_id: invId,
+          cardmarket_id: l.cardmarket_id,
+          foil: l.foil,
+          condition: l.condition,
+        },
+      },
+      { upsert: true }
+    );
+    if (res.upsertedCount > 0 || res.modifiedCount > 0) upserted++;
+  }
+  return { upserted, visited: params.body.visited_cardmarket_ids.length };
 }
-export async function markBaselineComplete(): Promise<never> {
-  throw new Error("markBaselineComplete: implemented in Task 14");
+
+export async function markBaselineComplete(params: {
+  id: string;
+}): Promise<Investment | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(params.id);
+  const res = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOneAndUpdate(
+      { _id: invId, status: "baseline_captured" },
+      { $set: { status: "listing", baseline_completed_at: new Date() } },
+      { returnDocument: "after" }
+    );
+  return res ?? null;
 }

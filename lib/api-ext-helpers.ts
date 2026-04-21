@@ -48,6 +48,35 @@ export function withExtAuth(
 }
 
 /**
+ * Ext-only (Bearer-token-required) mutation wrapper for dynamic routes.
+ * Mirrors `withExtAuth` but awaits and forwards `ctx.params` to the handler.
+ */
+export function withExtAuthParams<P>(
+  handler: (
+    req: NextRequest,
+    memberName: string,
+    params: P
+  ) => Promise<HandlerReturn>,
+  routeName: string
+) {
+  return async (request: NextRequest, ctx: { params: Promise<P> }) => {
+    try {
+      const { memberName, error } = await requireExtAuth(request);
+      if (error) return error;
+      const params = await ctx.params;
+      return toResponse(await handler(request, memberName, params));
+    } catch (err) {
+      console.error(`${routeName} error:`, err);
+      logApiError(routeName, err);
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
+    }
+  };
+}
+
+/**
  * Wraps an API route handler that accepts EITHER NextAuth session (dashboard)
  * OR extension Bearer token. Use for read-only ext routes that the frontend also calls.
  *
