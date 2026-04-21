@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { withAuthParams } from "@/lib/api-helpers";
+import { withExtAuthReadParams } from "@/lib/api-ext-helpers";
 import { logActivity } from "@/lib/activity";
 import {
   archiveInvestment,
@@ -28,7 +29,10 @@ function validatePatch(body: unknown): string | null {
   return null;
 }
 
-export const GET = withAuthParams<{ id: string }>(async (_req, _session, { id }) => {
+// Dual-auth so the extension popup can read source.set_code / status for
+// the baseline mapping-form UI. The endpoint is read-only; PATCH/DELETE
+// stay session-only below.
+export const GET = withExtAuthReadParams<{ id: string }>(async (_req, _identity, { id }) => {
   const inv = await getInvestment(id);
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 });
   const detail = await buildInvestmentDetail(inv);

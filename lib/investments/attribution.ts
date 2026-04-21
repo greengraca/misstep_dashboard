@@ -128,16 +128,25 @@ export async function maybeGrowLot(params: {
 
   for (const inv of candidates) {
     if (remainingDelta <= 0) break;
-    const baselineDoc = await params.db
+    // Baseline v2: multiple rows can share the same {cardmarket_id, foil,
+    // condition, language} tuple (one row per Cardmarket article_id, which
+    // differs across price buckets). Sum qty_baseline across all of them.
+    const baselineAgg = await params.db
       .collection(COL_INVESTMENT_BASELINE)
-      .findOne<{ qty_baseline: number }>({
-        investment_id: inv._id,
-        cardmarket_id: params.cardmarketId,
-        foil: params.foil,
-        condition: params.condition,
-        language: params.language,
-      });
-    const baseline = baselineDoc?.qty_baseline ?? 0;
+      .aggregate<{ total: number }>([
+        {
+          $match: {
+            investment_id: inv._id,
+            cardmarket_id: params.cardmarketId,
+            foil: params.foil,
+            condition: params.condition,
+            language: params.language,
+          },
+        },
+        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
+      ])
+      .next();
+    const baseline = baselineAgg?.total ?? 0;
     const lotDoc = await params.db
       .collection(COL_INVESTMENT_LOTS)
       .findOne<{ qty_opened: number; qty_sold: number }>({

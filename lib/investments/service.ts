@@ -202,17 +202,52 @@ export async function computeListedValue(investmentId: ObjectId): Promise<number
 }
 
 export async function computeBaselineProgress(investmentId: ObjectId): Promise<{
-  captured_cardmarket_ids: number;
-  target_cardmarket_ids: number;
+  captured_count: number;
+  expected_total_count: number | null;
+  complete: boolean;
 }> {
-  const targets = await getBaselineTargets({ id: String(investmentId) });
-  if (!targets) {
-    // Investment doesn't exist — caller should have checked, but return a safe default.
-    return { captured_cardmarket_ids: 0, target_cardmarket_ids: 0 };
-  }
+  const db = await getDb();
+  const [inv, capturedCount] = await Promise.all([
+    db.collection<Investment>(COL_INVESTMENTS).findOne(
+      { _id: investmentId },
+      { projection: { baseline_total_expected: 1 } }
+    ),
+    db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: investmentId }),
+  ]);
+  const expected = inv?.baseline_total_expected ?? null;
+  const complete = expected != null && capturedCount >= expected;
+  return { captured_count: capturedCount, expected_total_count: expected, complete };
+}
+
+/**
+ * Sum qty + (qty * price) across all baseline rows for the investment.
+ * Rendered on the investment detail page so the user sees "at baseline time
+ * I had N cards listed worth €X" — gives context for subsequent lot growth.
+ */
+export async function computeBaselineTotals(investmentId: ObjectId): Promise<{
+  total_cards: number;
+  total_value_eur: number;
+} | null> {
+  const db = await getDb();
+  const row = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .aggregate<{ total_cards: number; total_value_eur: number }>([
+      { $match: { investment_id: investmentId } },
+      {
+        $group: {
+          _id: null,
+          total_cards: { $sum: "$qty_baseline" },
+          total_value_eur: {
+            $sum: { $multiply: ["$qty_baseline", { $ifNull: ["$price_eur", 0] }] },
+          },
+        },
+      },
+    ])
+    .next();
+  if (!row) return null;
   return {
-    captured_cardmarket_ids: targets.captured_cardmarket_ids.length,
-    target_cardmarket_ids: targets.cardmarket_ids.length,
+    total_cards: row.total_cards ?? 0,
+    total_value_eur: row.total_value_eur ?? 0,
   };
 }
 
@@ -260,6 +295,7 @@ export async function buildInvestmentDetail(
     inv.status === "baseline_captured"
       ? await computeBaselineProgress(inv._id)
       : undefined;
+  const baselineTotals = await computeBaselineTotals(inv._id);
   return {
     id: String(inv._id),
     name: inv.name,
@@ -283,6 +319,9 @@ export async function buildInvestmentDetail(
       break_even_pct: inv.cost_total_eur > 0 ? realized / inv.cost_total_eur : 0,
     },
     baseline_progress: baseline,
+    baseline_totals: baselineTotals && baselineTotals.total_cards > 0
+      ? baselineTotals
+      : undefined,
   };
 }
 
@@ -528,10 +567,23 @@ export async function adjustLot(params: {
   return "not_found"; // fallback
 }
 
+/**
+ * Baseline targets for the extension's walker:
+ *   - cm_expansion_id: numeric Cardmarket expansion id (from the set doc) or
+ *     null if we haven't captured the mapping yet (popup falls back to paste).
+ *   - cm_set_names: array of Cardmarket-side set name variants, used by
+ *     attribution fallback when stock rows lack productId.
+ *   - captured_count: distinct article_ids already baselined.
+ *   - expected_total_count: last CM-page `.bracketed` total we saw, or null
+ *     until the first batch carries total_expected.
+ *   - complete: captured_count >= expected_total_count (when known).
+ */
 export async function getBaselineTargets(params: { id: string }): Promise<{
-  cardmarket_ids: number[];
+  cm_expansion_id: number | null;
   cm_set_names: string[];
-  captured_cardmarket_ids: number[];
+  captured_count: number;
+  expected_total_count: number | null;
+  complete: boolean;
 } | null> {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(params.id)) return null;
@@ -540,52 +592,61 @@ export async function getBaselineTargets(params: { id: string }): Promise<{
   const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
   if (!inv) return null;
 
-  let cardmarketIds: number[];
+  // Resolve the Cardmarket expansion id. Box-kind: direct lookup on ev_sets.
+  // Product-kind: use EvProduct.parent_set_code if any, else fall back to the
+  // dominant set_code across the product's cards.
+  let setCode: string | null = null;
   if (inv.source.kind === "box") {
-    const cards = await db
-      .collection("dashboard_ev_cards")
-      .find(
-        { set: inv.source.set_code, cardmarket_id: { $ne: null } },
-        { projection: { cardmarket_id: 1 } }
-      )
-      .toArray();
-    cardmarketIds = cards.map((c) => c.cardmarket_id as number);
+    setCode = inv.source.set_code;
   } else {
     const p = await db
       .collection<EvProduct>(COL_EV_PRODUCTS)
       .findOne(
         { slug: inv.source.product_slug },
-        { projection: { "cards.scryfall_id": 1 } }
+        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
       );
-    if (!p) return null;
-    const scryfallIds = p.cards.map((c) => c.scryfall_id);
-    const cards = await db
-      .collection("dashboard_ev_cards")
-      .find(
-        { scryfall_id: { $in: scryfallIds }, cardmarket_id: { $ne: null } },
-        { projection: { cardmarket_id: 1 } }
-      )
-      .toArray();
-    cardmarketIds = cards.map((c) => c.cardmarket_id as number);
+    if (p?.parent_set_code) {
+      setCode = p.parent_set_code;
+    } else if (p?.cards?.length) {
+      const counts = new Map<string, number>();
+      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
+      let best: string | null = null;
+      let bestN = 0;
+      for (const [code, n] of counts) {
+        if (n > bestN) { best = code; bestN = n; }
+      }
+      setCode = best;
+    }
   }
-  const capturedFromBaseline = await db
+  let cmExpansionId: number | null = null;
+  if (setCode) {
+    const set = await db
+      .collection("dashboard_ev_sets")
+      .findOne<{ cm_expansion_id?: number | null }>(
+        { code: setCode },
+        { projection: { cm_expansion_id: 1 } }
+      );
+    cmExpansionId = set?.cm_expansion_id ?? null;
+  }
+
+  const capturedCount = await db
     .collection(COL_INVESTMENT_BASELINE)
-    .distinct("cardmarket_id", { investment_id: invId });
-  const visited = inv.baseline_visited_cardmarket_ids ?? [];
-  const captured = Array.from(
-    new Set([...(capturedFromBaseline as number[]), ...visited])
-  );
+    .countDocuments({ investment_id: invId });
+  const expected = inv.baseline_total_expected ?? null;
+  const complete = expected != null && capturedCount >= expected;
   return {
-    cardmarket_ids: Array.from(new Set(cardmarketIds)),
+    cm_expansion_id: cmExpansionId,
     cm_set_names: inv.cm_set_names,
-    captured_cardmarket_ids: captured,
+    captured_count: capturedCount,
+    expected_total_count: expected,
+    complete,
   };
 }
 
 export async function upsertBaselineBatch(params: {
   id: string;
   body: import("./types").BaselineBatchBody;
-}): Promise<{ upserted: number; skipped: number; visited: number } | null> {
+}): Promise<{ upserted: number; skipped: number; captured_count: number } | null> {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(params.id)) return null;
   const db = await getDb();
@@ -599,50 +660,57 @@ export async function upsertBaselineBatch(params: {
   let skipped = 0;
   for (const l of params.body.listings) {
     if (
+      typeof l.article_id !== "string" || l.article_id.length === 0 || l.article_id.length > 32 ||
       !Number.isSafeInteger(l.cardmarket_id) || l.cardmarket_id <= 0 ||
       typeof l.foil !== "boolean" ||
       typeof l.condition !== "string" || l.condition.length === 0 || l.condition.length > 8 ||
       typeof l.language !== "string" || l.language.length === 0 || l.language.length > 16 ||
-      !Number.isFinite(l.qty) || !Number.isInteger(l.qty) || l.qty < 0
+      !Number.isFinite(l.qty) || !Number.isInteger(l.qty) || l.qty < 0 ||
+      !Number.isFinite(l.price_eur) || l.price_eur < 0
     ) {
       skipped++;
       continue;
     }
     const res = await db.collection(COL_INVESTMENT_BASELINE).updateOne(
-      {
-        investment_id: invId,
-        cardmarket_id: l.cardmarket_id,
-        foil: l.foil,
-        condition: l.condition,
-        language: l.language,
-      },
+      { investment_id: invId, article_id: l.article_id },
       {
         $set: {
           qty_baseline: l.qty,
-          captured_at: now,
-        },
-        $setOnInsert: {
-          investment_id: invId,
+          price_eur: l.price_eur,
           cardmarket_id: l.cardmarket_id,
           foil: l.foil,
           condition: l.condition,
           language: l.language,
+          captured_at: now,
+        },
+        $setOnInsert: {
+          investment_id: invId,
+          article_id: l.article_id,
         },
       },
       { upsert: true }
     );
     if (res.upsertedCount > 0 || res.modifiedCount > 0) upserted++;
   }
-  if (params.body.visited_cardmarket_ids.length > 0) {
+
+  // Stamp the latest CM page-header total so progress reporting reflects
+  // the newest walk filter. Only overwrite when the batch actually sent
+  // one; partial batches without a header read shouldn't clobber prior.
+  if (typeof params.body.total_expected === "number" && params.body.total_expected >= 0) {
     await db.collection(COL_INVESTMENTS).updateOne(
       { _id: invId },
-      { $addToSet: { baseline_visited_cardmarket_ids: { $each: params.body.visited_cardmarket_ids } } }
+      { $set: { baseline_total_expected: params.body.total_expected } }
     );
   }
+
   if (skipped > 0) {
     console.warn("investments-baseline-batch: skipped invalid items", { id: params.id, skipped });
   }
-  return { upserted, skipped, visited: params.body.visited_cardmarket_ids.length };
+
+  const capturedCount = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .countDocuments({ investment_id: invId });
+  return { upserted, skipped, captured_count: capturedCount };
 }
 
 export async function markBaselineComplete(params: {
