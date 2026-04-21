@@ -55,24 +55,40 @@ export default function InvestmentsContent() {
   const [tab, setTab] = useState<InvestmentStatus | "all">("listing");
   const [showCreate, setShowCreate] = useState(false);
 
-  const url = tab === "all" ? "/api/investments" : `/api/investments?status=${tab}`;
+  // Fetch all investments once. Filter/count client-side — volume is low (tens).
   const { data, mutate, isLoading } = useSWR<{ investments: InvestmentListItem[] }>(
-    url,
+    "/api/investments",
     fetcher,
     { dedupingInterval: 30_000 }
   );
-  const rows = data?.investments ?? [];
+  const allRows = data?.investments ?? [];
+
+  const countsByStatus = useMemo(() => {
+    const counts: Record<InvestmentStatus, number> = {
+      baseline_captured: 0,
+      listing: 0,
+      closed: 0,
+      archived: 0,
+    };
+    for (const r of allRows) counts[r.status] += 1;
+    return counts;
+  }, [allRows]);
+
+  const rows = useMemo(
+    () => (tab === "all" ? allRows : allRows.filter((r) => r.status === tab)),
+    [allRows, tab]
+  );
 
   const { deployed, realized, listed, plBlended } = useMemo(() => {
     let deployed = 0, realized = 0, listed = 0;
-    for (const r of rows) {
+    for (const r of allRows) {
       if (r.status === "archived") continue;
       deployed += r.cost_total_eur;
       realized += r.realized_eur + r.sealed_flips_total_eur;
       listed += r.listed_value_eur;
     }
     return { deployed, realized, listed, plBlended: realized + listed - deployed };
-  }, [rows]);
+  }, [allRows]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -98,7 +114,10 @@ export default function InvestmentsContent() {
         <StatCard
           title="Deployed"
           value={formatEur(deployed)}
-          subtitle={rows.length ? `${rows.length} investment${rows.length === 1 ? "" : "s"}` : undefined}
+          subtitle={(() => {
+            const active = countsByStatus.listing + countsByStatus.baseline_captured + countsByStatus.closed;
+            return active ? `${active} investment${active === 1 ? "" : "s"}` : undefined;
+          })()}
           icon={<Boxes size={18} style={{ color: "var(--accent)" }} />}
         />
         <StatCard
@@ -133,6 +152,10 @@ export default function InvestmentsContent() {
         >
           {STATUS_TABS.map((t) => {
             const active = tab === t.key;
+            const count =
+              t.key === "all"
+                ? allRows.length
+                : countsByStatus[t.key];
             return (
               <button
                 key={t.key}
@@ -145,6 +168,18 @@ export default function InvestmentsContent() {
                 }}
               >
                 {t.label}
+                {count > 0 && (
+                  <span
+                    className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px]"
+                    style={{
+                      background: active ? "rgba(63,206,229,0.2)" : "rgba(255,255,255,0.08)",
+                      color: active ? "var(--accent)" : "var(--text-muted)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
               </button>
             );
           })}
