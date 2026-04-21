@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Activity, Calculator, CheckSquare, ChevronLeft, HardHat, LayoutDashboard, Library, LogOut, Menu, MessageCircle, Package, Scale, Settings, ShoppingBag, Wallet, X } from "lucide-react";
+import { Activity, Calculator, CheckSquare, ChevronLeft, HardHat, LayoutDashboard, Library, LogOut, Menu, MessageCircle, Package, Scale, Settings, ShoppingBag, TrendingUp, Wallet, X } from "lucide-react";
 
 const navSections = [
   { label: "OVERVIEW", items: [
@@ -13,6 +13,7 @@ const navSections = [
   { label: "MANAGEMENT", items: [
     { href: "/finance", label: "Finance", icon: Wallet },
     { href: "/cardmarket", label: "Cardmarket", icon: ShoppingBag },
+    { href: "/investments", label: "Investments", icon: TrendingUp },
     { href: "/storage", label: "Storage", icon: Library },
   ]},
   { label: "TOOLS", items: [
