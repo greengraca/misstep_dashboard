@@ -1,6 +1,6 @@
 import { ObjectId, type Db } from "mongodb";
 import { getDb } from "@/lib/mongodb";
-import { COL_PRODUCTS as COL_EV_PRODUCTS } from "@/lib/ev-products";
+import { COL_PRODUCTS as COL_EV_PRODUCTS, latestPlayEvBySet } from "@/lib/ev-products";
 import {
   COL_INVESTMENTS,
   COL_INVESTMENT_BASELINE,
@@ -155,17 +155,131 @@ export async function listInvestmentSummaries(params: {
     .toArray();
   const proceedsByInv = new Map<string, number>();
   for (const row of lots) proceedsByInv.set(String(row._id), row.proceeds);
-  return investments.map((inv) => ({
+  return Promise.all(
+    investments.map(async (inv) => ({
+      id: String(inv._id),
+      name: inv.name,
+      status: inv.status,
+      created_at: inv.created_at.toISOString(),
+      source: inv.source,
+      cost_total_eur: inv.cost_total_eur,
+      listed_value_eur: await computeListedValue(inv._id),
+      realized_eur: proceedsByInv.get(String(inv._id)) ?? 0,
+      sealed_flips_total_eur: inv.sealed_flips.reduce((s, f) => s + f.proceeds_eur, 0),
+    }))
+  );
+}
+
+/** Sum of stock.price * stock.qty across rows matching open lots for this investment. */
+export async function computeListedValue(investmentId: ObjectId): Promise<number> {
+  const db = await getDb();
+  const lots = await db
+    .collection(COL_INVESTMENT_LOTS)
+    .find({ investment_id: investmentId, qty_remaining: { $gt: 0 } })
+    .project<{ cardmarket_id: number; foil: boolean; condition: string }>({
+      cardmarket_id: 1,
+      foil: 1,
+      condition: 1,
+    })
+    .toArray();
+  if (lots.length === 0) return 0;
+  const cursor = db.collection("dashboard_cm_stock").aggregate<{ total: number }>([
+    {
+      $match: {
+        $or: lots.map((l) => ({
+          productId: l.cardmarket_id,
+          foil: l.foil,
+          condition: l.condition,
+        })),
+      },
+    },
+    { $group: { _id: null, total: { $sum: { $multiply: ["$qty", "$price"] } } } },
+  ]);
+  const row = await cursor.next();
+  return row?.total ?? 0;
+}
+
+export async function computeBaselineProgress(investmentId: ObjectId): Promise<{
+  captured_cardmarket_ids: number;
+  target_cardmarket_ids: number;
+}> {
+  const db = await getDb();
+  const captured = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .distinct("cardmarket_id", { investment_id: investmentId });
+  // Target count is determined by the source; temporary stub returns captured count as target
+  // until Task 9 fills this in.
+  return { captured_cardmarket_ids: captured.length, target_cardmarket_ids: captured.length };
+}
+
+/** Expected EV for display. Best-effort; returns null if unavailable. */
+export async function computeExpectedEv(investment: Investment): Promise<number | null> {
+  const db = await getDb();
+  if (investment.source.kind === "box") {
+    const map = await latestPlayEvBySet([investment.source.set_code]);
+    const perPackEv = map[investment.source.set_code];
+    if (perPackEv == null) return null;
+    return perPackEv * investment.source.packs_per_box * investment.source.box_count;
+  }
+  // product-kind: read latest snapshot from dashboard_ev_snapshots
+  const snap = await db
+    .collection("dashboard_ev_snapshots")
+    .find({ product_slug: investment.source.product_slug })
+    .sort({ date: -1 })
+    .limit(1)
+    .next();
+  const evPerUnit =
+    (snap?.ev_net_opened as number | null) ??
+    (snap?.ev_net_sealed as number | null) ??
+    (snap?.ev_net_cards_only as number | null) ??
+    null;
+  if (evPerUnit == null) return null;
+  return evPerUnit * investment.source.unit_count;
+}
+
+export async function buildInvestmentDetail(
+  inv: Investment
+): Promise<import("./types").InvestmentDetail> {
+  const listed = await computeListedValue(inv._id);
+  const expected = await computeExpectedEv(inv);
+  const proceedsAgg = await (await getDb())
+    .collection(COL_INVESTMENT_LOTS)
+    .aggregate<{ total: number }>([
+      { $match: { investment_id: inv._id } },
+      { $group: { _id: null, total: { $sum: "$proceeds_eur" } } },
+    ])
+    .next();
+  const lotProceeds = proceedsAgg?.total ?? 0;
+  const sealedProceeds = inv.sealed_flips.reduce((s, f) => s + f.proceeds_eur, 0);
+  const realized = lotProceeds + sealedProceeds;
+  const baseline =
+    inv.status === "baseline_captured"
+      ? await computeBaselineProgress(inv._id)
+      : undefined;
+  return {
     id: String(inv._id),
     name: inv.name,
     status: inv.status,
     created_at: inv.created_at.toISOString(),
-    source: inv.source,
+    created_by: inv.created_by,
     cost_total_eur: inv.cost_total_eur,
-    listed_value_eur: 0,  // filled by a downstream helper; cheap 0 for skeleton
-    realized_eur: proceedsByInv.get(String(inv._id)) ?? 0,
-    sealed_flips_total_eur: inv.sealed_flips.reduce((s, f) => s + f.proceeds_eur, 0),
-  }));
+    cost_notes: inv.cost_notes,
+    source: inv.source,
+    cm_set_names: inv.cm_set_names,
+    sealed_flips: inv.sealed_flips,
+    expected_open_card_count: inv.expected_open_card_count,
+    baseline_completed_at: inv.baseline_completed_at?.toISOString(),
+    closed_at: inv.closed_at?.toISOString(),
+    kpis: {
+      cost_eur: inv.cost_total_eur,
+      expected_ev_eur: expected,
+      listed_value_eur: listed,
+      realized_net_eur: realized,
+      net_pl_blended_eur: realized + listed - inv.cost_total_eur,
+      break_even_pct: inv.cost_total_eur > 0 ? realized / inv.cost_total_eur : 0,
+    },
+    baseline_progress: baseline,
+  };
 }
 
 // Stubs to be filled in later tasks.
