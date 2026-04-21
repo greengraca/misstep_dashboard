@@ -72,12 +72,13 @@ async function currentStockQty(
   db: Db,
   cardmarketId: number,
   foil: boolean,
-  condition: string
+  condition: string,
+  language: string
 ): Promise<number> {
   const agg = await db
     .collection("dashboard_cm_stock")
     .aggregate<{ total: number }>([
-      { $match: { productId: cardmarketId, foil, condition } },
+      { $match: { productId: cardmarketId, foil, condition, language } },
       { $group: { _id: null, total: { $sum: "$qty" } } },
     ])
     .next();
@@ -88,12 +89,22 @@ async function currentStockQty(
  * Attribute a qty increase to the oldest-matching listing investment, FIFO,
  * bounded by (current_stock - baseline - lot_already_opened) and by the
  * investment's remaining budget.
+ *
+ * CONCURRENCY: Calls to this function for overlapping tuples are NOT
+ * synchronized. Two sync batches firing on the same {cardmarket_id, foil,
+ * condition, language} tuple can each read qty_opened=N and each $inc by M,
+ * resulting in qty_opened=N+2M when the true delta was M. In practice, the
+ * extension's /api/ext/sync POSTs are short-lived and two batches touching
+ * the same lot at the same millisecond are unlikely, so this is a deferred
+ * concern — revisit with a guarded findOneAndUpdate if lot growth ever
+ * visibly drifts from observed stock deltas.
  */
 export async function maybeGrowLot(params: {
   db: Db;
   cardmarketId: number;
   foil: boolean;
   condition: string;
+  language: string;
   qtyDelta: number;
   cmSetName?: string;
   cardSetCode: string | null;
@@ -110,7 +121,8 @@ export async function maybeGrowLot(params: {
     params.db,
     params.cardmarketId,
     params.foil,
-    params.condition
+    params.condition,
+    params.language
   );
   let remainingDelta = params.qtyDelta;
 
@@ -123,6 +135,7 @@ export async function maybeGrowLot(params: {
         cardmarket_id: params.cardmarketId,
         foil: params.foil,
         condition: params.condition,
+        language: params.language,
       });
     const baseline = baselineDoc?.qty_baseline ?? 0;
     const lotDoc = await params.db
@@ -132,6 +145,7 @@ export async function maybeGrowLot(params: {
         cardmarket_id: params.cardmarketId,
         foil: params.foil,
         condition: params.condition,
+        language: params.language,
       });
     const lotAlreadyOpened = lotDoc?.qty_opened ?? 0;
     const attributable = computeAttributable({
@@ -160,6 +174,7 @@ export async function maybeGrowLot(params: {
         cardmarket_id: params.cardmarketId,
         foil: params.foil,
         condition: params.condition,
+        language: params.language,
       },
       {
         $inc: { qty_opened: growBy, qty_remaining: growBy },
@@ -169,6 +184,7 @@ export async function maybeGrowLot(params: {
           cardmarket_id: params.cardmarketId,
           foil: params.foil,
           condition: params.condition,
+          language: params.language,
           qty_sold: 0,
           proceeds_eur: 0,
           cost_basis_per_unit: null,

@@ -9,11 +9,12 @@ export const GET = withAuthParams<{ id: string }>(async (req, _s, { id }) => {
   const search = url.searchParams.get("search") ?? undefined;
   const foilParam = url.searchParams.get("foil");
   const foil = foilParam === "true" ? true : foilParam === "false" ? false : undefined;
+  const language = url.searchParams.get("language") ?? undefined;
   const minRemainingStr = url.searchParams.get("minRemaining");
   const minRemaining =
     minRemainingStr && !Number.isNaN(Number(minRemainingStr))
       ? Number(minRemainingStr)
       : undefined;
-  const lots = await listLots({ id, search, foil, minRemaining });
+  const lots = await listLots({ id, search, foil, language, minRemaining });
   return { lots };
 }, "investments-lots-list");

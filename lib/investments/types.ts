@@ -50,6 +50,7 @@ export interface InvestmentBaseline {
   cardmarket_id: number;
   foil: boolean;
   condition: string;
+  language: string;
   qty_baseline: number;
   captured_at: Date;
 }
@@ -60,6 +61,7 @@ export interface InvestmentLot {
   cardmarket_id: number;
   foil: boolean;
   condition: string;
+  language: string;
   qty_opened: number;
   qty_sold: number;
   qty_remaining: number;
@@ -78,6 +80,7 @@ export interface InvestmentSaleLog {
   cardmarket_id: number;
   foil: boolean;
   condition: string;
+  language: string;
   qty: number;
   unit_price_eur: number;
   net_per_unit_eur: number;
@@ -151,6 +154,7 @@ export interface BaselineBatchBody {
     cardmarket_id: number;
     foil: boolean;
     condition: string;
+    language: string;
     qty: number;
   }>;
   // cardmarket_ids the extension visited (even if empty) — so dashboard can

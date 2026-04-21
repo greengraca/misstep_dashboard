@@ -76,6 +76,21 @@ function matches(doc: Doc, filter: Doc): boolean {
       if (!docVal.equals(v)) return false;
       continue;
     }
+    // Operator object (e.g. { $in: [...] })
+    if (
+      v !== null &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      !(v instanceof ObjectId) &&
+      !(v instanceof Date)
+    ) {
+      const op = v as Record<string, unknown>;
+      if ("$in" in op) {
+        const arr = op.$in as unknown[];
+        if (!arr.includes(docVal)) return false;
+        continue;
+      }
+    }
     // Array "contains" match (e.g. cm_set_names: "Foundations: Jumpstart")
     if (Array.isArray(docVal) && !Array.isArray(v)) {
       if (!docVal.includes(v)) return false;
@@ -92,6 +107,7 @@ type Collections = {
   lots: Doc[];
   stock: Doc[];
   ev_cards: Doc[];
+  ev_products: Doc[];
 };
 
 function makeDb(state: Collections) {
@@ -135,7 +151,7 @@ function makeDb(state: Collections) {
       }),
     } as ReturnType<typeof col>,
     dashboard_ev_cards: col(state.ev_cards),
-    dashboard_ev_products: col([]),
+    dashboard_ev_products: col(state.ev_products),
   };
   return { collection: (name: string) => lookup[name] ?? col([]) };
 }
@@ -183,8 +199,17 @@ describe("maybeGrowLot (box-kind)", () => {
       ],
       baseline: [],
       lots: [],
-      stock: [{ productId: 555123, foil: false, condition: "NM", qty: 4 }],
+      stock: [
+        {
+          productId: 555123,
+          foil: false,
+          condition: "NM",
+          language: "English",
+          qty: 4,
+        },
+      ],
       ev_cards: [],
+      ev_products: [],
     };
   });
 
@@ -195,6 +220,7 @@ describe("maybeGrowLot (box-kind)", () => {
       cardmarketId: 555123,
       foil: false,
       condition: "NM",
+      language: "English",
       qtyDelta: 4,
       cardSetCode: "fdn",
     });
@@ -209,6 +235,7 @@ describe("maybeGrowLot (box-kind)", () => {
       cardmarket_id: 777,
       foil: false,
       condition: "NM",
+      language: "English",
       qty_opened: 480,
       qty_sold: 0,
       qty_remaining: 480,
@@ -222,6 +249,7 @@ describe("maybeGrowLot (box-kind)", () => {
       cardmarketId: 555123,
       foil: false,
       condition: "NM",
+      language: "English",
       qtyDelta: 4,
       cardSetCode: "fdn",
     });
@@ -236,6 +264,7 @@ describe("maybeGrowLot (box-kind)", () => {
       cardmarket_id: 555123,
       foil: false,
       condition: "NM",
+      language: "English",
       qty_baseline: 3,
     });
     // stock is 4, baseline was 3 — only 1 should be attributable
@@ -245,6 +274,7 @@ describe("maybeGrowLot (box-kind)", () => {
       cardmarketId: 555123,
       foil: false,
       condition: "NM",
+      language: "English",
       qtyDelta: 4,
       cardSetCode: "fdn",
     });
@@ -252,5 +282,114 @@ describe("maybeGrowLot (box-kind)", () => {
       (l) => l.investment_id === invAId && l.cardmarket_id === 555123
     );
     expect(grown?.qty_opened).toBe(1);
+  });
+
+  it("splits delta across two investments when A's remaining budget is smaller than delta (FIFO overflow)", async () => {
+    // Pre-seed A with an unrelated lot so A's budget remaining is exactly 3
+    // (expected_open_card_count=480, qty_opened so far=477 → 3 left).
+    state.lots.push({
+      investment_id: invAId,
+      cardmarket_id: 777,
+      foil: false,
+      condition: "NM",
+      language: "English",
+      qty_opened: 477,
+      qty_sold: 0,
+      qty_remaining: 477,
+      proceeds_eur: 0,
+      cost_basis_per_unit: null,
+      last_grown_at: new Date(),
+    });
+    // Stock for the card we're attributing is 10.
+    state.stock = [
+      {
+        productId: 555123,
+        foil: false,
+        condition: "NM",
+        language: "English",
+        qty: 10,
+      },
+    ];
+    const db = makeDb(state) as never;
+    await maybeGrowLot({
+      db,
+      cardmarketId: 555123,
+      foil: false,
+      condition: "NM",
+      language: "English",
+      qtyDelta: 10,
+      cardSetCode: "fdn",
+    });
+    const lotA = state.lots.find(
+      (l) =>
+        (l.investment_id as ObjectId).equals(invAId) &&
+        l.cardmarket_id === 555123
+    );
+    const lotB = state.lots.find(
+      (l) =>
+        (l.investment_id as ObjectId).equals(invBId) &&
+        l.cardmarket_id === 555123
+    );
+    expect(lotA?.qty_opened).toBe(3);
+    expect(lotB?.qty_opened).toBe(7);
+  });
+});
+
+describe("maybeGrowLot (product-kind)", () => {
+  it("attributes to a product-kind investment via scryfall→cardmarket resolution", async () => {
+    const productInvId = new ObjectId();
+    const state: Collections = {
+      investments: [
+        {
+          _id: productInvId,
+          status: "listing",
+          source: { kind: "product", product_slug: "prod-1", unit_count: 1 },
+          cm_set_names: [],
+          expected_open_card_count: 1,
+          sealed_flips: [],
+          created_at: new Date("2026-03-01"),
+        },
+      ],
+      baseline: [],
+      lots: [],
+      stock: [
+        {
+          productId: 888,
+          foil: false,
+          condition: "NM",
+          language: "English",
+          qty: 1,
+        },
+      ],
+      ev_cards: [{ scryfall_id: "scry-a", cardmarket_id: 888 }],
+      ev_products: [
+        {
+          _id: new ObjectId(),
+          slug: "prod-1",
+          cards: [
+            {
+              scryfall_id: "scry-a",
+              count: 1,
+              is_foil: false,
+              name: "Test Card",
+              set_code: "xyz",
+            },
+          ],
+        },
+      ],
+    };
+    const db = makeDb(state) as never;
+    await maybeGrowLot({
+      db,
+      cardmarketId: 888,
+      foil: false,
+      condition: "NM",
+      language: "English",
+      qtyDelta: 1,
+      cardSetCode: "xyz",
+    });
+    expect(state.lots.length).toBe(1);
+    expect((state.lots[0].investment_id as ObjectId).equals(productInvId)).toBe(true);
+    expect(state.lots[0].qty_opened).toBe(1);
   });
 });

@@ -176,10 +176,11 @@ export async function computeListedValue(investmentId: ObjectId): Promise<number
   const lots = await db
     .collection(COL_INVESTMENT_LOTS)
     .find({ investment_id: investmentId, qty_remaining: { $gt: 0 } })
-    .project<{ cardmarket_id: number; foil: boolean; condition: string }>({
+    .project<{ cardmarket_id: number; foil: boolean; condition: string; language: string }>({
       cardmarket_id: 1,
       foil: 1,
       condition: 1,
+      language: 1,
     })
     .toArray();
   if (lots.length === 0) return 0;
@@ -190,6 +191,7 @@ export async function computeListedValue(investmentId: ObjectId): Promise<number
           productId: l.cardmarket_id,
           foil: l.foil,
           condition: l.condition,
+          language: l.language,
         })),
       },
     },
@@ -411,6 +413,7 @@ export interface LotListItem {
   cardmarket_id: number;
   foil: boolean;
   condition: string;
+  language: string;
   name: string | null;
   set_code: string | null;
   qty_opened: number;
@@ -425,6 +428,7 @@ export async function listLots(params: {
   id: string;
   search?: string;
   foil?: boolean;
+  language?: string;
   minRemaining?: number;
 }): Promise<LotListItem[]> {
   await ensureInvestmentIndexes();
@@ -432,6 +436,7 @@ export async function listLots(params: {
   const db = await getDb();
   const filter: Record<string, unknown> = { investment_id: new ObjectId(params.id) };
   if (params.foil !== undefined) filter.foil = params.foil;
+  if (params.language !== undefined) filter.language = params.language;
   if (params.minRemaining !== undefined) filter.qty_remaining = { $gte: params.minRemaining };
   const lots = await db
     .collection(COL_INVESTMENT_LOTS)
@@ -461,6 +466,7 @@ export async function listLots(params: {
       cardmarket_id: l.cardmarket_id as number,
       foil: l.foil as boolean,
       condition: l.condition as string,
+      language: (l.language as string) ?? "English",
       name: card?.name ?? null,
       set_code: card?.set ?? null,
       qty_opened: l.qty_opened as number,
@@ -596,6 +602,7 @@ export async function upsertBaselineBatch(params: {
       !Number.isSafeInteger(l.cardmarket_id) || l.cardmarket_id <= 0 ||
       typeof l.foil !== "boolean" ||
       typeof l.condition !== "string" || l.condition.length === 0 || l.condition.length > 8 ||
+      typeof l.language !== "string" || l.language.length === 0 || l.language.length > 16 ||
       !Number.isFinite(l.qty) || !Number.isInteger(l.qty) || l.qty < 0
     ) {
       skipped++;
@@ -607,6 +614,7 @@ export async function upsertBaselineBatch(params: {
         cardmarket_id: l.cardmarket_id,
         foil: l.foil,
         condition: l.condition,
+        language: l.language,
       },
       {
         $set: {
@@ -618,6 +626,7 @@ export async function upsertBaselineBatch(params: {
           cardmarket_id: l.cardmarket_id,
           foil: l.foil,
           condition: l.condition,
+          language: l.language,
         },
       },
       { upsert: true }
