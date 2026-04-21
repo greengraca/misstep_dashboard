@@ -9,6 +9,7 @@ import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
 import InvestmentKpiRow from "./InvestmentKpiRow";
 import BaselineBanner from "./BaselineBanner";
+import InvestmentBaselineSummary from "./InvestmentBaselineSummary";
 import SealedFlipsSection from "./SealedFlipsSection";
 import InvestmentLotsTable from "./InvestmentLotsTable";
 import CloseInvestmentModal from "./CloseInvestmentModal";
@@ -165,6 +166,10 @@ export default function InvestmentDetail({ id }: { id: string }) {
       </div>
 
       <BaselineBanner detail={detail} />
+
+      {detail.baseline_totals && (
+        <InvestmentBaselineSummary totals={detail.baseline_totals} />
+      )}
 
       <InvestmentKpiRow kpis={detail.kpis} />
 
