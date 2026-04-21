@@ -204,12 +204,18 @@ export async function computeBaselineProgress(investmentId: ObjectId): Promise<{
   target_cardmarket_ids: number;
 }> {
   const db = await getDb();
+  const inv = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne({ _id: investmentId });
   const captured = await db
     .collection(COL_INVESTMENT_BASELINE)
     .distinct("cardmarket_id", { investment_id: investmentId });
-  // Target count is determined by the source; temporary stub returns captured count as target
-  // until Task 9 fills this in.
-  return { captured_cardmarket_ids: captured.length, target_cardmarket_ids: captured.length };
+  if (!inv) return { captured_cardmarket_ids: captured.length, target_cardmarket_ids: 0 };
+  const targets = await getBaselineTargets({ id: String(investmentId) });
+  return {
+    captured_cardmarket_ids: captured.length,
+    target_cardmarket_ids: targets?.cardmarket_ids.length ?? 0,
+  };
 }
 
 /** Expected EV for display. Best-effort; returns null if unavailable. */
@@ -520,10 +526,54 @@ export async function adjustLot(params: {
   return "not_found"; // fallback
 }
 
-// Stubs to be filled in later tasks.
-export async function getBaselineTargets(): Promise<never> {
-  throw new Error("getBaselineTargets: implemented in Task 12");
+export async function getBaselineTargets(params: { id: string }): Promise<{
+  cardmarket_ids: number[];
+  cm_set_names: string[];
+  captured_cardmarket_ids: number[];
+} | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(params.id);
+  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
+  if (!inv) return null;
+
+  let cardmarketIds: number[];
+  if (inv.source.kind === "box") {
+    const cards = await db
+      .collection("dashboard_ev_cards")
+      .find(
+        { set: inv.source.set_code, cardmarket_id: { $ne: null } },
+        { projection: { cardmarket_id: 1 } }
+      )
+      .toArray();
+    cardmarketIds = cards.map((c) => c.cardmarket_id as number);
+  } else {
+    const p = await db
+      .collection<EvProduct>(COL_EV_PRODUCTS)
+      .findOne({ slug: inv.source.product_slug });
+    if (!p) return null;
+    const scryfallIds = p.cards.map((c) => c.scryfall_id);
+    const cards = await db
+      .collection("dashboard_ev_cards")
+      .find(
+        { scryfall_id: { $in: scryfallIds }, cardmarket_id: { $ne: null } },
+        { projection: { cardmarket_id: 1 } }
+      )
+      .toArray();
+    cardmarketIds = cards.map((c) => c.cardmarket_id as number);
+  }
+  const captured = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .distinct("cardmarket_id", { investment_id: invId });
+  return {
+    cardmarket_ids: Array.from(new Set(cardmarketIds)),
+    cm_set_names: inv.cm_set_names,
+    captured_cardmarket_ids: captured as number[],
+  };
 }
+
+// Stubs to be filled in later tasks.
 export async function upsertBaselineBatch(): Promise<never> {
   throw new Error("upsertBaselineBatch: implemented in Task 13");
 }

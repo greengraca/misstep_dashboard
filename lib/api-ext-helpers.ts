@@ -85,3 +85,44 @@ export function withExtAuthRead(
     }
   };
 }
+
+/**
+ * Dual-auth read wrapper for routes with dynamic params (e.g. /api/foo/[id]).
+ * Mirrors `withExtAuthRead` but awaits and forwards `ctx.params` to the handler.
+ */
+export function withExtAuthReadParams<P>(
+  handler: (
+    req: NextRequest,
+    identity: ExtReadIdentity,
+    params: P
+  ) => Promise<HandlerReturn>,
+  routeName: string
+) {
+  return async (request: NextRequest, ctx: { params: Promise<P> }) => {
+    try {
+      // Try NextAuth session first (dashboard)
+      const sessionResult = await requireAuth(request);
+      if (!sessionResult.error) {
+        const sessionUser = sessionResult.session?.user?.name || undefined;
+        const params = await ctx.params;
+        return toResponse(await handler(request, { sessionUser }, params));
+      }
+
+      // Fall back to Bearer token (extension)
+      const extResult = await requireExtAuth(request);
+      if (extResult.error) return extResult.error;
+
+      const params = await ctx.params;
+      return toResponse(
+        await handler(request, { memberName: extResult.memberName }, params)
+      );
+    } catch (err) {
+      console.error(`${routeName} error:`, err);
+      logApiError(routeName, err);
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
+    }
+  };
+}
