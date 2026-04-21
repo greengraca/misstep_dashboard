@@ -1,6 +1,12 @@
+import { after } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 import { logError } from "@/lib/error-log";
+import {
+  maybeGrowLot,
+  consumeSale,
+  reverseSale,
+} from "@/lib/investments/attribution";
 import type {
   CmBalanceSnapshot,
   CmOrder,
@@ -538,6 +544,46 @@ async function processOrders(
           { unmatched: removal.unmatched.slice(0, 20), orderIds: newlyPaidIds }
         );
       }
+
+      // Fire consumeSale AFTER stock removal so lots aren't consumed while
+      // the stock row is still present (would double-count). Only fires on
+      // the paid-transition — the `newlyPaidIds` filter above guards against
+      // re-firing on subsequent syncs of already-paid orders.
+      const orderById = new Map(
+        orders.map((o) => [o.orderId, o] as const)
+      );
+      for (const item of items) {
+        const orderId = item.orderId as string;
+        const order = orderById.get(orderId);
+        if (!order) continue;
+        const productIdStr = item.productId as string | undefined;
+        const cardmarketId = productIdStr ? Number(productIdStr) : NaN;
+        if (!Number.isFinite(cardmarketId) || cardmarketId <= 0) continue;
+        const snapshot = {
+          cardmarketId,
+          foil: !!item.foil,
+          condition: item.condition as string,
+          language: (item.language as string) || "English",
+          qtySold: Number(item.qty) || 1,
+          unitPriceEur: Number(item.price) || 0,
+          trustee: !!order.trustee,
+          orderId,
+          articleId: item.articleId as string | undefined,
+        };
+        after(async () => {
+          try {
+            const dbInner = await getDb();
+            await consumeSale({ db: dbInner, ...snapshot });
+          } catch (err) {
+            logError(
+              "error",
+              "attribution-consumeSale-orders",
+              err instanceof Error ? err.message : "unknown error",
+              { orderId: snapshot.orderId, cardmarketId: snapshot.cardmarketId }
+            );
+          }
+        });
+      }
     }
   }
 
@@ -568,7 +614,8 @@ async function processOrderDetail(
   // If the order had already been advanced past paid, its items were removed from
   // stock — restock them on cancellation to keep inventory honest.
   if (detail.status === "cancelled") {
-    if (existingIdx >= PAID_INDEX) {
+    const wasPastPaid = existingIdx >= PAID_INDEX;
+    if (wasPastPaid) {
       const prevItems = (await db
         .collection(COL.orderItems)
         .find({ orderId })
@@ -587,6 +634,28 @@ async function processOrderDetail(
     }
     const deleted = await db.collection(COL.orders).deleteOne({ orderId });
     await db.collection(COL.orderItems).deleteMany({ orderId });
+    // Fire reverseSale AFTER restock completes. Only fires when the order
+    // was previously past paid (otherwise there's nothing to reverse — no
+    // consumeSale ever ran). Exact-once per cancellation: after this
+    // handler, the order doc is deleted, so a subsequent cancellation
+    // detail sync for the same orderId would `return { skipped: 1 }` via
+    // `deleted.deletedCount === 0` without re-entering this branch.
+    if (wasPastPaid) {
+      const snapshotOrderId = orderId;
+      after(async () => {
+        try {
+          const dbInner = await getDb();
+          await reverseSale({ db: dbInner, orderId: snapshotOrderId });
+        } catch (err) {
+          logError(
+            "error",
+            "attribution-reverseSale",
+            err instanceof Error ? err.message : "unknown error",
+            { orderId: snapshotOrderId }
+          );
+        }
+      });
+    }
     return { added: 0, updated: 0, skipped: deleted.deletedCount ? 0 : 1 };
   }
   const newIdx = detail.status ? STATUS_ORDER.indexOf(detail.status) : -1;
@@ -656,6 +725,47 @@ async function processOrderDetail(
           `Unmatched sold items during order_detail sync: ${removal.unmatched.length} of ${detail.items.length}`,
           { unmatched: removal.unmatched.slice(0, 20), orderId }
         );
+      }
+
+      // Fire consumeSale for each item AFTER stock removal completes.
+      // The statusAdvanced + index guard ensures this runs exactly once
+      // per order's transition past paid.
+      // Trustee flag comes from the parent order; detail.direction is the
+      // best proxy but not equivalent — fetch the trustee flag from the
+      // orders doc we just updated.
+      const parent = await db.collection(COL.orders).findOne<{ trustee?: boolean }>(
+        { orderId },
+        { projection: { trustee: 1 } }
+      );
+      const trustee = !!parent?.trustee;
+      for (const item of detail.items) {
+        const productIdStr = item.productId;
+        const cardmarketId = productIdStr ? Number(productIdStr) : NaN;
+        if (!Number.isFinite(cardmarketId) || cardmarketId <= 0) continue;
+        const snapshot = {
+          cardmarketId,
+          foil: !!item.foil,
+          condition: item.condition,
+          language: item.language || "English",
+          qtySold: item.qty || 1,
+          unitPriceEur: item.price || 0,
+          trustee,
+          orderId,
+          articleId: item.articleId,
+        };
+        after(async () => {
+          try {
+            const dbInner = await getDb();
+            await consumeSale({ db: dbInner, ...snapshot });
+          } catch (err) {
+            logError(
+              "error",
+              "attribution-consumeSale-orderDetail",
+              err instanceof Error ? err.message : "unknown error",
+              { orderId: snapshot.orderId, cardmarketId: snapshot.cardmarketId }
+            );
+          }
+        });
       }
     }
     added += detail.items.length;
@@ -727,6 +837,19 @@ async function processStock(
   let updated = 0;
   type StockBulkOp = Parameters<typeof col.bulkWrite>[0][number];
   const updateOps: StockBulkOp[] = [];
+  // Track candidate inserts (upsert-by-dedupKey) that should fire
+  // maybeGrowLot if the bulkWrite actually inserts them. The op index
+  // maps into bulkResult.upsertedIds; non-candidate refresh ops and
+  // candidates without productId get a null slot.
+  type GrowCandidate = {
+    cardmarketId: number;
+    foil: boolean;
+    condition: string;
+    language: string;
+    qtyDelta: number;
+    cmSetName: string;
+  };
+  const growCandidates: (GrowCandidate | null)[] = [];
 
   for (const listing of listings) {
     const t = {
@@ -753,6 +876,7 @@ async function processStock(
           update: { $set: refreshSet },
         },
       });
+      growCandidates.push(null);
       updated++;
       continue;
     }
@@ -784,11 +908,65 @@ async function processStock(
         upsert: true,
       },
     });
+    // Only a TRUE insert represents new qty entering stock. Capture the
+    // snapshot now (closure safety — `listing` is a loop-scoped const from
+    // for..of, but we still snapshot primitives to be explicit).
+    if (typeof listing.productId === "number" && listing.qty > 0) {
+      growCandidates.push({
+        cardmarketId: listing.productId,
+        foil: listing.foil || false,
+        condition: listing.condition,
+        language: listing.language || "English",
+        qtyDelta: listing.qty,
+        cmSetName: listing.set,
+      });
+    } else {
+      growCandidates.push(null);
+    }
     added++;
   }
 
   if (!updateOps.length) return { added: 0, updated: 0, skipped: 0 };
   const result = await col.bulkWrite(updateOps, { ordered: false });
+
+  // Fire attribution hooks only for ops that actually inserted (not updated
+  // against an existing dedupKey row). `upsertedIds` maps opIndex -> inserted
+  // _id; absence means the upsert resolved to an update of an existing doc.
+  const upsertedIds = result.upsertedIds || {};
+  for (let i = 0; i < growCandidates.length; i++) {
+    const cand = growCandidates[i];
+    if (!cand) continue;
+    if (!upsertedIds[i]) continue;
+    after(async () => {
+      try {
+        const dbInner = await getDb();
+        const card = await dbInner
+          .collection("dashboard_ev_cards")
+          .findOne<{ set: string }>(
+            { cardmarket_id: cand.cardmarketId },
+            { projection: { set: 1 } }
+          );
+        await maybeGrowLot({
+          db: dbInner,
+          cardmarketId: cand.cardmarketId,
+          foil: cand.foil,
+          condition: cand.condition,
+          language: cand.language,
+          qtyDelta: cand.qtyDelta,
+          cmSetName: cand.cmSetName,
+          cardSetCode: card?.set ?? null,
+        });
+      } catch (err) {
+        logError(
+          "error",
+          "attribution-maybeGrowLot-stock",
+          err instanceof Error ? err.message : "unknown error",
+          { cardmarketId: cand.cardmarketId, qtyDelta: cand.qtyDelta }
+        );
+      }
+    });
+  }
+
   return {
     added: result.upsertedCount || 0,
     updated: (result.modifiedCount || 0) + updated,
@@ -810,6 +988,16 @@ async function processProductStock(
   const now = new Date().toISOString();
 
   let added = 0, updated = 0, removed = 0;
+  // Collect grow candidates to fire after all DB writes complete.
+  type GrowCandidate = {
+    cardmarketId: number;
+    foil: boolean;
+    condition: string;
+    language: string;
+    qtyDelta: number;
+    cmSetName: string;
+  };
+  const growCandidates: GrowCandidate[] = [];
 
   for (const listing of listings) {
     if (listing.qty <= 0) {
@@ -833,6 +1021,7 @@ async function processProductStock(
     // First check if we already track this by articleId
     const existing = await col.findOne({ articleId: listing.articleId });
     if (existing) {
+      const qtyBefore = Number(existing.qty) || 0;
       await col.updateOne(
         { _id: existing._id },
         {
@@ -846,6 +1035,17 @@ async function processProductStock(
         }
       );
       updated++;
+      const qtyDelta = listing.qty - qtyBefore;
+      if (qtyDelta > 0 && typeof listing.productId === "number") {
+        growCandidates.push({
+          cardmarketId: listing.productId,
+          foil: listing.foil || false,
+          condition: listing.condition,
+          language: listing.language || "English",
+          qtyDelta,
+          cmSetName: listing.set,
+        });
+      }
       continue;
     }
 
@@ -862,6 +1062,7 @@ async function processProductStock(
       articleId: { $exists: false },
     });
     if (unclaimedMatch) {
+      const qtyBefore = Number(unclaimedMatch.qty) || 0;
       await col.updateOne(
         { _id: unclaimedMatch._id },
         {
@@ -877,6 +1078,17 @@ async function processProductStock(
         }
       );
       updated++;
+      const qtyDelta = listing.qty - qtyBefore;
+      if (qtyDelta > 0 && typeof listing.productId === "number") {
+        growCandidates.push({
+          cardmarketId: listing.productId,
+          foil: listing.foil || false,
+          condition: listing.condition,
+          language: listing.language || "English",
+          qtyDelta,
+          cmSetName: listing.set,
+        });
+      }
       continue;
     }
 
@@ -892,6 +1104,49 @@ async function processProductStock(
       firstSeenAt: now, lastSeenAt: now, submittedBy,
     });
     added++;
+    // Brand-new row → qtyDelta = listing.qty.
+    if (typeof listing.productId === "number" && listing.qty > 0) {
+      growCandidates.push({
+        cardmarketId: listing.productId,
+        foil: listing.foil || false,
+        condition: listing.condition,
+        language: listing.language || "English",
+        qtyDelta: listing.qty,
+        cmSetName: listing.set,
+      });
+    }
+  }
+
+  // Fire attribution hooks after all writes succeeded.
+  for (const cand of growCandidates) {
+    after(async () => {
+      try {
+        const dbInner = await getDb();
+        const card = await dbInner
+          .collection("dashboard_ev_cards")
+          .findOne<{ set: string }>(
+            { cardmarket_id: cand.cardmarketId },
+            { projection: { set: 1 } }
+          );
+        await maybeGrowLot({
+          db: dbInner,
+          cardmarketId: cand.cardmarketId,
+          foil: cand.foil,
+          condition: cand.condition,
+          language: cand.language,
+          qtyDelta: cand.qtyDelta,
+          cmSetName: cand.cmSetName,
+          cardSetCode: card?.set ?? null,
+        });
+      } catch (err) {
+        logError(
+          "error",
+          "attribution-maybeGrowLot-productStock",
+          err instanceof Error ? err.message : "unknown error",
+          { cardmarketId: cand.cardmarketId, qtyDelta: cand.qtyDelta }
+        );
+      }
+    });
   }
 
   // Ghost cleanup: the product page shows ALL of the user's listings for this
