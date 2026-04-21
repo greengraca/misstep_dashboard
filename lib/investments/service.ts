@@ -300,18 +300,56 @@ export async function recordSealedFlip(params: {
     proceeds_eur: params.body.proceeds_eur,
     note: params.body.note?.trim() || undefined,
   };
-  const nextFlips = [...inv.sealed_flips, flip];
-  const nextInv: Investment = { ...inv, sealed_flips: nextFlips };
-  const nextExpected = await recomputeExpectedOpenCardCount(db, nextInv);
+
+  // Source-kind-specific constants captured once; MongoDB computes expected
+  // cards atomically from the updated sealed_flips.unit_count sum.
+  let expectedExpr: Record<string, unknown>;
+  if (inv.source.kind === "box") {
+    expectedExpr = {
+      $multiply: [
+        inv.source.packs_per_box,
+        inv.source.cards_per_pack,
+        {
+          $max: [
+            0,
+            {
+              $subtract: [
+                inv.source.box_count,
+                { $sum: "$sealed_flips.unit_count" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+  } else {
+    const perUnit = await cardsPerProductUnit(db, inv.source.product_slug);
+    expectedExpr = {
+      $multiply: [
+        perUnit,
+        {
+          $max: [
+            0,
+            {
+              $subtract: [
+                inv.source.unit_count,
+                { $sum: "$sealed_flips.unit_count" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+  }
 
   const res = await db
     .collection<Investment>(COL_INVESTMENTS)
     .findOneAndUpdate(
       { _id: new ObjectId(params.id) },
-      {
-        $push: { sealed_flips: flip },
-        $set: { expected_open_card_count: nextExpected },
-      },
+      [
+        { $set: { sealed_flips: { $concatArrays: ["$sealed_flips", [flip]] } } },
+        { $set: { expected_open_card_count: expectedExpr } },
+      ],
       { returnDocument: "after" }
     );
   return res ?? null;
