@@ -195,3 +195,134 @@ export async function maybeGrowLot(params: {
     remainingDelta -= growBy;
   }
 }
+
+export async function consumeSale(params: {
+  db: Db;
+  cardmarketId: number;
+  foil: boolean;
+  condition: string;
+  language: string;
+  qtySold: number;
+  unitPriceEur: number;
+  trustee: boolean;
+  orderId: string;
+  articleId?: string;
+}): Promise<void> {
+  if (params.qtySold <= 0) return;
+  const feeRate = 0.05 + (params.trustee ? 0.01 : 0);
+  const netPerUnit = params.unitPriceEur * (1 - feeRate);
+
+  // Fetch matching lots, join to investment.created_at for FIFO.
+  // Include both "listing" (growing) and "closed" (frozen) investments.
+  const joined = await params.db
+    .collection(COL_INVESTMENT_LOTS)
+    .aggregate<{
+      _id: ObjectId;
+      investment_id: ObjectId;
+      qty_remaining: number;
+      qty_sold: number;
+      proceeds_eur: number;
+      inv_created_at: Date;
+      inv_status: string;
+    }>([
+      {
+        $match: {
+          cardmarket_id: params.cardmarketId,
+          foil: params.foil,
+          condition: params.condition,
+          language: params.language,
+          qty_remaining: { $gt: 0 },
+        },
+      },
+      {
+        $lookup: {
+          from: COL_INVESTMENTS,
+          localField: "investment_id",
+          foreignField: "_id",
+          as: "inv",
+        },
+      },
+      { $unwind: "$inv" },
+      {
+        $match: {
+          "inv.status": { $in: ["listing", "closed"] },
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          investment_id: 1,
+          qty_remaining: 1,
+          qty_sold: 1,
+          proceeds_eur: 1,
+          inv_created_at: "$inv.created_at",
+          inv_status: "$inv.status",
+        },
+      },
+      { $sort: { inv_created_at: 1 } },
+    ])
+    .toArray();
+
+  let remaining = params.qtySold;
+  for (const lot of joined) {
+    if (remaining <= 0) break;
+    const take = Math.min(lot.qty_remaining, remaining);
+    await params.db.collection(COL_INVESTMENT_LOTS).updateOne(
+      { _id: lot._id },
+      {
+        $inc: {
+          qty_sold: take,
+          qty_remaining: -take,
+          proceeds_eur: take * netPerUnit,
+        },
+      }
+    );
+    await params.db.collection(COL_INVESTMENT_SALE_LOG).insertOne({
+      lot_id: lot._id,
+      investment_id: lot.investment_id,
+      order_id: params.orderId,
+      article_id: params.articleId,
+      cardmarket_id: params.cardmarketId,
+      foil: params.foil,
+      condition: params.condition,
+      language: params.language,
+      qty: take,
+      unit_price_eur: params.unitPriceEur,
+      net_per_unit_eur: netPerUnit,
+      attributed_at: new Date(),
+    });
+    remaining -= take;
+  }
+}
+
+export async function reverseSale(params: {
+  db: Db;
+  orderId: string;
+}): Promise<void> {
+  const rows = await params.db
+    .collection(COL_INVESTMENT_SALE_LOG)
+    .find<{
+      _id: ObjectId;
+      lot_id: ObjectId;
+      qty: number;
+      net_per_unit_eur: number;
+    }>({ order_id: params.orderId })
+    .toArray();
+  for (const row of rows) {
+    await params.db.collection(COL_INVESTMENT_LOTS).updateOne(
+      { _id: row.lot_id },
+      {
+        $inc: {
+          qty_sold: -row.qty,
+          qty_remaining: row.qty,
+          proceeds_eur: -row.qty * row.net_per_unit_eur,
+        },
+      }
+    );
+  }
+  if (rows.length > 0) {
+    await params.db
+      .collection(COL_INVESTMENT_SALE_LOG)
+      .deleteMany({ order_id: params.orderId });
+  }
+}
