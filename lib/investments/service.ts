@@ -7,7 +7,7 @@ import {
   COL_INVESTMENT_LOTS,
   ensureInvestmentIndexes,
 } from "./db";
-import { computeExpectedOpenCardCount } from "./math";
+import { computeExpectedOpenCardCount, computeCostBasisPerUnit } from "./math";
 import type {
   CreateInvestmentBody,
   Investment,
@@ -355,10 +355,43 @@ export async function recordSealedFlip(params: {
   return res ?? null;
 }
 
-// Stubs to be filled in later tasks.
-export async function closeInvestment(): Promise<never> {
-  throw new Error("closeInvestment: implemented in Task 9");
+export async function closeInvestment(params: { id: string }): Promise<Investment | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(params.id);
+  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
+  if (!inv) return null;
+  if (inv.status !== "listing" && inv.status !== "baseline_captured") {
+    // Allow closing from either live-listing state or an untouched baseline_captured;
+    // closed/archived are no-ops.
+    return inv;
+  }
+  const totalOpenedAgg = await db
+    .collection(COL_INVESTMENT_LOTS)
+    .aggregate<{ total: number }>([
+      { $match: { investment_id: invId } },
+      { $group: { _id: null, total: { $sum: "$qty_opened" } } },
+    ])
+    .next();
+  const totalOpened = totalOpenedAgg?.total ?? 0;
+  const basis = computeCostBasisPerUnit(inv, totalOpened);
+  const now = new Date();
+  await db
+    .collection(COL_INVESTMENT_LOTS)
+    .updateMany(
+      { investment_id: invId },
+      { $set: { frozen_at: now, cost_basis_per_unit: basis } }
+    );
+  const res = await db.collection<Investment>(COL_INVESTMENTS).findOneAndUpdate(
+    { _id: invId },
+    { $set: { status: "closed", closed_at: now } },
+    { returnDocument: "after" }
+  );
+  return res ?? null;
 }
+
+// Stubs to be filled in later tasks.
 export async function getBaselineTargets(): Promise<never> {
   throw new Error("getBaselineTargets: implemented in Task 12");
 }
