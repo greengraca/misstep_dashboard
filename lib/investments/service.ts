@@ -81,6 +81,7 @@ async function defaultCmSetNames(db: Db, source: InvestmentSource): Promise<stri
 }
 
 export async function getInvestment(id: string): Promise<Investment | null> {
+  await ensureInvestmentIndexes();
   if (!ObjectId.isValid(id)) return null;
   const db = await getDb();
   return db
@@ -91,6 +92,7 @@ export async function getInvestment(id: string): Promise<Investment | null> {
 export async function listInvestments(params: {
   status?: Investment["status"];
 }): Promise<Investment[]> {
+  await ensureInvestmentIndexes();
   const db = await getDb();
   const filter: Record<string, unknown> = {};
   if (params.status) filter.status = params.status;
@@ -105,6 +107,7 @@ export async function updateInvestment(params: {
   id: string;
   body: UpdateInvestmentBody;
 }): Promise<Investment | null> {
+  await ensureInvestmentIndexes();
   if (!ObjectId.isValid(params.id)) return null;
   const db = await getDb();
   const $set: Record<string, unknown> = {};
@@ -126,6 +129,7 @@ export async function updateInvestment(params: {
 }
 
 export async function archiveInvestment(id: string): Promise<boolean> {
+  await ensureInvestmentIndexes();
   if (!ObjectId.isValid(id)) return false;
   const db = await getDb();
   const res = await db
@@ -138,6 +142,7 @@ export async function archiveInvestment(id: string): Promise<boolean> {
 export async function listInvestmentSummaries(params: {
   status?: Investment["status"];
 }): Promise<InvestmentListItem[]> {
+  await ensureInvestmentIndexes();
   const db = await getDb();
   const investments = await listInvestments(params);
   const ids = investments.map((i) => i._id);
