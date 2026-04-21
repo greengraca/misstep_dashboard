@@ -225,6 +225,14 @@ export interface EvSet {
   collector_ev_net?: number | null;
   cards_priced?: number;
   config_exists?: boolean;
+  /**
+   * Cardmarket's numeric expansion ID — used to deep-link to
+   * /Stock/Offers/Singles?idExpansion=N for the investment baseline walk.
+   * Populated opportunistically by the extension when the user visits
+   * any /Products/Singles/<SET>/<CARD> page; the sidebar filter link
+   * exposes the mapping so we capture it passively.
+   */
+  cm_expansion_id?: number | null;
 }
 
 // Per-variant market-price snapshot captured by the extension's card_prices
