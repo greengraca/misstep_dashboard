@@ -549,13 +549,22 @@ async function processOrders(
       // the stock row is still present (would double-count). Only fires on
       // the paid-transition — the `newlyPaidIds` filter above guards against
       // re-firing on subsequent syncs of already-paid orders.
-      const orderById = new Map(
-        orders.map((o) => [o.orderId, o] as const)
-      );
+      // Trustee flag comes from the persisted DB doc (I2) — the incoming
+      // batch payload may arrive with `trustee: null` on later syncs when
+      // the CM list view doesn't re-render the icon, so the freshly-updated
+      // DB row is the authoritative source.
+      const persistedOrders = await col
+        .find<{ orderId: string; trustee?: boolean }>(
+          { orderId: { $in: newlyPaidIds } },
+          { projection: { orderId: 1, trustee: 1 } }
+        )
+        .toArray();
+      const trusteeByOrderId = new Map<string, boolean>();
+      for (const po of persistedOrders) {
+        trusteeByOrderId.set(po.orderId, !!po.trustee);
+      }
       for (const item of items) {
         const orderId = item.orderId as string;
-        const order = orderById.get(orderId);
-        if (!order) continue;
         const productIdStr = item.productId as string | undefined;
         const cardmarketId = productIdStr ? Number(productIdStr) : NaN;
         if (!Number.isFinite(cardmarketId) || cardmarketId <= 0) continue;
@@ -566,7 +575,7 @@ async function processOrders(
           language: (item.language as string) || "English",
           qtySold: Number(item.qty) || 1,
           unitPriceEur: Number(item.price) || 0,
-          trustee: !!order.trustee,
+          trustee: trusteeByOrderId.get(orderId) ?? false,
           orderId,
           articleId: item.articleId as string | undefined,
         };
@@ -837,19 +846,60 @@ async function processStock(
   let updated = 0;
   type StockBulkOp = Parameters<typeof col.bulkWrite>[0][number];
   const updateOps: StockBulkOp[] = [];
-  // Track candidate inserts (upsert-by-dedupKey) that should fire
-  // maybeGrowLot if the bulkWrite actually inserts them. The op index
-  // maps into bulkResult.upsertedIds; non-candidate refresh ops and
-  // candidates without productId get a null slot.
-  type GrowCandidate = {
-    cardmarketId: number;
-    foil: boolean;
-    condition: string;
-    language: string;
-    qtyDelta: number;
-    cmSetName: string;
-  };
-  const growCandidates: (GrowCandidate | null)[] = [];
+
+  // Collect attribution tuple keys from incoming listings. We do the
+  // grow attribution based on a before/after tuple-level qty diff instead
+  // of per-op upsert flags — dedupKey embeds qty, so a qty bump (e.g.
+  // 2→4) produces a TRUE insert even though only 2 new units entered
+  // stock. Diffing the aggregated qty across the {productId, foil,
+  // condition, language} tuple gives the correct delta AND collapses
+  // multiple firings per tuple in a single batch (C1 + C2 fix).
+  const tupleKeys = new Set<string>();
+  const cmSetNameByTuple = new Map<string, string | undefined>();
+  for (const l of listings) {
+    if (typeof l.productId === "number") {
+      const key = `${l.productId}|${l.foil || false}|${l.condition}|${l.language || "English"}`;
+      tupleKeys.add(key);
+      if (!cmSetNameByTuple.has(key)) cmSetNameByTuple.set(key, l.set);
+    }
+  }
+
+  // Pre-bulkWrite: aggregate current qty per tuple so we can diff after.
+  const priorQtyByTuple = new Map<string, number>();
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
+    });
+    const priorAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+    for (const row of priorAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      priorQtyByTuple.set(key, row.total);
+    }
+  }
 
   for (const listing of listings) {
     const t = {
@@ -876,7 +926,6 @@ async function processStock(
           update: { $set: refreshSet },
         },
       });
-      growCandidates.push(null);
       updated++;
       continue;
     }
@@ -908,63 +957,88 @@ async function processStock(
         upsert: true,
       },
     });
-    // Only a TRUE insert represents new qty entering stock. Capture the
-    // snapshot now (closure safety — `listing` is a loop-scoped const from
-    // for..of, but we still snapshot primitives to be explicit).
-    if (typeof listing.productId === "number" && listing.qty > 0) {
-      growCandidates.push({
-        cardmarketId: listing.productId,
-        foil: listing.foil || false,
-        condition: listing.condition,
-        language: listing.language || "English",
-        qtyDelta: listing.qty,
-        cmSetName: listing.set,
-      });
-    } else {
-      growCandidates.push(null);
-    }
     added++;
   }
 
   if (!updateOps.length) return { added: 0, updated: 0, skipped: 0 };
   const result = await col.bulkWrite(updateOps, { ordered: false });
 
-  // Fire attribution hooks only for ops that actually inserted (not updated
-  // against an existing dedupKey row). `upsertedIds` maps opIndex -> inserted
-  // _id; absence means the upsert resolved to an update of an existing doc.
-  const upsertedIds = result.upsertedIds || {};
-  for (let i = 0; i < growCandidates.length; i++) {
-    const cand = growCandidates[i];
-    if (!cand) continue;
-    if (!upsertedIds[i]) continue;
-    after(async () => {
-      try {
-        const dbInner = await getDb();
-        const card = await dbInner
-          .collection("dashboard_ev_cards")
-          .findOne<{ set: string }>(
-            { cardmarket_id: cand.cardmarketId },
-            { projection: { set: 1 } }
-          );
-        await maybeGrowLot({
-          db: dbInner,
-          cardmarketId: cand.cardmarketId,
-          foil: cand.foil,
-          condition: cand.condition,
-          language: cand.language,
-          qtyDelta: cand.qtyDelta,
-          cmSetName: cand.cmSetName,
-          cardSetCode: card?.set ?? null,
-        });
-      } catch (err) {
-        logError(
-          "error",
-          "attribution-maybeGrowLot-stock",
-          err instanceof Error ? err.message : "unknown error",
-          { cardmarketId: cand.cardmarketId, qtyDelta: cand.qtyDelta }
-        );
-      }
+  // Post-bulkWrite: re-aggregate per tuple and fire one hook per tuple
+  // with the true qty delta. Also pre-fetch ev_cards.set once per batch
+  // to avoid N findOne() calls inside the after() callbacks (I1).
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
     });
+    const postAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+
+    const productIds = Array.from(new Set(postAgg.map((r) => r._id.productId)));
+    const cardSetCodeByProductId = new Map<number, string | null>();
+    if (productIds.length > 0) {
+      const cards = await db
+        .collection("dashboard_ev_cards")
+        .find<{ cardmarket_id: number; set: string }>(
+          { cardmarket_id: { $in: productIds } },
+          { projection: { cardmarket_id: 1, set: 1 } }
+        )
+        .toArray();
+      for (const c of cards) {
+        cardSetCodeByProductId.set(c.cardmarket_id, c.set);
+      }
+    }
+
+    for (const row of postAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      const priorQty = priorQtyByTuple.get(key) ?? 0;
+      const qtyDelta = row.total - priorQty;
+      if (qtyDelta <= 0) continue;
+      const snapshot = {
+        cardmarketId: row._id.productId,
+        foil: row._id.foil,
+        condition: row._id.condition,
+        language: row._id.language,
+        qtyDelta,
+        cmSetName: cmSetNameByTuple.get(key),
+        cardSetCode: cardSetCodeByProductId.get(row._id.productId) ?? null,
+      };
+      after(async () => {
+        try {
+          const dbInner = await getDb();
+          await maybeGrowLot({ db: dbInner, ...snapshot });
+        } catch (err) {
+          logError(
+            "error",
+            "attribution-maybeGrowLot-stock",
+            err instanceof Error ? err.message : "unknown error",
+            { cardmarketId: snapshot.cardmarketId, qtyDelta: snapshot.qtyDelta }
+          );
+        }
+      });
+    }
   }
 
   return {
@@ -988,16 +1062,58 @@ async function processProductStock(
   const now = new Date().toISOString();
 
   let added = 0, updated = 0, removed = 0;
-  // Collect grow candidates to fire after all DB writes complete.
-  type GrowCandidate = {
-    cardmarketId: number;
-    foil: boolean;
-    condition: string;
-    language: string;
-    qtyDelta: number;
-    cmSetName: string;
-  };
-  const growCandidates: GrowCandidate[] = [];
+
+  // Collect attribution tuple keys from incoming listings with qty > 0.
+  // Same rationale as processStock: use a tuple-level before/after qty
+  // diff to compute the true attributable delta and fire a single
+  // maybeGrowLot per tuple. qty <= 0 listings are deletes only — they
+  // reduce stock and MUST NOT trigger grow attribution.
+  const tupleKeys = new Set<string>();
+  const cmSetNameByTuple = new Map<string, string | undefined>();
+  for (const l of listings) {
+    if (l.qty > 0 && typeof l.productId === "number") {
+      const key = `${l.productId}|${l.foil || false}|${l.condition}|${l.language || "English"}`;
+      tupleKeys.add(key);
+      if (!cmSetNameByTuple.has(key)) cmSetNameByTuple.set(key, l.set);
+    }
+  }
+
+  // Pre-write: aggregate current qty per tuple.
+  const priorQtyByTuple = new Map<string, number>();
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
+    });
+    const priorAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+    for (const row of priorAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      priorQtyByTuple.set(key, row.total);
+    }
+  }
 
   for (const listing of listings) {
     if (listing.qty <= 0) {
@@ -1021,7 +1137,6 @@ async function processProductStock(
     // First check if we already track this by articleId
     const existing = await col.findOne({ articleId: listing.articleId });
     if (existing) {
-      const qtyBefore = Number(existing.qty) || 0;
       await col.updateOne(
         { _id: existing._id },
         {
@@ -1035,17 +1150,6 @@ async function processProductStock(
         }
       );
       updated++;
-      const qtyDelta = listing.qty - qtyBefore;
-      if (qtyDelta > 0 && typeof listing.productId === "number") {
-        growCandidates.push({
-          cardmarketId: listing.productId,
-          foil: listing.foil || false,
-          condition: listing.condition,
-          language: listing.language || "English",
-          qtyDelta,
-          cmSetName: listing.set,
-        });
-      }
       continue;
     }
 
@@ -1062,7 +1166,6 @@ async function processProductStock(
       articleId: { $exists: false },
     });
     if (unclaimedMatch) {
-      const qtyBefore = Number(unclaimedMatch.qty) || 0;
       await col.updateOne(
         { _id: unclaimedMatch._id },
         {
@@ -1078,17 +1181,6 @@ async function processProductStock(
         }
       );
       updated++;
-      const qtyDelta = listing.qty - qtyBefore;
-      if (qtyDelta > 0 && typeof listing.productId === "number") {
-        growCandidates.push({
-          cardmarketId: listing.productId,
-          foil: listing.foil || false,
-          condition: listing.condition,
-          language: listing.language || "English",
-          qtyDelta,
-          cmSetName: listing.set,
-        });
-      }
       continue;
     }
 
@@ -1104,49 +1196,87 @@ async function processProductStock(
       firstSeenAt: now, lastSeenAt: now, submittedBy,
     });
     added++;
-    // Brand-new row → qtyDelta = listing.qty.
-    if (typeof listing.productId === "number" && listing.qty > 0) {
-      growCandidates.push({
-        cardmarketId: listing.productId,
-        foil: listing.foil || false,
-        condition: listing.condition,
-        language: listing.language || "English",
-        qtyDelta: listing.qty,
-        cmSetName: listing.set,
-      });
-    }
   }
 
-  // Fire attribution hooks after all writes succeeded.
-  for (const cand of growCandidates) {
-    after(async () => {
-      try {
-        const dbInner = await getDb();
-        const card = await dbInner
-          .collection("dashboard_ev_cards")
-          .findOne<{ set: string }>(
-            { cardmarket_id: cand.cardmarketId },
-            { projection: { set: 1 } }
-          );
-        await maybeGrowLot({
-          db: dbInner,
-          cardmarketId: cand.cardmarketId,
-          foil: cand.foil,
-          condition: cand.condition,
-          language: cand.language,
-          qtyDelta: cand.qtyDelta,
-          cmSetName: cand.cmSetName,
-          cardSetCode: card?.set ?? null,
-        });
-      } catch (err) {
-        logError(
-          "error",
-          "attribution-maybeGrowLot-productStock",
-          err instanceof Error ? err.message : "unknown error",
-          { cardmarketId: cand.cardmarketId, qtyDelta: cand.qtyDelta }
-        );
-      }
+  // Post-write: re-aggregate per tuple and fire one hook per tuple with
+  // the true qty delta. Must run BEFORE the ghost-cleanup deleteMany
+  // below, otherwise the post-agg would reflect the cleanup too and
+  // under-count delta. (Cleanup only removes product_page rows NOT in
+  // the current batch — their qty was never part of this batch's delta,
+  // but they'd still shrink the aggregate if we measured after.)
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
     });
+    const postAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+
+    const productIds = Array.from(new Set(postAgg.map((r) => r._id.productId)));
+    const cardSetCodeByProductId = new Map<number, string | null>();
+    if (productIds.length > 0) {
+      const cards = await db
+        .collection("dashboard_ev_cards")
+        .find<{ cardmarket_id: number; set: string }>(
+          { cardmarket_id: { $in: productIds } },
+          { projection: { cardmarket_id: 1, set: 1 } }
+        )
+        .toArray();
+      for (const c of cards) {
+        cardSetCodeByProductId.set(c.cardmarket_id, c.set);
+      }
+    }
+
+    for (const row of postAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      const priorQty = priorQtyByTuple.get(key) ?? 0;
+      const qtyDelta = row.total - priorQty;
+      if (qtyDelta <= 0) continue;
+      const snapshot = {
+        cardmarketId: row._id.productId,
+        foil: row._id.foil,
+        condition: row._id.condition,
+        language: row._id.language,
+        qtyDelta,
+        cmSetName: cmSetNameByTuple.get(key),
+        cardSetCode: cardSetCodeByProductId.get(row._id.productId) ?? null,
+      };
+      after(async () => {
+        try {
+          const dbInner = await getDb();
+          await maybeGrowLot({ db: dbInner, ...snapshot });
+        } catch (err) {
+          logError(
+            "error",
+            "attribution-maybeGrowLot-productStock",
+            err instanceof Error ? err.message : "unknown error",
+            { cardmarketId: snapshot.cardmarketId, qtyDelta: snapshot.qtyDelta }
+          );
+        }
+      });
+    }
   }
 
   // Ghost cleanup: the product page shows ALL of the user's listings for this
