@@ -404,6 +404,101 @@ export async function closeInvestment(params: { id: string }): Promise<Investmen
   return locked;
 }
 
+export interface LotListItem {
+  id: string;
+  cardmarket_id: number;
+  foil: boolean;
+  condition: string;
+  name: string | null;
+  set_code: string | null;
+  qty_opened: number;
+  qty_sold: number;
+  qty_remaining: number;
+  cost_basis_per_unit: number | null;
+  proceeds_eur: number;
+  live_price_eur: number | null;
+}
+
+export async function listLots(params: {
+  id: string;
+  search?: string;
+  foil?: boolean;
+  minRemaining?: number;
+}): Promise<LotListItem[]> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return [];
+  const db = await getDb();
+  const filter: Record<string, unknown> = { investment_id: new ObjectId(params.id) };
+  if (params.foil !== undefined) filter.foil = params.foil;
+  if (params.minRemaining !== undefined) filter.qty_remaining = { $gte: params.minRemaining };
+  const lots = await db
+    .collection(COL_INVESTMENT_LOTS)
+    .find(filter)
+    .toArray();
+  if (lots.length === 0) return [];
+  const cmIds = Array.from(new Set(lots.map((l) => l.cardmarket_id as number)));
+  const cards = await db
+    .collection("dashboard_ev_cards")
+    .find({ cardmarket_id: { $in: cmIds } })
+    .project<{ cardmarket_id: number; name: string; set: string; cm_prices?: Record<string, { trend?: number }> }>({
+      cardmarket_id: 1,
+      name: 1,
+      set: 1,
+      cm_prices: 1,
+    })
+    .toArray();
+  const cardByCmId = new Map<number, (typeof cards)[number]>();
+  for (const c of cards) cardByCmId.set(c.cardmarket_id, c);
+  const rows: LotListItem[] = lots.map((l) => {
+    const card = cardByCmId.get(l.cardmarket_id as number);
+    const priceKey = l.foil ? "foil" : "nonfoil";
+    const trend =
+      (card?.cm_prices?.[priceKey]?.trend as number | undefined) ?? null;
+    return {
+      id: String(l._id),
+      cardmarket_id: l.cardmarket_id as number,
+      foil: l.foil as boolean,
+      condition: l.condition as string,
+      name: card?.name ?? null,
+      set_code: card?.set ?? null,
+      qty_opened: l.qty_opened as number,
+      qty_sold: l.qty_sold as number,
+      qty_remaining: l.qty_remaining as number,
+      cost_basis_per_unit: (l.cost_basis_per_unit as number | null) ?? null,
+      proceeds_eur: l.proceeds_eur as number,
+      live_price_eur: trend,
+    };
+  });
+  if (params.search) {
+    const q = params.search.toLowerCase();
+    return rows.filter((r) => r.name?.toLowerCase().includes(q));
+  }
+  return rows;
+}
+
+export async function adjustLot(params: {
+  id: string;
+  lotId: string;
+  qtyOpened: number;
+}): Promise<boolean> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id) || !ObjectId.isValid(params.lotId)) return false;
+  if (params.qtyOpened < 0) return false;
+  const db = await getDb();
+  const lotId = new ObjectId(params.lotId);
+  const lot = await db.collection(COL_INVESTMENT_LOTS).findOne({ _id: lotId });
+  if (!lot) return false;
+  const qtySold = lot.qty_sold as number;
+  if (params.qtyOpened < qtySold) return false; // can't go below what's already been sold
+  const res = await db
+    .collection(COL_INVESTMENT_LOTS)
+    .updateOne(
+      { _id: lotId, investment_id: new ObjectId(params.id) },
+      { $set: { qty_opened: params.qtyOpened, qty_remaining: params.qtyOpened - qtySold } }
+    );
+  return res.matchedCount > 0;
+}
+
 // Stubs to be filled in later tasks.
 export async function getBaselineTargets(): Promise<never> {
   throw new Error("getBaselineTargets: implemented in Task 12");
@@ -413,10 +508,4 @@ export async function upsertBaselineBatch(): Promise<never> {
 }
 export async function markBaselineComplete(): Promise<never> {
   throw new Error("markBaselineComplete: implemented in Task 14");
-}
-export async function adjustLot(): Promise<never> {
-  throw new Error("adjustLot: implemented in Task 11");
-}
-export async function listLots(): Promise<never> {
-  throw new Error("listLots: implemented in Task 10");
 }
