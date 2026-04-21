@@ -282,10 +282,42 @@ export async function buildInvestmentDetail(
   };
 }
 
-// Stubs to be filled in later tasks.
-export async function recordSealedFlip(): Promise<never> {
-  throw new Error("recordSealedFlip: implemented in Task 8");
+export async function recordSealedFlip(params: {
+  id: string;
+  body: import("./types").SealedFlipBody;
+}): Promise<Investment | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  const db = await getDb();
+  const inv = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne({ _id: new ObjectId(params.id) });
+  if (!inv) return null;
+
+  const flip = {
+    recorded_at: new Date(),
+    unit_count: params.body.unit_count,
+    proceeds_eur: params.body.proceeds_eur,
+    note: params.body.note?.trim() || undefined,
+  };
+  const nextFlips = [...inv.sealed_flips, flip];
+  const nextInv: Investment = { ...inv, sealed_flips: nextFlips };
+  const nextExpected = await recomputeExpectedOpenCardCount(db, nextInv);
+
+  const res = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOneAndUpdate(
+      { _id: new ObjectId(params.id) },
+      {
+        $push: { sealed_flips: flip },
+        $set: { expected_open_card_count: nextExpected },
+      },
+      { returnDocument: "after" }
+    );
+  return res ?? null;
 }
+
+// Stubs to be filled in later tasks.
 export async function closeInvestment(): Promise<never> {
   throw new Error("closeInvestment: implemented in Task 9");
 }
