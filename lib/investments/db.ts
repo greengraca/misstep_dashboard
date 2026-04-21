@@ -28,10 +28,10 @@ export async function ensureInvestmentIndexes(): Promise<void> {
       { investment_id: 1, cardmarket_id: 1, foil: 1, condition: 1, language: 1 },
       { unique: true, name: "lot_unique_v2" }
     );
-    // NOTE: lot_by_card intentionally keys on (cardmarket_id, foil, condition)
-    // only — consumeSale uses it to match stock-removal events across all
-    // languages of the same tuple, because order-item data from Cardmarket
-    // may not always disambiguate language.
+    // Secondary index on (cardmarket_id, foil, condition) WITHOUT language.
+    // Retained for debugging/reporting queries that want "all lots for this CM card
+    // regardless of language". The production code path in consumeSale uses the
+    // full tuple via lot_unique_v2.
     await db.collection(COL_INVESTMENT_LOTS).createIndex(
       { cardmarket_id: 1, foil: 1, condition: 1 },
       { name: "lot_by_card" }

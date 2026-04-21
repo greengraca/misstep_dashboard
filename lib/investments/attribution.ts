@@ -267,17 +267,11 @@ export async function consumeSale(params: {
   for (const lot of joined) {
     if (remaining <= 0) break;
     const take = Math.min(lot.qty_remaining, remaining);
-    await params.db.collection(COL_INVESTMENT_LOTS).updateOne(
-      { _id: lot._id },
-      {
-        $inc: {
-          qty_sold: take,
-          qty_remaining: -take,
-          proceeds_eur: take * netPerUnit,
-        },
-      }
-    );
-    await params.db.collection(COL_INVESTMENT_SALE_LOG).insertOne({
+
+    // Insert the audit log FIRST so a crash after the log insert but before
+    // the lot update leaves a detectable "log without matching lot delta" state,
+    // rather than the worse "lot drained without audit log" state.
+    const logInsert = await params.db.collection(COL_INVESTMENT_SALE_LOG).insertOne({
       lot_id: lot._id,
       investment_id: lot.investment_id,
       order_id: params.orderId,
@@ -291,10 +285,48 @@ export async function consumeSale(params: {
       net_per_unit_eur: netPerUnit,
       attributed_at: new Date(),
     });
+
+    // Guarded update: refuses to go negative. If another consumer drained this lot
+    // between our aggregate and this write, we roll back the log insert and break.
+    const updated = await params.db
+      .collection(COL_INVESTMENT_LOTS)
+      .findOneAndUpdate(
+        { _id: lot._id, qty_remaining: { $gte: take } },
+        {
+          $inc: {
+            qty_sold: take,
+            qty_remaining: -take,
+            proceeds_eur: take * netPerUnit,
+          },
+        },
+        { returnDocument: "after" }
+      );
+    if (!updated) {
+      // Another consumer drained this lot. Roll back the log insert and skip.
+      await params.db
+        .collection(COL_INVESTMENT_SALE_LOG)
+        .deleteOne({ _id: logInsert.insertedId });
+      continue;
+    }
+
     remaining -= take;
   }
 }
 
+/**
+ * Reverse a sale by undoing each sale_log row for the given order_id:
+ * decrement qty_sold, increment qty_remaining, decrement proceeds_eur.
+ *
+ * CONCURRENCY / PARTIAL FAILURE: The reversal loop + deleteMany is not
+ * atomic. If the process crashes mid-loop, some lots will be reversed and
+ * sale_log rows remain. A retry of reverseSale would re-reverse those lots
+ * (double refund). Cancelling the same order twice is rare in practice, but
+ * if you observe stale sale_log rows after a failed cancellation, clean up
+ * manually:
+ *   db.dashboard_investment_sale_log.deleteMany({ order_id: "X" })
+ * Or extend this fn with a `reversed_at` marker per row for exact-once
+ * reversal if the issue becomes recurrent.
+ */
 export async function reverseSale(params: {
   db: Db;
   orderId: string;
