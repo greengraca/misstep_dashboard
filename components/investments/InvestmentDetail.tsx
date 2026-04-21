@@ -66,11 +66,7 @@ export default function InvestmentDetail({ id }: { id: string }) {
   }, [menuOpen]);
 
   if (isLoading) {
-    return (
-      <p className="text-sm py-10 text-center" style={{ color: "var(--text-muted)" }}>
-        Loading investment…
-      </p>
-    );
+    return <InvestmentDetailSkeleton />;
   }
   if (!detail) {
     return (
@@ -203,6 +199,76 @@ export default function InvestmentDetail({ id }: { id: string }) {
         confirmLabel="Archive"
         variant="danger"
       />
+    </div>
+  );
+}
+
+/**
+ * Skeleton shown while /api/investments/[id] is fetching. First render shows
+ * the full page skeleton immediately. The hint text below rotates as time
+ * passes so the user knows the work hasn't stalled — baseline-target + listed-
+ * value + expected-EV aggregates can take a couple of seconds combined on
+ * first hit after the Vercel function cold-starts.
+ */
+function InvestmentDetailSkeleton() {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500);
+    return () => clearInterval(t);
+  }, []);
+  const hint =
+    elapsed < 3
+      ? "Loading investment…"
+      : elapsed < 7
+        ? "Building lot summary…"
+        : elapsed < 15
+          ? "Computing baseline progress…"
+          : "Still working — first load after a deploy can take a bit.";
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-start gap-3">
+        <div className="w-5 h-5 skeleton rounded" />
+        <div className="flex-1 space-y-2">
+          <div className="w-20 h-3 skeleton rounded" />
+          <div className="w-72 h-6 skeleton rounded" />
+          <div className="w-56 h-3 skeleton rounded" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-[108px] rounded-xl p-4 space-y-3"
+            style={{
+              background: "var(--surface-gradient)",
+              backdropFilter: "var(--surface-blur)",
+              border: "1px solid rgba(255,255,255,0.10)",
+            }}
+          >
+            <div className="w-16 h-2.5 skeleton rounded" />
+            <div className="w-20 h-6 skeleton rounded" />
+          </div>
+        ))}
+      </div>
+      <div
+        className="rounded-xl p-4 space-y-3"
+        style={{
+          background: "var(--surface-gradient)",
+          backdropFilter: "var(--surface-blur)",
+          border: "1px solid rgba(255,255,255,0.10)",
+        }}
+      >
+        <div className="w-32 h-4 skeleton rounded" />
+        <div className="w-64 h-3 skeleton rounded" />
+      </div>
+      <p
+        className="text-xs text-center"
+        style={{ color: "var(--text-muted)" }}
+      >
+        {hint}
+      </p>
     </div>
   );
 }
