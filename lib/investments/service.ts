@@ -679,6 +679,228 @@ export async function getBaselineTargets(params: { id: string }): Promise<{
   };
 }
 
+/**
+ * Three-way diagnostic of how much of the investment's expansion the
+ * dashboard has already synced, so the walker can short-circuit the walk
+ * when there's nothing to do and steer the user otherwise:
+ *   - db_stock_count: stock rows in dashboard_cm_stock whose productId
+ *     resolves (via ev_cards.cardmarket_id) to a card in the investment's
+ *     set. This is "what we think we have on CM for this expansion."
+ *   - baseline_captured_count: rows already written to baseline for this
+ *     investment. Used to tell "walked once" from "fresh start."
+ *   - expected_total_count: stamped on the investment by the last walker
+ *     batch. Null for a fresh investment — extension will fill it by
+ *     reading the idExpansion dropdown on the CM page.
+ * The caller compares db_stock_count to the CM-reported count to decide
+ * whether to snapshot-from-stock, walk for missing rows, or walk to prune.
+ */
+export async function computeBaselineDiagnosis(params: {
+  id: string;
+}): Promise<
+  | {
+      cm_expansion_id: number | null;
+      set_code: string | null;
+      db_stock_count: number;
+      baseline_captured_count: number;
+      expected_total_count: number | null;
+    }
+  | null
+> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(params.id);
+  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
+  if (!inv) return null;
+
+  // Resolve set_code (identical logic to getBaselineTargets — small enough
+  // to duplicate; extracting further would ripple into a 3rd caller).
+  let setCode: string | null = null;
+  if (inv.source.kind === "box") {
+    setCode = inv.source.set_code;
+  } else {
+    const p = await db
+      .collection<EvProduct>(COL_EV_PRODUCTS)
+      .findOne(
+        { slug: inv.source.product_slug },
+        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
+      );
+    if (p?.parent_set_code) {
+      setCode = p.parent_set_code;
+    } else if (p?.cards?.length) {
+      const counts = new Map<string, number>();
+      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
+      let best: string | null = null;
+      let bestN = 0;
+      for (const [code, n] of counts) {
+        if (n > bestN) { best = code; bestN = n; }
+      }
+      setCode = best;
+    }
+  }
+
+  let cmExpansionId: number | null = null;
+  let dbStockCount = 0;
+  if (setCode) {
+    const [set, cardIds] = await Promise.all([
+      db
+        .collection("dashboard_ev_sets")
+        .findOne<{ cm_expansion_id?: number | null }>(
+          { code: setCode },
+          { projection: { cm_expansion_id: 1 } }
+        ),
+      db
+        .collection("dashboard_ev_cards")
+        .find(
+          { set: setCode, cardmarket_id: { $ne: null } },
+          { projection: { cardmarket_id: 1 } }
+        )
+        .toArray(),
+    ]);
+    cmExpansionId = set?.cm_expansion_id ?? null;
+    const productIds = cardIds.map((c) => c.cardmarket_id as number);
+    if (productIds.length > 0) {
+      dbStockCount = await db
+        .collection("dashboard_cm_stock")
+        .countDocuments({ productId: { $in: productIds } });
+    }
+  }
+
+  const baselineCaptured = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .countDocuments({ investment_id: invId });
+
+  return {
+    cm_expansion_id: cmExpansionId,
+    set_code: setCode,
+    db_stock_count: dbStockCount,
+    baseline_captured_count: baselineCaptured,
+    expected_total_count: inv.baseline_total_expected ?? null,
+  };
+}
+
+/**
+ * Short-circuit the baseline walk when dashboard stock for the expansion
+ * already equals the Cardmarket total. Copies every matching stock row
+ * into dashboard_investment_baseline using dedupKey as a synthetic
+ * article_id (real article_ids come from the walker; dedupKey keys a
+ * unique stock row just as reliably for baseline purposes). Stamps
+ * total_expected on the investment so the detail-page progress bar
+ * reads "complete". Returns the number of baseline rows written.
+ *
+ * Caller requirements:
+ *   - Should have verified via computeBaselineDiagnosis that db_stock_count
+ *     is consistent with the CM-reported total before calling, otherwise
+ *     the snapshot will be incomplete.
+ *   - Pass total_expected = CM-reported count (from the idExpansion
+ *     dropdown) so the progress indicator matches what Cardmarket shows.
+ */
+export async function snapshotBaselineFromStock(params: {
+  id: string;
+  total_expected: number;
+}): Promise<{ snapshotted: number } | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.id)) return null;
+  if (!Number.isInteger(params.total_expected) || params.total_expected < 0) {
+    return null;
+  }
+  const db = await getDb();
+  const invId = new ObjectId(params.id);
+  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
+  if (!inv) return null;
+
+  // Same set_code resolution as computeBaselineDiagnosis. Could extract
+  // but the code is short enough to inline here and avoid cross-function
+  // coupling.
+  let setCode: string | null = null;
+  if (inv.source.kind === "box") {
+    setCode = inv.source.set_code;
+  } else {
+    const p = await db
+      .collection<EvProduct>(COL_EV_PRODUCTS)
+      .findOne(
+        { slug: inv.source.product_slug },
+        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
+      );
+    if (p?.parent_set_code) setCode = p.parent_set_code;
+    else if (p?.cards?.length) {
+      const counts = new Map<string, number>();
+      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
+      let best: string | null = null;
+      let bestN = 0;
+      for (const [code, n] of counts) {
+        if (n > bestN) { best = code; bestN = n; }
+      }
+      setCode = best;
+    }
+  }
+  if (!setCode) return { snapshotted: 0 };
+
+  const cards = await db
+    .collection("dashboard_ev_cards")
+    .find<{ cardmarket_id: number | null }>(
+      { set: setCode, cardmarket_id: { $ne: null } },
+      { projection: { cardmarket_id: 1 } }
+    )
+    .toArray();
+  const productIds = cards.map((c) => c.cardmarket_id).filter((x): x is number => x != null);
+  if (productIds.length === 0) return { snapshotted: 0 };
+
+  const stockRows = await db
+    .collection("dashboard_cm_stock")
+    .find<{
+      productId: number;
+      foil?: boolean;
+      condition?: string;
+      language?: string;
+      qty?: number;
+      price?: number;
+      dedupKey?: string;
+      articleId?: string;
+    }>({ productId: { $in: productIds } })
+    .toArray();
+
+  const now = new Date();
+  let snapshotted = 0;
+  for (const r of stockRows) {
+    // Prefer real articleId when present (product_page source rows); fall
+    // back to dedupKey for stock_page rows that never had an article id.
+    // Both are unique per stock row, which is all baseline_v3_unique needs.
+    const articleId = r.articleId || r.dedupKey;
+    if (!articleId) continue;
+    const qty = Number.isInteger(r.qty) ? (r.qty as number) : 0;
+    const price = Number.isFinite(r.price) ? (r.price as number) : 0;
+    const condition = typeof r.condition === "string" ? r.condition : "NM";
+    const language = typeof r.language === "string" ? r.language : "English";
+    const foil = !!r.foil;
+    const res = await db.collection(COL_INVESTMENT_BASELINE).updateOne(
+      { investment_id: invId, article_id: articleId },
+      {
+        $set: {
+          qty_baseline: qty,
+          price_eur: price,
+          cardmarket_id: r.productId,
+          foil,
+          condition,
+          language,
+          captured_at: now,
+        },
+        $setOnInsert: { investment_id: invId, article_id: articleId },
+      },
+      { upsert: true }
+    );
+    if (res.upsertedCount > 0 || res.modifiedCount > 0) snapshotted++;
+  }
+
+  // Stamp the total expected (from CM) so progress reads as complete.
+  await db.collection(COL_INVESTMENTS).updateOne(
+    { _id: invId },
+    { $set: { baseline_total_expected: params.total_expected } }
+  );
+
+  return { snapshotted };
+}
+
 export async function upsertBaselineBatch(params: {
   id: string;
   body: import("./types").BaselineBatchBody;
