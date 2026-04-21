@@ -5,6 +5,7 @@ import {
   COL_INVESTMENTS,
   COL_INVESTMENT_BASELINE,
   COL_INVESTMENT_LOTS,
+  COL_INVESTMENT_SALE_LOG,
   ensureInvestmentIndexes,
 } from "./db";
 import { computeExpectedOpenCardCount, computeCostBasisPerUnit } from "./math";
@@ -136,6 +137,41 @@ export async function archiveInvestment(id: string): Promise<boolean> {
     .collection<Investment>(COL_INVESTMENTS)
     .updateOne({ _id: new ObjectId(id) }, { $set: { status: "archived" } });
   return res.matchedCount > 0;
+}
+
+/**
+ * Hard-delete the investment and every row that references it across the
+ * four investment collections. Returns per-collection deletion counts for
+ * the activity log / UI confirmation. Use archiveInvestment for soft-delete
+ * — this is the "I really mean it" path and cannot be reversed.
+ */
+export async function deleteInvestmentPermanent(id: string): Promise<
+  | {
+      deleted: true;
+      counts: { investment: number; baseline: number; lots: number; sale_log: number };
+    }
+  | { deleted: false }
+> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(id)) return { deleted: false };
+  const db = await getDb();
+  const invId = new ObjectId(id);
+  const [baseline, lots, saleLog, inv] = await Promise.all([
+    db.collection(COL_INVESTMENT_BASELINE).deleteMany({ investment_id: invId }),
+    db.collection(COL_INVESTMENT_LOTS).deleteMany({ investment_id: invId }),
+    db.collection(COL_INVESTMENT_SALE_LOG).deleteMany({ investment_id: invId }),
+    db.collection(COL_INVESTMENTS).deleteOne({ _id: invId }),
+  ]);
+  if (inv.deletedCount === 0) return { deleted: false };
+  return {
+    deleted: true,
+    counts: {
+      investment: inv.deletedCount,
+      baseline: baseline.deletedCount ?? 0,
+      lots: lots.deletedCount ?? 0,
+      sale_log: saleLog.deletedCount ?? 0,
+    },
+  };
 }
 
 /** Summary aggregates for list view: total listed value + realized per investment. */
