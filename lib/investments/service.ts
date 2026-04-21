@@ -562,20 +562,24 @@ export async function getBaselineTargets(params: { id: string }): Promise<{
       .toArray();
     cardmarketIds = cards.map((c) => c.cardmarket_id as number);
   }
-  const captured = await db
+  const capturedFromBaseline = await db
     .collection(COL_INVESTMENT_BASELINE)
     .distinct("cardmarket_id", { investment_id: invId });
+  const visited = inv.baseline_visited_cardmarket_ids ?? [];
+  const captured = Array.from(
+    new Set([...(capturedFromBaseline as number[]), ...visited])
+  );
   return {
     cardmarket_ids: Array.from(new Set(cardmarketIds)),
     cm_set_names: inv.cm_set_names,
-    captured_cardmarket_ids: captured as number[],
+    captured_cardmarket_ids: captured,
   };
 }
 
 export async function upsertBaselineBatch(params: {
   id: string;
   body: import("./types").BaselineBatchBody;
-}): Promise<{ upserted: number; visited: number } | null> {
+}): Promise<{ upserted: number; skipped: number; visited: number } | null> {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(params.id)) return null;
   const db = await getDb();
@@ -586,14 +590,15 @@ export async function upsertBaselineBatch(params: {
   if (!exists) return null;
   const now = new Date();
   let upserted = 0;
+  let skipped = 0;
   for (const l of params.body.listings) {
     if (
-      typeof l.cardmarket_id !== "number" ||
+      !Number.isSafeInteger(l.cardmarket_id) || l.cardmarket_id <= 0 ||
       typeof l.foil !== "boolean" ||
-      typeof l.condition !== "string" ||
-      typeof l.qty !== "number" ||
-      l.qty < 0
+      typeof l.condition !== "string" || l.condition.length === 0 || l.condition.length > 8 ||
+      !Number.isFinite(l.qty) || !Number.isInteger(l.qty) || l.qty < 0
     ) {
+      skipped++;
       continue;
     }
     const res = await db.collection(COL_INVESTMENT_BASELINE).updateOne(
@@ -619,7 +624,16 @@ export async function upsertBaselineBatch(params: {
     );
     if (res.upsertedCount > 0 || res.modifiedCount > 0) upserted++;
   }
-  return { upserted, visited: params.body.visited_cardmarket_ids.length };
+  if (params.body.visited_cardmarket_ids.length > 0) {
+    await db.collection(COL_INVESTMENTS).updateOne(
+      { _id: invId },
+      { $addToSet: { baseline_visited_cardmarket_ids: { $each: params.body.visited_cardmarket_ids } } }
+    );
+  }
+  if (skipped > 0) {
+    console.warn("investments-baseline-batch: skipped invalid items", { id: params.id, skipped });
+  }
+  return { upserted, skipped, visited: params.body.visited_cardmarket_ids.length };
 }
 
 export async function markBaselineComplete(params: {

@@ -11,6 +11,10 @@ export const POST = withExtAuthParams<{ id: string }>(
         { error: "listings and visited_cardmarket_ids arrays required" },
         { status: 400 }
       );
+    if (body.visited_cardmarket_ids.length > 10000)
+      return NextResponse.json({ error: "visited_cardmarket_ids too large" }, { status: 400 });
+    if (body.listings.length > 500)
+      return NextResponse.json({ error: "listings batch too large" }, { status: 400 });
     const result = await upsertBaselineBatch({ id, body });
     if (!result) return NextResponse.json({ error: "not found" }, { status: 404 });
     return { ok: true, ...result };

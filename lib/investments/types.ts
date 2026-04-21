@@ -41,6 +41,7 @@ export interface Investment {
   expected_open_card_count: number;
   baseline_completed_at?: Date;
   closed_at?: Date;
+  baseline_visited_cardmarket_ids?: number[];
 }
 
 export interface InvestmentBaseline {
