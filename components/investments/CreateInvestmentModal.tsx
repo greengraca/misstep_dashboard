@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Boxes, Layers, ArrowLeft } from "lucide-react";
 import Modal from "@/components/dashboard/modal";
+import Select from "@/components/dashboard/select";
 import type {
   BoosterType,
   CreateInvestmentBody,
@@ -259,17 +260,17 @@ export default function CreateInvestmentModal({
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Booster type">
-                  <select
-                    className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
-                    style={fieldStyle}
+                  <Select
+                    className="w-full"
                     value={boosterType}
-                    onChange={(e) => setBoosterType(e.target.value as BoosterType)}
-                  >
-                    <option value="play">Play</option>
-                    <option value="collector">Collector</option>
-                    <option value="jumpstart">Jumpstart</option>
-                    <option value="set">Set</option>
-                  </select>
+                    onChange={(v) => setBoosterType(v as BoosterType)}
+                    options={[
+                      { value: "play", label: "Play" },
+                      { value: "collector", label: "Collector" },
+                      { value: "jumpstart", label: "Jumpstart" },
+                      { value: "set", label: "Set" },
+                    ]}
+                  />
                 </Field>
                 <Field label="Boxes">
                   <input
