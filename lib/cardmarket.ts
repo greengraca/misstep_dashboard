@@ -1,6 +1,12 @@
+import { after } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 import { logError } from "@/lib/error-log";
+import {
+  maybeGrowLot,
+  consumeSale,
+  reverseSale,
+} from "@/lib/investments/attribution";
 import type {
   CmBalanceSnapshot,
   CmOrder,
@@ -59,6 +65,7 @@ async function ensureIndexes() {
     { col: COL.stock, key: { set: 1, condition: 1 } },
     { col: COL.stock, key: { price: 1 } },
     { col: COL.stock, key: { articleId: 1 }, options: { unique: true, sparse: true } },
+    { col: COL.stock, key: { productId: 1, foil: 1, condition: 1 }, options: { name: "productId_foil_condition" } },
     { col: COL.stockSnapshots, key: { extractedAt: -1 } },
     { col: COL.transactions, key: { dedupKey: 1 }, options: { unique: true } },
     { col: COL.syncLog, key: { receivedAt: -1 } },
@@ -537,6 +544,55 @@ async function processOrders(
           { unmatched: removal.unmatched.slice(0, 20), orderIds: newlyPaidIds }
         );
       }
+
+      // Fire consumeSale AFTER stock removal so lots aren't consumed while
+      // the stock row is still present (would double-count). Only fires on
+      // the paid-transition — the `newlyPaidIds` filter above guards against
+      // re-firing on subsequent syncs of already-paid orders.
+      // Trustee flag comes from the persisted DB doc (I2) — the incoming
+      // batch payload may arrive with `trustee: null` on later syncs when
+      // the CM list view doesn't re-render the icon, so the freshly-updated
+      // DB row is the authoritative source.
+      const persistedOrders = await col
+        .find<{ orderId: string; trustee?: boolean }>(
+          { orderId: { $in: newlyPaidIds } },
+          { projection: { orderId: 1, trustee: 1 } }
+        )
+        .toArray();
+      const trusteeByOrderId = new Map<string, boolean>();
+      for (const po of persistedOrders) {
+        trusteeByOrderId.set(po.orderId, !!po.trustee);
+      }
+      for (const item of items) {
+        const orderId = item.orderId as string;
+        const productIdStr = item.productId as string | undefined;
+        const cardmarketId = productIdStr ? Number(productIdStr) : NaN;
+        if (!Number.isFinite(cardmarketId) || cardmarketId <= 0) continue;
+        const snapshot = {
+          cardmarketId,
+          foil: !!item.foil,
+          condition: item.condition as string,
+          language: (item.language as string) || "English",
+          qtySold: Number(item.qty) || 1,
+          unitPriceEur: Number(item.price) || 0,
+          trustee: trusteeByOrderId.get(orderId) ?? false,
+          orderId,
+          articleId: item.articleId as string | undefined,
+        };
+        after(async () => {
+          try {
+            const dbInner = await getDb();
+            await consumeSale({ db: dbInner, ...snapshot });
+          } catch (err) {
+            logError(
+              "error",
+              "attribution-consumeSale-orders",
+              err instanceof Error ? err.message : "unknown error",
+              { orderId: snapshot.orderId, cardmarketId: snapshot.cardmarketId }
+            );
+          }
+        });
+      }
     }
   }
 
@@ -567,7 +623,8 @@ async function processOrderDetail(
   // If the order had already been advanced past paid, its items were removed from
   // stock — restock them on cancellation to keep inventory honest.
   if (detail.status === "cancelled") {
-    if (existingIdx >= PAID_INDEX) {
+    const wasPastPaid = existingIdx >= PAID_INDEX;
+    if (wasPastPaid) {
       const prevItems = (await db
         .collection(COL.orderItems)
         .find({ orderId })
@@ -586,6 +643,28 @@ async function processOrderDetail(
     }
     const deleted = await db.collection(COL.orders).deleteOne({ orderId });
     await db.collection(COL.orderItems).deleteMany({ orderId });
+    // Fire reverseSale AFTER restock completes. Only fires when the order
+    // was previously past paid (otherwise there's nothing to reverse — no
+    // consumeSale ever ran). Exact-once per cancellation: after this
+    // handler, the order doc is deleted, so a subsequent cancellation
+    // detail sync for the same orderId would `return { skipped: 1 }` via
+    // `deleted.deletedCount === 0` without re-entering this branch.
+    if (wasPastPaid) {
+      const snapshotOrderId = orderId;
+      after(async () => {
+        try {
+          const dbInner = await getDb();
+          await reverseSale({ db: dbInner, orderId: snapshotOrderId });
+        } catch (err) {
+          logError(
+            "error",
+            "attribution-reverseSale",
+            err instanceof Error ? err.message : "unknown error",
+            { orderId: snapshotOrderId }
+          );
+        }
+      });
+    }
     return { added: 0, updated: 0, skipped: deleted.deletedCount ? 0 : 1 };
   }
   const newIdx = detail.status ? STATUS_ORDER.indexOf(detail.status) : -1;
@@ -655,6 +734,47 @@ async function processOrderDetail(
           `Unmatched sold items during order_detail sync: ${removal.unmatched.length} of ${detail.items.length}`,
           { unmatched: removal.unmatched.slice(0, 20), orderId }
         );
+      }
+
+      // Fire consumeSale for each item AFTER stock removal completes.
+      // The statusAdvanced + index guard ensures this runs exactly once
+      // per order's transition past paid.
+      // Trustee flag comes from the parent order; detail.direction is the
+      // best proxy but not equivalent — fetch the trustee flag from the
+      // orders doc we just updated.
+      const parent = await db.collection(COL.orders).findOne<{ trustee?: boolean }>(
+        { orderId },
+        { projection: { trustee: 1 } }
+      );
+      const trustee = !!parent?.trustee;
+      for (const item of detail.items) {
+        const productIdStr = item.productId;
+        const cardmarketId = productIdStr ? Number(productIdStr) : NaN;
+        if (!Number.isFinite(cardmarketId) || cardmarketId <= 0) continue;
+        const snapshot = {
+          cardmarketId,
+          foil: !!item.foil,
+          condition: item.condition,
+          language: item.language || "English",
+          qtySold: item.qty || 1,
+          unitPriceEur: item.price || 0,
+          trustee,
+          orderId,
+          articleId: item.articleId,
+        };
+        after(async () => {
+          try {
+            const dbInner = await getDb();
+            await consumeSale({ db: dbInner, ...snapshot });
+          } catch (err) {
+            logError(
+              "error",
+              "attribution-consumeSale-orderDetail",
+              err instanceof Error ? err.message : "unknown error",
+              { orderId: snapshot.orderId, cardmarketId: snapshot.cardmarketId }
+            );
+          }
+        });
       }
     }
     added += detail.items.length;
@@ -727,6 +847,60 @@ async function processStock(
   type StockBulkOp = Parameters<typeof col.bulkWrite>[0][number];
   const updateOps: StockBulkOp[] = [];
 
+  // Collect attribution tuple keys from incoming listings. We do the
+  // grow attribution based on a before/after tuple-level qty diff instead
+  // of per-op upsert flags — dedupKey embeds qty, so a qty bump (e.g.
+  // 2→4) produces a TRUE insert even though only 2 new units entered
+  // stock. Diffing the aggregated qty across the {productId, foil,
+  // condition, language} tuple gives the correct delta AND collapses
+  // multiple firings per tuple in a single batch (C1 + C2 fix).
+  const tupleKeys = new Set<string>();
+  const cmSetNameByTuple = new Map<string, string | undefined>();
+  for (const l of listings) {
+    if (typeof l.productId === "number") {
+      const key = `${l.productId}|${l.foil || false}|${l.condition}|${l.language || "English"}`;
+      tupleKeys.add(key);
+      if (!cmSetNameByTuple.has(key)) cmSetNameByTuple.set(key, l.set);
+    }
+  }
+
+  // Pre-bulkWrite: aggregate current qty per tuple so we can diff after.
+  const priorQtyByTuple = new Map<string, number>();
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
+    });
+    const priorAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+    for (const row of priorAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      priorQtyByTuple.set(key, row.total);
+    }
+  }
+
   for (const listing of listings) {
     const t = {
       name: listing.name,
@@ -788,6 +962,85 @@ async function processStock(
 
   if (!updateOps.length) return { added: 0, updated: 0, skipped: 0 };
   const result = await col.bulkWrite(updateOps, { ordered: false });
+
+  // Post-bulkWrite: re-aggregate per tuple and fire one hook per tuple
+  // with the true qty delta. Also pre-fetch ev_cards.set once per batch
+  // to avoid N findOne() calls inside the after() callbacks (I1).
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
+    });
+    const postAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+
+    const productIds = Array.from(new Set(postAgg.map((r) => r._id.productId)));
+    const cardSetCodeByProductId = new Map<number, string | null>();
+    if (productIds.length > 0) {
+      const cards = await db
+        .collection("dashboard_ev_cards")
+        .find<{ cardmarket_id: number; set: string }>(
+          { cardmarket_id: { $in: productIds } },
+          { projection: { cardmarket_id: 1, set: 1 } }
+        )
+        .toArray();
+      for (const c of cards) {
+        cardSetCodeByProductId.set(c.cardmarket_id, c.set);
+      }
+    }
+
+    for (const row of postAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      const priorQty = priorQtyByTuple.get(key) ?? 0;
+      const qtyDelta = row.total - priorQty;
+      if (qtyDelta <= 0) continue;
+      const snapshot = {
+        cardmarketId: row._id.productId,
+        foil: row._id.foil,
+        condition: row._id.condition,
+        language: row._id.language,
+        qtyDelta,
+        cmSetName: cmSetNameByTuple.get(key),
+        cardSetCode: cardSetCodeByProductId.get(row._id.productId) ?? null,
+      };
+      after(async () => {
+        try {
+          const dbInner = await getDb();
+          await maybeGrowLot({ db: dbInner, ...snapshot });
+        } catch (err) {
+          logError(
+            "error",
+            "attribution-maybeGrowLot-stock",
+            err instanceof Error ? err.message : "unknown error",
+            { cardmarketId: snapshot.cardmarketId, qtyDelta: snapshot.qtyDelta }
+          );
+        }
+      });
+    }
+  }
+
   return {
     added: result.upsertedCount || 0,
     updated: (result.modifiedCount || 0) + updated,
@@ -809,6 +1062,58 @@ async function processProductStock(
   const now = new Date().toISOString();
 
   let added = 0, updated = 0, removed = 0;
+
+  // Collect attribution tuple keys from incoming listings with qty > 0.
+  // Same rationale as processStock: use a tuple-level before/after qty
+  // diff to compute the true attributable delta and fire a single
+  // maybeGrowLot per tuple. qty <= 0 listings are deletes only — they
+  // reduce stock and MUST NOT trigger grow attribution.
+  const tupleKeys = new Set<string>();
+  const cmSetNameByTuple = new Map<string, string | undefined>();
+  for (const l of listings) {
+    if (l.qty > 0 && typeof l.productId === "number") {
+      const key = `${l.productId}|${l.foil || false}|${l.condition}|${l.language || "English"}`;
+      tupleKeys.add(key);
+      if (!cmSetNameByTuple.has(key)) cmSetNameByTuple.set(key, l.set);
+    }
+  }
+
+  // Pre-write: aggregate current qty per tuple.
+  const priorQtyByTuple = new Map<string, number>();
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
+    });
+    const priorAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+    for (const row of priorAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      priorQtyByTuple.set(key, row.total);
+    }
+  }
 
   for (const listing of listings) {
     if (listing.qty <= 0) {
@@ -891,6 +1196,87 @@ async function processProductStock(
       firstSeenAt: now, lastSeenAt: now, submittedBy,
     });
     added++;
+  }
+
+  // Post-write: re-aggregate per tuple and fire one hook per tuple with
+  // the true qty delta. Must run BEFORE the ghost-cleanup deleteMany
+  // below, otherwise the post-agg would reflect the cleanup too and
+  // under-count delta. (Cleanup only removes product_page rows NOT in
+  // the current batch — their qty was never part of this batch's delta,
+  // but they'd still shrink the aggregate if we measured after.)
+  if (tupleKeys.size > 0) {
+    const orFilters = Array.from(tupleKeys).map((k) => {
+      const [productId, foil, condition, language] = k.split("|");
+      return {
+        productId: Number(productId),
+        foil: foil === "true",
+        condition,
+        language,
+      };
+    });
+    const postAgg = await col
+      .aggregate<{
+        _id: { productId: number; foil: boolean; condition: string; language: string };
+        total: number;
+      }>([
+        { $match: { $or: orFilters } },
+        {
+          $group: {
+            _id: {
+              productId: "$productId",
+              foil: "$foil",
+              condition: "$condition",
+              language: "$language",
+            },
+            total: { $sum: "$qty" },
+          },
+        },
+      ])
+      .toArray();
+
+    const productIds = Array.from(new Set(postAgg.map((r) => r._id.productId)));
+    const cardSetCodeByProductId = new Map<number, string | null>();
+    if (productIds.length > 0) {
+      const cards = await db
+        .collection("dashboard_ev_cards")
+        .find<{ cardmarket_id: number; set: string }>(
+          { cardmarket_id: { $in: productIds } },
+          { projection: { cardmarket_id: 1, set: 1 } }
+        )
+        .toArray();
+      for (const c of cards) {
+        cardSetCodeByProductId.set(c.cardmarket_id, c.set);
+      }
+    }
+
+    for (const row of postAgg) {
+      const key = `${row._id.productId}|${row._id.foil}|${row._id.condition}|${row._id.language}`;
+      const priorQty = priorQtyByTuple.get(key) ?? 0;
+      const qtyDelta = row.total - priorQty;
+      if (qtyDelta <= 0) continue;
+      const snapshot = {
+        cardmarketId: row._id.productId,
+        foil: row._id.foil,
+        condition: row._id.condition,
+        language: row._id.language,
+        qtyDelta,
+        cmSetName: cmSetNameByTuple.get(key),
+        cardSetCode: cardSetCodeByProductId.get(row._id.productId) ?? null,
+      };
+      after(async () => {
+        try {
+          const dbInner = await getDb();
+          await maybeGrowLot({ db: dbInner, ...snapshot });
+        } catch (err) {
+          logError(
+            "error",
+            "attribution-maybeGrowLot-productStock",
+            err instanceof Error ? err.message : "unknown error",
+            { cardmarketId: snapshot.cardmarketId, qtyDelta: snapshot.qtyDelta }
+          );
+        }
+      });
+    }
   }
 
   // Ghost cleanup: the product page shows ALL of the user's listings for this
