@@ -476,27 +476,48 @@ export async function listLots(params: {
   return rows;
 }
 
+export type AdjustLotResult = "ok" | "not_found" | "below_sold" | "frozen" | "invalid_input";
+
 export async function adjustLot(params: {
   id: string;
   lotId: string;
   qtyOpened: number;
-}): Promise<boolean> {
+}): Promise<AdjustLotResult> {
   await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id) || !ObjectId.isValid(params.lotId)) return false;
-  if (params.qtyOpened < 0) return false;
+  if (!ObjectId.isValid(params.id) || !ObjectId.isValid(params.lotId)) return "invalid_input";
+  if (!Number.isFinite(params.qtyOpened) || params.qtyOpened < 0) return "invalid_input";
   const db = await getDb();
   const lotId = new ObjectId(params.lotId);
-  const lot = await db.collection(COL_INVESTMENT_LOTS).findOne({ _id: lotId });
-  if (!lot) return false;
-  const qtySold = lot.qty_sold as number;
-  if (params.qtyOpened < qtySold) return false; // can't go below what's already been sold
-  const res = await db
-    .collection(COL_INVESTMENT_LOTS)
-    .updateOne(
-      { _id: lotId, investment_id: new ObjectId(params.id) },
-      { $set: { qty_opened: params.qtyOpened, qty_remaining: params.qtyOpened - qtySold } }
-    );
-  return res.matchedCount > 0;
+
+  // Atomic conditional update: refuse frozen, refuse qty below sold.
+  // The $subtract reads the live $qty_sold at update time — no TOCTOU window.
+  const res = await db.collection(COL_INVESTMENT_LOTS).updateOne(
+    {
+      _id: lotId,
+      investment_id: new ObjectId(params.id),
+      frozen_at: { $exists: false },
+      qty_sold: { $lte: params.qtyOpened },
+    },
+    [
+      {
+        $set: {
+          qty_opened: params.qtyOpened,
+          qty_remaining: { $subtract: [params.qtyOpened, "$qty_sold"] },
+        },
+      },
+    ]
+  );
+  if (res.matchedCount > 0) return "ok";
+
+  // Diagnose the failure for caller-friendly error mapping.
+  const lot = await db.collection(COL_INVESTMENT_LOTS).findOne({
+    _id: lotId,
+    investment_id: new ObjectId(params.id),
+  });
+  if (!lot) return "not_found";
+  if (lot.frozen_at) return "frozen";
+  if ((lot.qty_sold as number) > params.qtyOpened) return "below_sold";
+  return "not_found"; // fallback
 }
 
 // Stubs to be filled in later tasks.
