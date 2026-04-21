@@ -59,6 +59,7 @@ async function ensureIndexes() {
     { col: COL.stock, key: { set: 1, condition: 1 } },
     { col: COL.stock, key: { price: 1 } },
     { col: COL.stock, key: { articleId: 1 }, options: { unique: true, sparse: true } },
+    { col: COL.stock, key: { productId: 1, foil: 1, condition: 1 }, options: { name: "productId_foil_condition" } },
     { col: COL.stockSnapshots, key: { extractedAt: -1 } },
     { col: COL.transactions, key: { dedupKey: 1 }, options: { unique: true } },
     { col: COL.syncLog, key: { receivedAt: -1 } },
