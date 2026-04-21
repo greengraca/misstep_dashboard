@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -8,6 +9,7 @@ import InvestmentKpiRow from "./InvestmentKpiRow";
 import BaselineBanner from "./BaselineBanner";
 import SealedFlipsSection from "./SealedFlipsSection";
 import InvestmentLotsTable from "./InvestmentLotsTable";
+import CloseInvestmentModal from "./CloseInvestmentModal";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -18,18 +20,58 @@ export default function InvestmentDetail({ id }: { id: string }) {
     { dedupingInterval: 15_000 }
   );
   const detail = data?.investment;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showClose, setShowClose] = useState(false);
 
   if (isLoading) return <div className="p-6 text-gray-500">Loading…</div>;
   if (!detail) return <div className="p-6 text-gray-500">Not found.</div>;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Link href="/investments" className="text-gray-500 hover:text-gray-800">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <h1 className="text-xl font-semibold">{detail.name}</h1>
-        <StatusPill status={detail.status} />
+      <div className="flex items-center gap-3 justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/investments" className="text-gray-500 hover:text-gray-800">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <h1 className="text-xl font-semibold">{detail.name}</h1>
+          <StatusPill status={detail.status} />
+        </div>
+        {detail.status !== "archived" && (
+          <div className="relative">
+            <button
+              className="text-sm text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
+              onClick={() => setMenuOpen((x) => !x)}
+            >
+              Actions ▾
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 mt-1 w-40 bg-white border rounded shadow z-10">
+                {detail.status !== "closed" && (
+                  <button
+                    className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setShowClose(true);
+                    }}
+                  >
+                    Close investment
+                  </button>
+                )}
+                <button
+                  className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 text-rose-600"
+                  onClick={async () => {
+                    setMenuOpen(false);
+                    if (!confirm("Archive this investment?")) return;
+                    await fetch(`/api/investments/${detail.id}`, { method: "DELETE" });
+                    mutate();
+                  }}
+                >
+                  Archive
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <BaselineBanner detail={detail} />
@@ -43,6 +85,17 @@ export default function InvestmentDetail({ id }: { id: string }) {
       />
 
       <InvestmentLotsTable investmentId={detail.id} />
+
+      {showClose && (
+        <CloseInvestmentModal
+          detail={detail}
+          onClose={() => setShowClose(false)}
+          onClosed={() => {
+            setShowClose(false);
+            mutate();
+          }}
+        />
+      )}
     </div>
   );
 }
