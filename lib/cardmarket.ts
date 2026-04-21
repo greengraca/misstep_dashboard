@@ -1341,6 +1341,39 @@ async function processCardPrices(
     { $set: { [`cm_prices.${variantKey}`]: snapshot } }
   );
 
+  // Opportunistic CM expansion-id mapping. The extension scrapes idExpansion
+  // from any anchor on the product page whenever one is present. If we can
+  // resolve the card's set via ev_cards and the set hasn't already been
+  // mapped, upsert cm_expansion_id onto dashboard_ev_sets. Fire-and-forget
+  // via after() so a slow set lookup never blocks the load-bearing price
+  // write. Wrapped in try/catch — mapping is a nice-to-have, not critical.
+  const idExpansion = typeof data.idExpansion === "number" ? data.idExpansion : null;
+  if (idExpansion != null && idExpansion > 0) {
+    after(async () => {
+      try {
+        const dbInner = await getDb();
+        const card = await dbInner
+          .collection("dashboard_ev_cards")
+          .findOne<{ set?: string }>(
+            { cardmarket_id: productId },
+            { projection: { set: 1 } }
+          );
+        if (!card?.set) return;
+        await dbInner.collection("dashboard_ev_sets").updateOne(
+          { code: card.set, cm_expansion_id: { $ne: idExpansion } },
+          { $set: { cm_expansion_id: idExpansion } }
+        );
+      } catch (err) {
+        logError(
+          "error",
+          "processCardPrices-expansion-mapping",
+          err instanceof Error ? err.message : "unknown error",
+          { productId, idExpansion },
+        );
+      }
+    });
+  }
+
   // Fan out to any dashboard_appraiser_cards with the same (cardmarket_id, foil).
   // Safe no-op when the collection is empty or nothing matches.
   // Wrapped in try/catch so a failure here never breaks the load-bearing
