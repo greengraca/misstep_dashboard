@@ -444,29 +444,31 @@ export default function CreateInvestmentModal({
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
-          >
-            Cancel
-          </button>
-          <button
-            disabled={!valid || submitting}
-            onClick={submit}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
-            style={{
-              background: valid ? "var(--accent)" : "var(--bg-card)",
-              color: valid ? "var(--accent-text)" : "var(--text-muted)",
-              border: valid ? "1px solid var(--accent)" : "1px solid var(--border)",
-              opacity: valid && !submitting ? 1 : 0.6,
-              cursor: valid && !submitting ? "pointer" : "not-allowed",
-            }}
-          >
-            {submitting ? "Creating…" : "Create investment"}
-          </button>
-        </div>
+        {kind && (
+          <div className="flex justify-end gap-2 pt-1 animate-[fadeIn_0.2s_ease]">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!valid || submitting}
+              onClick={submit}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: valid ? "var(--accent)" : "var(--bg-card)",
+                color: valid ? "var(--accent-text)" : "var(--text-muted)",
+                border: valid ? "1px solid var(--accent)" : "1px solid var(--border)",
+                opacity: valid && !submitting ? 1 : 0.6,
+                cursor: valid && !submitting ? "pointer" : "not-allowed",
+              }}
+            >
+              {submitting ? "Creating…" : "Create investment"}
+            </button>
+          </div>
+        )}
       </div>
     </Modal>
   );

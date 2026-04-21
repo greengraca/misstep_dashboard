@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { withAuth, withAuthRead } from "@/lib/api-helpers";
+import { withAuth } from "@/lib/api-helpers";
+import { withExtAuthRead } from "@/lib/api-ext-helpers";
 import { logActivity } from "@/lib/activity";
 import {
   createInvestment,
@@ -36,7 +37,7 @@ function validateSource(src: unknown): string | null {
   return "source.kind must be 'box' or 'product'";
 }
 
-export const GET = withAuthRead(async (req) => {
+export const GET = withExtAuthRead(async (req) => {
   const url = new URL(req.url);
   const raw = url.searchParams.get("status");
   if (raw !== null && !(ALLOWED_STATUSES as readonly string[]).includes(raw)) {

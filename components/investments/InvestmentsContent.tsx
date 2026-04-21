@@ -261,6 +261,7 @@ export default function InvestmentsContent() {
         onClose={() => setShowCreate(false)}
         onCreated={() => {
           setShowCreate(false);
+          setTab("baseline_captured");
           mutate();
         }}
       />
