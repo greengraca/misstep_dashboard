@@ -23,21 +23,34 @@ export async function POST(
       userName = sess.session.user?.name ?? "unknown";
     }
     const { id } = await ctx.params;
-    const inv = await markBaselineComplete({ id });
-    if (!inv)
+    const result = await markBaselineComplete({ id });
+    if (!result)
       return NextResponse.json(
         { error: "not found or already complete" },
         { status: 404 }
       );
+    const { investment, cleaned, cleanup_skipped } = result;
+    const activitySuffix =
+      cleanup_skipped
+        ? ` (cleanup skipped: ${cleanup_skipped})`
+        : cleaned > 0
+          ? ` (removed ${cleaned} stale stock row${cleaned === 1 ? "" : "s"})`
+          : "";
     logActivity(
       "update",
       "investment",
       id,
-      "Baseline captured; listing started",
+      `Baseline captured; listing started${activitySuffix}`,
       userId,
       userName
     );
-    return NextResponse.json({ ok: true, id: String(inv._id), status: inv.status });
+    return NextResponse.json({
+      ok: true,
+      id: String(investment._id),
+      status: investment.status,
+      cleaned,
+      cleanup_skipped,
+    });
   } catch (err) {
     console.error("investments-baseline-complete error:", err);
     logApiError("investments-baseline-complete", err);
