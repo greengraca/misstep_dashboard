@@ -6,11 +6,12 @@ import { ArrowLeft } from "lucide-react";
 import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import InvestmentKpiRow from "./InvestmentKpiRow";
 import BaselineBanner from "./BaselineBanner";
+import SealedFlipsSection from "./SealedFlipsSection";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 export default function InvestmentDetail({ id }: { id: string }) {
-  const { data, isLoading } = useSWR<{ investment: Detail }>(
+  const { data, mutate, isLoading } = useSWR<{ investment: Detail }>(
     `/api/investments/${id}`,
     fetcher,
     { dedupingInterval: 15_000 }
@@ -33,9 +34,12 @@ export default function InvestmentDetail({ id }: { id: string }) {
       <BaselineBanner detail={detail} />
       <InvestmentKpiRow kpis={detail.kpis} />
 
-      <div className="text-sm text-gray-600">
-        Sealed flips, lots table, and close flow coming in the next tasks.
-      </div>
+      <SealedFlipsSection
+        investmentId={detail.id}
+        flips={detail.sealed_flips}
+        canRecord={detail.status !== "archived"}
+        onChanged={() => mutate()}
+      />
     </div>
   );
 }
