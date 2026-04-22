@@ -1197,16 +1197,30 @@ export async function markBaselineComplete(params: {
     .next();
   const capturedCards = capturedAgg?.total ?? 0;
 
-  // Flip status first so attribution/consumeSale stop considering this
-  // investment as a growth target between here and the cleanup write.
-  const res = await db
+  // Flip status first (baseline_captured → listing) so attribution stops
+  // considering this investment as a growth target between here and the
+  // cleanup write. If status is already "listing" — e.g. a prior
+  // mark-complete ran without enough coverage, or an older ext version
+  // didn't stamp baseline_total_expected — treat the call as a re-run:
+  // skip the flip, run cleanup with the current coverage. closed /
+  // archived investments can't mark-complete (immutable).
+  let res = await db
     .collection<Investment>(COL_INVESTMENTS)
     .findOneAndUpdate(
       { _id: invId, status: "baseline_captured" },
       { $set: { status: "listing", baseline_completed_at: new Date() } },
       { returnDocument: "after" }
     );
-  if (!res) return null;
+  if (!res) {
+    if (invBefore.status !== "listing") return null;
+    // Already listing — re-fetch the full doc (pre-read was projected)
+    // so downstream callers see the complete investment shape.
+    const full = await db
+      .collection<Investment>(COL_INVESTMENTS)
+      .findOne({ _id: invId });
+    if (!full) return null;
+    res = full;
+  }
 
   let cleaned = 0;
   let skipped: string | undefined;
