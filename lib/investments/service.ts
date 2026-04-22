@@ -981,13 +981,147 @@ export async function upsertBaselineBatch(params: {
   return { upserted, skipped, captured_count: capturedCount };
 }
 
+/**
+ * Remove stock rows that match the investment's expansion but have no
+ * corresponding baseline tuple. Used by markBaselineComplete when the
+ * walker's coverage is sufficient to treat missing rows as genuinely
+ * stale (as opposed to "the walker just didn't reach that bucket").
+ *
+ * Tuple match is on {productId, foil, condition, language} (ignoring
+ * article_id + price) so stock rows from stock_page source — which
+ * often lack article_id — still get matched against baseline rows that
+ * share the same card variant.
+ */
+export async function cleanupStaleStockForInvestment(
+  id: string
+): Promise<{ deleted: number } | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(id);
+  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
+  if (!inv) return null;
+
+  // Resolve set_code (same logic as computeBaselineDiagnosis — kept
+  // inline to avoid tight cross-helper coupling).
+  let setCode: string | null = null;
+  if (inv.source.kind === "box") {
+    setCode = inv.source.set_code;
+  } else {
+    const p = await db
+      .collection<EvProduct>(COL_EV_PRODUCTS)
+      .findOne(
+        { slug: inv.source.product_slug },
+        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
+      );
+    if (p?.parent_set_code) setCode = p.parent_set_code;
+    else if (p?.cards?.length) {
+      const counts = new Map<string, number>();
+      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
+      let best: string | null = null;
+      let bestN = 0;
+      for (const [code, n] of counts) {
+        if (n > bestN) { best = code; bestN = n; }
+      }
+      setCode = best;
+    }
+  }
+  if (!setCode) return { deleted: 0 };
+
+  const cards = await db
+    .collection("dashboard_ev_cards")
+    .find<{ cardmarket_id: number | null }>(
+      { set: setCode, cardmarket_id: { $ne: null } },
+      { projection: { cardmarket_id: 1 } }
+    )
+    .toArray();
+  const productIds = cards.map((c) => c.cardmarket_id).filter((x): x is number => x != null);
+  if (productIds.length === 0) return { deleted: 0 };
+
+  // Build the valid-tuple set from baseline. Each baseline row contributes
+  // a single tuple string; multiple article_ids collapsing to one tuple
+  // is fine (Set dedups).
+  const baselineTuples = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .aggregate<{ _id: { productId: number; foil: boolean; condition: string; language: string } }>([
+      { $match: { investment_id: invId } },
+      {
+        $group: {
+          _id: {
+            productId: "$cardmarket_id",
+            foil: "$foil",
+            condition: "$condition",
+            language: "$language",
+          },
+        },
+      },
+    ])
+    .toArray();
+  const valid = new Set<string>();
+  for (const t of baselineTuples) {
+    valid.add(`${t._id.productId}|${t._id.foil}|${t._id.condition}|${t._id.language}`);
+  }
+  if (valid.size === 0) return { deleted: 0 };
+
+  // Pull every stock row for the expansion, compute its tuple, collect
+  // stale _ids, then deleteMany.
+  const stockRows = await db
+    .collection("dashboard_cm_stock")
+    .find<{
+      _id: ObjectId;
+      productId: number;
+      foil?: boolean;
+      condition?: string;
+      language?: string;
+    }>({ productId: { $in: productIds } })
+    .project({ _id: 1, productId: 1, foil: 1, condition: 1, language: 1 })
+    .toArray();
+  const staleIds: ObjectId[] = [];
+  for (const r of stockRows) {
+    const key = `${r.productId}|${!!r.foil}|${r.condition ?? "NM"}|${r.language ?? "English"}`;
+    if (!valid.has(key)) staleIds.push(r._id);
+  }
+  if (staleIds.length === 0) return { deleted: 0 };
+
+  const res = await db
+    .collection("dashboard_cm_stock")
+    .deleteMany({ _id: { $in: staleIds } });
+  return { deleted: res.deletedCount ?? 0 };
+}
+
 export async function markBaselineComplete(params: {
   id: string;
-}): Promise<Investment | null> {
+}): Promise<{ investment: Investment; cleaned: number; cleanup_skipped?: string } | null> {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(params.id)) return null;
   const db = await getDb();
   const invId = new ObjectId(params.id);
+
+  // Coverage guard: only run cleanup when baseline cards ≥ expected (from
+  // the CM dropdown via the walker/snapshot). Otherwise a partial walk +
+  // mark-complete would treat legitimate un-walked stock as stale and
+  // delete it. At 0 expected we also skip — can't trust the coverage
+  // signal if we never heard from the walker.
+  const invBefore = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne(
+      { _id: invId },
+      { projection: { baseline_total_expected: 1, status: 1 } }
+    );
+  if (!invBefore) return null;
+
+  const expected = invBefore.baseline_total_expected ?? null;
+  const capturedAgg = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .aggregate<{ total: number }>([
+      { $match: { investment_id: invId } },
+      { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
+    ])
+    .next();
+  const capturedCards = capturedAgg?.total ?? 0;
+
+  // Flip status first so attribution/consumeSale stop considering this
+  // investment as a growth target between here and the cleanup write.
   const res = await db
     .collection<Investment>(COL_INVESTMENTS)
     .findOneAndUpdate(
@@ -995,5 +1129,18 @@ export async function markBaselineComplete(params: {
       { $set: { status: "listing", baseline_completed_at: new Date() } },
       { returnDocument: "after" }
     );
-  return res ?? null;
+  if (!res) return null;
+
+  let cleaned = 0;
+  let skipped: string | undefined;
+  if (expected == null || expected === 0) {
+    skipped = "no_expected_total";
+  } else if (capturedCards < expected) {
+    skipped = "insufficient_coverage";
+  } else {
+    const cleanup = await cleanupStaleStockForInvestment(params.id);
+    cleaned = cleanup?.deleted ?? 0;
+  }
+
+  return { investment: res, cleaned, cleanup_skipped: skipped };
 }
