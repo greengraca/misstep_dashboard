@@ -5,7 +5,7 @@ import useSWR from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetcher } from "@/lib/fetcher";
-import { ArrowLeft, MoreHorizontal, Archive, Lock, Trash2 } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Archive, Lock, Trash2, Undo2 } from "lucide-react";
 import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
 import InvestmentKpiRow from "./InvestmentKpiRow";
@@ -56,6 +56,7 @@ export default function InvestmentDetail({ id }: { id: string }) {
   const [showClose, setShowClose] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showReopen, setShowReopen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -135,6 +136,20 @@ export default function InvestmentDetail({ id }: { id: string }) {
                 animation: "menuSlideIn 0.15s ease-out",
               }}
             >
+              {detail.status === "listing" && (
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setShowReopen(true);
+                  }}
+                  className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs transition-colors"
+                  style={{ color: "var(--text-secondary)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+                >
+                  <Undo2 size={13} /> Reopen baseline capture
+                </button>
+              )}
               {detail.status !== "closed" && detail.status !== "archived" && (
                 <button
                   onClick={() => {
@@ -219,6 +234,20 @@ export default function InvestmentDetail({ id }: { id: string }) {
         message="Archived investments are hidden from the default lists. Lots are preserved for history. You can still see this investment in the Archived tab."
         confirmLabel="Archive"
         variant="danger"
+      />
+
+      <ConfirmModal
+        open={showReopen}
+        onClose={() => setShowReopen(false)}
+        onConfirm={async () => {
+          const r = await fetch(`/api/investments/${detail.id}/baseline/reopen`, {
+            method: "POST",
+          });
+          if (r.ok) mutate();
+        }}
+        title="Reopen baseline capture?"
+        message="Flips status from listing back to baseline_captured so you can re-walk the expansion in the extension. Existing baseline rows, lots, and sealed flips stay intact — the next mark-complete picks up from the current state."
+        confirmLabel="Reopen"
       />
 
       <ConfirmModal
