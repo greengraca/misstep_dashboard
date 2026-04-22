@@ -246,8 +246,9 @@ export default function InvestmentDetail({ id }: { id: string }) {
           if (r.ok) mutate();
         }}
         title="Reopen baseline capture?"
-        message="Flips status from listing back to baseline_captured so you can re-walk the expansion in the extension. Existing baseline rows, lots, and sealed flips stay intact — the next mark-complete picks up from the current state."
-        confirmLabel="Reopen"
+        message="Flips status from listing back to baseline_captured and WIPES any existing baseline rows on this investment so the re-walk starts from a clean slate — prevents duplicate rows when prices or qtys changed between walks. Lots, sealed flips, and sale-log history stay intact."
+        confirmLabel="Reopen and wipe baseline"
+        variant="danger"
       />
 
       <ConfirmModal

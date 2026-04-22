@@ -1047,19 +1047,29 @@ export async function upsertBaselineBatch(params: {
 }
 
 /**
- * Flip a listing-status investment back to baseline_captured so the user
- * can re-walk. Does NOT touch baseline rows, lots, sealed flips, or
- * sale_log — any existing data stays intact and the next mark-complete
- * picks up where the previous walk left off. Called when a user
- * prematurely marked complete (e.g. pre-v1.12 walker dropped all rows
- * → coverage guard skipped cleanup → status advanced with no data).
+ * Flip a listing-status investment back to baseline_captured AND wipe its
+ * baseline rows so the next walk starts from a clean slate. Lots,
+ * sealed flips, and sale_log rows are preserved — those represent real
+ * activity that happened during the listing window and must survive.
  *
- * Refuses anything other than "listing" — closed / archived investments
- * are immutable; baseline_captured is already in the right state.
+ * Why wipe baseline rows: the v3 unique key is {investment_id, article_id},
+ * where article_id falls back to dedupKey when CM doesn't expose one.
+ * dedupKey encodes price + qty, so relisting between walks creates a
+ * NEW dedupKey → NEW baseline row for the same underlying card. Stacking
+ * those on top of previous-walk rows inflates captured_cards and
+ * breaks the progress math. Clean slate sidesteps the whole class of
+ * duplicate.
+ *
+ * baseline_total_expected also gets cleared — the prior value reflected
+ * the last walk's CM snapshot, which is stale now. The next walker
+ * batch will stamp a fresh one.
+ *
+ * Refuses anything other than "listing" — closed/archived are
+ * immutable; baseline_captured is already in the right state.
  */
 export async function reopenBaselineCapture(
   id: string
-): Promise<Investment | null> {
+): Promise<{ investment: Investment; wiped_baseline: number } | null> {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(id)) return null;
   const db = await getDb();
@@ -1068,10 +1078,17 @@ export async function reopenBaselineCapture(
     .collection<Investment>(COL_INVESTMENTS)
     .findOneAndUpdate(
       { _id: invId, status: "listing" },
-      { $set: { status: "baseline_captured" }, $unset: { baseline_completed_at: "" } },
+      {
+        $set: { status: "baseline_captured" },
+        $unset: { baseline_completed_at: "", baseline_total_expected: "" },
+      },
       { returnDocument: "after" }
     );
-  return res ?? null;
+  if (!res) return null;
+  const wipe = await db
+    .collection(COL_INVESTMENT_BASELINE)
+    .deleteMany({ investment_id: invId });
+  return { investment: res, wiped_baseline: wipe.deletedCount ?? 0 };
 }
 
 /**
