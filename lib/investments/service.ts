@@ -238,21 +238,40 @@ export async function computeListedValue(investmentId: ObjectId): Promise<number
 }
 
 export async function computeBaselineProgress(investmentId: ObjectId): Promise<{
+  /** Cards captured — sum of qty_baseline across baseline rows. Matches
+   *  the "cards" unit of expected_total_count (which comes from CM's
+   *  idExpansion dropdown, reporting cards). */
   captured_count: number;
+  /** Row count — documents in baseline collection. Useful for debugging
+   *  discrepancies between qty-summed cards and listing-count rows. */
+  captured_rows: number;
   expected_total_count: number | null;
   complete: boolean;
 }> {
   const db = await getDb();
-  const [inv, capturedCount] = await Promise.all([
+  const [inv, capturedRows, capturedCardsAgg] = await Promise.all([
     db.collection<Investment>(COL_INVESTMENTS).findOne(
       { _id: investmentId },
       { projection: { baseline_total_expected: 1 } }
     ),
     db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: investmentId }),
+    db
+      .collection(COL_INVESTMENT_BASELINE)
+      .aggregate<{ total: number }>([
+        { $match: { investment_id: investmentId } },
+        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
+      ])
+      .next(),
   ]);
+  const capturedCards = capturedCardsAgg?.total ?? 0;
   const expected = inv?.baseline_total_expected ?? null;
-  const complete = expected != null && capturedCount >= expected;
-  return { captured_count: capturedCount, expected_total_count: expected, complete };
+  const complete = expected != null && capturedCards >= expected;
+  return {
+    captured_count: capturedCards,
+    captured_rows: capturedRows,
+    expected_total_count: expected,
+    complete,
+  };
 }
 
 /**
@@ -617,7 +636,10 @@ export async function adjustLot(params: {
 export async function getBaselineTargets(params: { id: string }): Promise<{
   cm_expansion_id: number | null;
   cm_set_names: string[];
+  /** CARDS captured (sum qty_baseline). Matches expected_total_count's unit. */
   captured_count: number;
+  /** ROW count in the baseline collection — exposed for debugging. */
+  captured_rows: number;
   expected_total_count: number | null;
   complete: boolean;
 } | null> {
@@ -665,15 +687,27 @@ export async function getBaselineTargets(params: { id: string }): Promise<{
     cmExpansionId = set?.cm_expansion_id ?? null;
   }
 
-  const capturedCount = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .countDocuments({ investment_id: invId });
+  const [capturedRows, capturedCardsAgg] = await Promise.all([
+    db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: invId }),
+    db
+      .collection(COL_INVESTMENT_BASELINE)
+      .aggregate<{ total: number }>([
+        { $match: { investment_id: invId } },
+        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
+      ])
+      .next(),
+  ]);
+  const capturedCards = capturedCardsAgg?.total ?? 0;
   const expected = inv.baseline_total_expected ?? null;
-  const complete = expected != null && capturedCount >= expected;
+  // "complete" compares cards-to-cards (expected_total_count is cards
+  // from CM's idExpansion dropdown). Using rows would undercount since
+  // some listings have qty > 1.
+  const complete = expected != null && capturedCards >= expected;
   return {
     cm_expansion_id: cmExpansionId,
     cm_set_names: inv.cm_set_names,
-    captured_count: capturedCount,
+    captured_count: capturedCards,
+    captured_rows: capturedRows,
     expected_total_count: expected,
     complete,
   };
@@ -701,7 +735,10 @@ export async function computeBaselineDiagnosis(params: {
       cm_expansion_id: number | null;
       set_code: string | null;
       db_stock_count: number;
+      /** CARDS already baselined (sum qty_baseline). */
       baseline_captured_count: number;
+      /** ROW count in baseline — exposed for debugging. */
+      baseline_captured_rows: number;
       expected_total_count: number | null;
     }
   | null
@@ -785,15 +822,27 @@ export async function computeBaselineDiagnosis(params: {
     }
   }
 
-  const baselineCaptured = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .countDocuments({ investment_id: invId });
+  const [baselineRows, baselineCardsAgg] = await Promise.all([
+    db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: invId }),
+    db
+      .collection(COL_INVESTMENT_BASELINE)
+      .aggregate<{ total: number }>([
+        { $match: { investment_id: invId } },
+        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
+      ])
+      .next(),
+  ]);
+  const baselineCards = baselineCardsAgg?.total ?? 0;
 
   return {
     cm_expansion_id: cmExpansionId,
     set_code: setCode,
     db_stock_count: dbStockCount,
-    baseline_captured_count: baselineCaptured,
+    // baseline_captured_count is CARDS for unit-consistency with
+    // expected_total_count (CM dropdown reports cards). Row count
+    // exposed separately for debugging.
+    baseline_captured_count: baselineCards,
+    baseline_captured_rows: baselineRows,
     expected_total_count: inv.baseline_total_expected ?? null,
   };
 }
