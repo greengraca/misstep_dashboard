@@ -759,16 +759,25 @@ export async function computeBaselineDiagnosis(params: {
     ]);
     cmExpansionId = set?.cm_expansion_id ?? null;
     const productIds = cardIds.map((c) => c.cardmarket_id as number);
-    if (productIds.length > 0) {
-      // IMPORTANT: db_stock_count is a *card* count (sum of qty), not a
-      // listing count. Matches what Cardmarket reports in the
-      // <select name="idExpansion"> dropdown — e.g. "Foundations
-      // Jumpstart (1341)" means 1341 cards across N listings. Comparing
-      // listings to dropdown-cards would be meaningless.
+    // Match stock rows two ways, unioned:
+    //   1. productId ∈ ev_cards.cardmarket_id for this set (clean match —
+    //      exists for any row captured by ext ≥ v1.7.1).
+    //   2. set (CM name) ∈ cm_set_names on the investment — catches older
+    //      stock rows synced before productId capture was added, which
+    //      often have productId=null for whole expansions.
+    // Without (2) we were missing 580/589 of this user's Foundations
+    // Jumpstart rows. db_stock_count is a card count (sum qty) so the
+    // unit matches what Cardmarket shows in its idExpansion dropdown.
+    const orClauses = [];
+    if (productIds.length > 0) orClauses.push({ productId: { $in: productIds } });
+    if (inv.cm_set_names && inv.cm_set_names.length > 0) {
+      orClauses.push({ set: { $in: inv.cm_set_names } });
+    }
+    if (orClauses.length > 0) {
       const agg = await db
         .collection("dashboard_cm_stock")
         .aggregate<{ total: number }>([
-          { $match: { productId: { $in: productIds } } },
+          { $match: orClauses.length === 1 ? orClauses[0] : { $or: orClauses } },
           { $group: { _id: null, total: { $sum: "$qty" } } },
         ])
         .next();
@@ -1036,7 +1045,8 @@ export async function cleanupStaleStockForInvestment(
     )
     .toArray();
   const productIds = cards.map((c) => c.cardmarket_id).filter((x): x is number => x != null);
-  if (productIds.length === 0) return { deleted: 0 };
+  const cmSetNames = inv.cm_set_names ?? [];
+  if (productIds.length === 0 && cmSetNames.length === 0) return { deleted: 0 };
 
   // Build the valid-tuple set from baseline. Each baseline row contributes
   // a single tuple string; multiple article_ids collapsing to one tuple
@@ -1063,22 +1073,33 @@ export async function cleanupStaleStockForInvestment(
   }
   if (valid.size === 0) return { deleted: 0 };
 
-  // Pull every stock row for the expansion, compute its tuple, collect
-  // stale _ids, then deleteMany.
+  // Pull every stock row for the expansion (same UNION semantics as
+  // computeBaselineDiagnosis — productId join OR CM-name match). The
+  // CM-name branch catches pre-v1.7.1 rows with productId=null that
+  // the join-only branch would miss entirely.
+  const stockOrClauses = [];
+  if (productIds.length > 0) stockOrClauses.push({ productId: { $in: productIds } });
+  if (cmSetNames.length > 0) stockOrClauses.push({ set: { $in: cmSetNames } });
   const stockRows = await db
     .collection("dashboard_cm_stock")
     .find<{
       _id: ObjectId;
-      productId: number;
+      productId?: number | null;
       foil?: boolean;
       condition?: string;
       language?: string;
-    }>({ productId: { $in: productIds } })
+    }>(stockOrClauses.length === 1 ? stockOrClauses[0] : { $or: stockOrClauses })
     .project({ _id: 1, productId: 1, foil: 1, condition: 1, language: 1 })
     .toArray();
   const staleIds: ObjectId[] = [];
   for (const r of stockRows) {
-    const key = `${r.productId}|${!!r.foil}|${r.condition ?? "NM"}|${r.language ?? "English"}`;
+    // Rows with productId=null never appear in the baseline collection
+    // (baseline keys require a real cardmarket_id), so the tuple lookup
+    // will always miss and they'll be pruned as stale. That's the
+    // intended behaviour — those rows are pre-v1.7.1 cruft that can't
+    // be joined to attribution anyway.
+    const pid = r.productId ?? null;
+    const key = `${pid}|${!!r.foil}|${r.condition ?? "NM"}|${r.language ?? "English"}`;
     if (!valid.has(key)) staleIds.push(r._id);
   }
   if (staleIds.length === 0) return { deleted: 0 };
