@@ -171,9 +171,19 @@ export interface SealedFlipBody {
 
 export interface BaselineBatchBody {
   listings: Array<{
-    /** Cardmarket article id — required. Unique baseline key. */
+    /** Row-unique key. Prefer a real Cardmarket articleId when the DOM
+     *  exposes one; fall back to the stock dedupKey for rows whose DOM
+     *  doesn't carry `id="stockRowN"` or `data-article-id`. Either is
+     *  unique per stock listing, which is all baseline_v3_unique needs. */
     article_id: string;
-    cardmarket_id: number;
+    /** Optional. Many /Stock/Offers/Singles rows don't include an
+     *  `a[href*='idProduct=']` anchor, so the extension can't always
+     *  extract this client-side. When null, the dashboard tries to
+     *  resolve it from `name` + the investment's set_code. */
+    cardmarket_id?: number | null;
+    /** Required when cardmarket_id is missing — enables server-side
+     *  resolution. Always sent by v1.12+ extensions for consistency. */
+    name?: string;
     foil: boolean;
     condition: string;
     language: string;

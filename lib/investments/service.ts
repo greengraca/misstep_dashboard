@@ -928,17 +928,73 @@ export async function upsertBaselineBatch(params: {
   if (!ObjectId.isValid(params.id)) return null;
   const db = await getDb();
   const invId = new ObjectId(params.id);
-  const exists = await db
-    .collection(COL_INVESTMENTS)
-    .findOne({ _id: invId }, { projection: { _id: 1 } });
-  if (!exists) return null;
+  const inv = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne({ _id: invId });
+  if (!inv) return null;
+
+  // Resolve the investment's Scryfall set_code for fallback
+  // cardmarket_id lookups — see below.
+  let setCodeForResolve: string | null = null;
+  if (inv.source.kind === "box") {
+    setCodeForResolve = inv.source.set_code;
+  } else {
+    const p = await db
+      .collection<EvProduct>(COL_EV_PRODUCTS)
+      .findOne(
+        { slug: inv.source.product_slug },
+        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
+      );
+    if (p?.parent_set_code) setCodeForResolve = p.parent_set_code;
+    else if (p?.cards?.length) {
+      const counts = new Map<string, number>();
+      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
+      let best: string | null = null;
+      let bestN = 0;
+      for (const [code, n] of counts) {
+        if (n > bestN) { best = code; bestN = n; }
+      }
+      setCodeForResolve = best;
+    }
+  }
+
+  // Pre-fetch the name → cardmarket_id map for this set so we don't hit
+  // ev_cards per missing-cardmarket_id listing (the common case — CM
+  // /Stock/Offers/Singles rows often lack an idProduct anchor). One
+  // query covers the whole batch.
+  const nameToCmId = new Map<string, number>();
+  if (setCodeForResolve) {
+    const cards = await db
+      .collection("dashboard_ev_cards")
+      .find<{ name: string; cardmarket_id: number | null }>(
+        { set: setCodeForResolve, cardmarket_id: { $ne: null } },
+        { projection: { name: 1, cardmarket_id: 1 } }
+      )
+      .toArray();
+    for (const c of cards) {
+      if (c.cardmarket_id != null && c.name) {
+        nameToCmId.set(c.name, c.cardmarket_id);
+      }
+    }
+  }
+
   const now = new Date();
   let upserted = 0;
   let skipped = 0;
   for (const l of params.body.listings) {
+    // Resolve cardmarket_id: prefer client-supplied, fall back to
+    // ev_cards lookup by name+set. Leaving it null is acceptable for
+    // baseline visibility; attribution simply won't match those rows
+    // later (see maybeGrowLot's tuple filter).
+    let cardmarketId: number | null = null;
+    if (typeof l.cardmarket_id === "number" && Number.isSafeInteger(l.cardmarket_id) && l.cardmarket_id > 0) {
+      cardmarketId = l.cardmarket_id;
+    } else if (typeof l.name === "string" && l.name.length > 0) {
+      cardmarketId = nameToCmId.get(l.name) ?? null;
+    }
+
     if (
-      typeof l.article_id !== "string" || l.article_id.length === 0 || l.article_id.length > 32 ||
-      !Number.isSafeInteger(l.cardmarket_id) || l.cardmarket_id <= 0 ||
+      typeof l.article_id !== "string" || l.article_id.length === 0 || l.article_id.length > 128 ||
       typeof l.foil !== "boolean" ||
       typeof l.condition !== "string" || l.condition.length === 0 || l.condition.length > 8 ||
       typeof l.language !== "string" || l.language.length === 0 || l.language.length > 16 ||
@@ -954,7 +1010,7 @@ export async function upsertBaselineBatch(params: {
         $set: {
           qty_baseline: l.qty,
           price_eur: l.price_eur,
-          cardmarket_id: l.cardmarket_id,
+          cardmarket_id: cardmarketId,
           foil: l.foil,
           condition: l.condition,
           language: l.language,
