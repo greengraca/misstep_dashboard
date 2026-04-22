@@ -1047,6 +1047,34 @@ export async function upsertBaselineBatch(params: {
 }
 
 /**
+ * Flip a listing-status investment back to baseline_captured so the user
+ * can re-walk. Does NOT touch baseline rows, lots, sealed flips, or
+ * sale_log — any existing data stays intact and the next mark-complete
+ * picks up where the previous walk left off. Called when a user
+ * prematurely marked complete (e.g. pre-v1.12 walker dropped all rows
+ * → coverage guard skipped cleanup → status advanced with no data).
+ *
+ * Refuses anything other than "listing" — closed / archived investments
+ * are immutable; baseline_captured is already in the right state.
+ */
+export async function reopenBaselineCapture(
+  id: string
+): Promise<Investment | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  const invId = new ObjectId(id);
+  const res = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOneAndUpdate(
+      { _id: invId, status: "listing" },
+      { $set: { status: "baseline_captured" }, $unset: { baseline_completed_at: "" } },
+      { returnDocument: "after" }
+    );
+  return res ?? null;
+}
+
+/**
  * Remove stock rows that match the investment's expansion but have no
  * corresponding baseline tuple. Used by markBaselineComplete when the
  * walker's coverage is sufficient to treat missing rows as genuinely
@@ -1197,30 +1225,20 @@ export async function markBaselineComplete(params: {
     .next();
   const capturedCards = capturedAgg?.total ?? 0;
 
-  // Flip status first (baseline_captured → listing) so attribution stops
-  // considering this investment as a growth target between here and the
-  // cleanup write. If status is already "listing" — e.g. a prior
-  // mark-complete ran without enough coverage, or an older ext version
-  // didn't stamp baseline_total_expected — treat the call as a re-run:
-  // skip the flip, run cleanup with the current coverage. closed /
-  // archived investments can't mark-complete (immutable).
-  let res = await db
+  // Flip status first so attribution/consumeSale stop considering this
+  // investment as a growth target between here and the cleanup write.
+  // Only accepts baseline_captured → listing; re-running on an already-
+  // listing investment is a no-op here. To re-walk a listing investment
+  // the user goes through /baseline/reopen which flips status back to
+  // baseline_captured and lets this path run normally.
+  const res = await db
     .collection<Investment>(COL_INVESTMENTS)
     .findOneAndUpdate(
       { _id: invId, status: "baseline_captured" },
       { $set: { status: "listing", baseline_completed_at: new Date() } },
       { returnDocument: "after" }
     );
-  if (!res) {
-    if (invBefore.status !== "listing") return null;
-    // Already listing — re-fetch the full doc (pre-read was projected)
-    // so downstream callers see the complete investment shape.
-    const full = await db
-      .collection<Investment>(COL_INVESTMENTS)
-      .findOne({ _id: invId });
-    if (!full) return null;
-    res = full;
-  }
+  if (!res) return null;
 
   let cleaned = 0;
   let skipped: string | undefined;
