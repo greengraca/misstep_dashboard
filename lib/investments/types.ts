@@ -139,7 +139,10 @@ export interface InvestmentDetail {
     break_even_pct: number;   // 0..∞ (>1 = profit)
   };
   baseline_progress?: {
+    /** Cards captured (sum qty_baseline). Unit matches expected_total_count. */
     captured_count: number;
+    /** Rows captured — distinct baseline documents (for debugging). */
+    captured_rows: number;
     expected_total_count: number | null;
     complete: boolean;
   };
