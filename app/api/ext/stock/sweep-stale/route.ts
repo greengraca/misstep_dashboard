@@ -42,10 +42,17 @@ export const POST = withExtAuth(async (req: NextRequest) => {
   }
   const walkStartedAtRaw = typeof body.walk_started_at === "string"
     ? body.walk_started_at : "";
-  const walkStartedAt = new Date(walkStartedAtRaw);
-  if (Number.isNaN(walkStartedAt.getTime())) {
+  const walkStartedAtDate = new Date(walkStartedAtRaw);
+  if (Number.isNaN(walkStartedAtDate.getTime())) {
     return { data: { ok: false, reason: "bad_input", hint: "walk_started_at must be ISO string" } };
   }
+  // lastSeenAt is stored as an ISO string in dashboard_cm_stock (see
+  // upsertStockListings in lib/cardmarket.ts — `const now = new
+  // Date().toISOString()`). Comparing a string-typed field against a
+  // Date in Mongo never matches because of BSON type ordering, so we
+  // must compare string-to-string. ISO-8601 UTC strings are
+  // lexicographically sortable.
+  const walkStartedAt = walkStartedAtDate.toISOString();
   if (!Number.isInteger(body.cm_cards) || (body.cm_cards as number) < 0) {
     return { data: { ok: false, reason: "bad_input", hint: "cm_cards required" } };
   }
