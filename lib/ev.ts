@@ -1377,6 +1377,7 @@ export function calculateEv(
       price_source: eff.source,
       price_updated_at: eff.updatedAt,
       price_estimated: eff.estimated,
+      price_ascending: eff.ascending,
     };
   };
 

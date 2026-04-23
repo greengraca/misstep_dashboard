@@ -94,6 +94,7 @@ export function calculateProductEv(
       price_source: eff?.source ?? null,
       price_updated_at: eff?.updatedAt ?? null,
       price_estimated: eff?.estimated ?? false,
+      price_ascending: eff?.ascending ?? false,
       cardmarket_id: c?.cardmarket_id ?? null,
     });
   }

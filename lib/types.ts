@@ -418,6 +418,8 @@ export interface EvTopCard {
   price_updated_at: string | null;
   /** True when the displayed price is a USD-derived estimate (null EUR or USD-clamped). CM-ext prices are never estimated. */
   price_estimated: boolean;
+  /** True when the CM-ext `from` price was used instead of `trend` (from > trend = thin-supply / rising market). UI renders an ↑ indicator instead of • when set. */
+  price_ascending: boolean;
 }
 
 export interface EvSimulationResult {
@@ -594,6 +596,8 @@ export interface EvProductCardBreakdown extends EvProductCard {
   cardmarket_id?: number | null;
   /** True when the displayed unit price is a USD-derived estimate. */
   price_estimated?: boolean;
+  /** True when the CM-ext `from` price was used instead of `trend`. UI renders an ↑ indicator. */
+  price_ascending?: boolean;
 }
 
 export interface EvProductBoosterBreakdown extends EvIncludedBooster {

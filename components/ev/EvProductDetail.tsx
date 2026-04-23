@@ -556,9 +556,10 @@ export default function EvProductDetail({ slug }: Props) {
                 const srcBase = c.price_source
                   ? `${c.price_source === "cm_ext" ? "ext" : "scryfall"} · ${c.price_updated_at ? new Date(c.price_updated_at).toLocaleDateString() : "?"}`
                   : undefined;
+                const ascSuffix = c.price_ascending ? " · from > trend (rising / thin supply)" : "";
                 const srcTitle = c.price_estimated
-                  ? `${srcBase ?? "scryfall"} · estimated from USD (EUR was null or USD-clamped)`
-                  : srcBase;
+                  ? `${srcBase ?? "scryfall"} · estimated from USD (EUR was null or USD-clamped)${ascSuffix}`
+                  : srcBase ? `${srcBase}${ascSuffix}` : undefined;
                 return (
                 <tr
                   key={c.scryfall_id + (c.is_foil ? "-f" : "")}
@@ -640,8 +641,8 @@ export default function EvProductDetail({ slug }: Props) {
                   >
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                       {c.price_source === "cm_ext" && !c.excluded_reason && (
-                        <span style={{ fontSize: 9, color: "var(--accent)", lineHeight: 1 }}>
-                          •
+                        <span style={{ fontSize: c.price_ascending ? 10 : 9, color: "var(--accent)", lineHeight: 1 }}>
+                          {c.price_ascending ? "↑" : "•"}
                         </span>
                       )}
                       <span>

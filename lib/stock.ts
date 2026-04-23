@@ -95,6 +95,7 @@ interface _JoinedStockRow extends CmStockListing {
   trend_eur: number | null;
   trend_source: "scryfall" | "cm_ext" | null;
   trend_updated_at: string | null;
+  trend_ascending: boolean;
   // True when (name, set) matches multiple ev_cards variants and we don't
   // have a productId on the stock row to disambiguate. UI should explain
   // the missing trend rather than pick a random variant.
@@ -231,13 +232,14 @@ async function enrichWithTrend(
 
     const eff = card
       ? getEffectivePrice(card, r.foil)
-      : { price: null, source: null, updatedAt: null };
+      : { price: null, source: null, updatedAt: null, estimated: false, ascending: false };
     const overpriced_pct = eff.price != null && eff.price > 0 ? r.price / eff.price - 1 : null;
     return {
       ...r,
       trend_eur: eff.price,
       trend_source: eff.source,
       trend_updated_at: eff.updatedAt,
+      trend_ascending: eff.ascending,
       trend_ambiguous: ambiguous,
       overpriced_pct,
       cardmarket_id: card?.cardmarket_id ?? null,

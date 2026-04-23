@@ -84,6 +84,15 @@ export interface EffectivePrice {
   updatedAt: string | null;
   /** True when the returned price is a USD-derived estimate (Scryfall only; CM-ext is always real market data). */
   estimated: boolean;
+  /**
+   * True when the CM-ext price used is `from` (Cardmarket's lowest current
+   * listing) rather than `trend`, because `from > trend` signals a thin-supply
+   * or rising market — the cheapest available seller is asking more than the
+   * trend average, so `trend` under-values what you'd actually pay today.
+   * Only set when `source === "cm_ext"`. Surfaced in the UI as an up-arrow
+   * indicator (↑) instead of the usual circle (•).
+   */
+  ascending: boolean;
 }
 
 export function getEffectivePrice(
@@ -99,30 +108,72 @@ export function getEffectivePrice(
   const scryfallEstimated = isFoil
     ? (card.price_eur_foil_estimated ?? card.price_eur_estimated ?? false)
     : (card.price_eur_estimated ?? false);
-  const variant = isFoil ? card.cm_prices?.foil : card.cm_prices?.nonfoil;
-  let cmPrice = variant?.trend ?? null;
+  // Variant fallback: if the requested variant has no CM data but the card is
+  // single-variant on CM (the opposite variant's Scryfall price is null —
+  // meaning that variant doesn't exist as a Cardmarket product at all), use
+  // the opposite CM variant. Covers foil-only printings (Raised Foil Aang,
+  // FTV/PLG/G foils) and nonfoil-only promos where the extension's per-page
+  // foil-detection wrote data to whichever key matched the page's foil toggle,
+  // regardless of the "canonical" variant label.
+  //
+  // Mirrors the logic in lib/appraiser/ev-join.ts (see that comment for more).
+  const requestedVariant = isFoil ? card.cm_prices?.foil : card.cm_prices?.nonfoil;
+  const oppositeVariant = isFoil ? card.cm_prices?.nonfoil : card.cm_prices?.foil;
+  const oppositeScryfall = isFoil ? card.price_eur : card.price_eur_foil;
+  const isSingleVariantOnCm = oppositeScryfall == null;
+  const requestedHasData =
+    !!requestedVariant && (requestedVariant.from != null || requestedVariant.trend != null);
+  const oppositeHasData =
+    !!oppositeVariant && (oppositeVariant.from != null || oppositeVariant.trend != null);
+  const variant = requestedHasData
+    ? requestedVariant
+    : isSingleVariantOnCm && oppositeHasData
+      ? oppositeVariant
+      : requestedVariant;
+  const cmTrend = variant?.trend ?? null;
+  const cmFrom = variant?.from ?? null;
   const cmAt = variant?.updatedAt ?? null;
 
-  // Sanity check: discard Cardmarket trend when it's wildly higher than the
+  // CM effective price: prefer `from` when from > trend (thin-supply / rising
+  // market — cheapest listing is above trend, so trend under-values buy-in).
+  // Fall back to trend otherwise. Marks `ascending: true` so UIs can render
+  // an up-arrow indicator instead of the usual circle.
+  let cmPrice: number | null = null;
+  let ascending = false;
+  if (cmTrend != null && cmFrom != null && cmFrom > cmTrend) {
+    cmPrice = cmFrom;
+    ascending = true;
+  } else if (cmTrend != null) {
+    cmPrice = cmTrend;
+  } else if (cmFrom != null) {
+    // trend missing but from exists — use from. Don't mark ascending=true
+    // because there's nothing to compare against (the "ascending" signal
+    // needs both values to be meaningful).
+    cmPrice = cmFrom;
+  }
+
+  // Sanity check: discard Cardmarket price when it's wildly higher than the
   // (already USD-clamped) Scryfall price. Same thin-market rationale as
-  // clampEurAgainstUsd above — CM "trend" derives from listing prices, and
-  // for ultra-rare cards with a handful of copies globally a single inflated
-  // ask becomes the trend. The Scryfall price has already been clamped at
-  // sync time, so it serves as a trustworthy ceiling here.
+  // clampEurAgainstUsd above — CM data derives from listing prices, and for
+  // ultra-rare cards with a handful of copies globally a single inflated ask
+  // can drive either `from` or `trend` off fair value. The Scryfall price
+  // has already been clamped at sync time, so it serves as a trustworthy
+  // ceiling here. Applies uniformly whether cmPrice came from trend or from.
   if (cmPrice != null && scryfallPrice != null && cmPrice > scryfallPrice * EUR_USD_ANOMALY_RATIO) {
     cmPrice = null;
+    ascending = false;
   }
 
   if (cmPrice != null && scryfallPrice != null && cmAt && scryfallAt) {
     return cmAt >= scryfallAt
-      ? { price: cmPrice, source: "cm_ext", updatedAt: cmAt, estimated: false }
-      : { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt, estimated: scryfallEstimated };
+      ? { price: cmPrice, source: "cm_ext", updatedAt: cmAt, estimated: false, ascending }
+      : { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt, estimated: scryfallEstimated, ascending: false };
   }
-  if (cmPrice != null) return { price: cmPrice, source: "cm_ext", updatedAt: cmAt, estimated: false };
+  if (cmPrice != null) return { price: cmPrice, source: "cm_ext", updatedAt: cmAt, estimated: false, ascending };
   if (scryfallPrice != null) {
-    return { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt, estimated: scryfallEstimated };
+    return { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt, estimated: scryfallEstimated, ascending: false };
   }
-  return { price: null, source: null, updatedAt: null, estimated: false };
+  return { price: null, source: null, updatedAt: null, estimated: false, ascending: false };
 }
 
 /**

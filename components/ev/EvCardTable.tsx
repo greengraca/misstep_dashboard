@@ -126,9 +126,10 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
         const when = row.price_updated_at
           ? new Date(row.price_updated_at).toLocaleDateString()
           : "?";
+        const ascSuffix = row.price_ascending ? " · from > trend (rising / thin supply)" : "";
         const title = row.price_estimated
-          ? `${src} · ${when} · estimated from USD (EUR was null or USD-clamped)`
-          : row.price_source ? `${src} · ${when}` : undefined;
+          ? `${src} · ${when} · estimated from USD (EUR was null or USD-clamped)${ascSuffix}`
+          : row.price_source ? `${src} · ${when}${ascSuffix}` : undefined;
         return (
           <span
             style={{
@@ -141,8 +142,8 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
             title={title}
           >
             {row.price_source === "cm_ext" && (
-              <span style={{ fontSize: 9, color: "var(--accent)", lineHeight: 1 }}>
-                •
+              <span style={{ fontSize: row.price_ascending ? 10 : 9, color: "var(--accent)", lineHeight: 1 }}>
+                {row.price_ascending ? "↑" : "•"}
               </span>
             )}
             <span>
@@ -246,8 +247,8 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                   {row.price_source === "cm_ext" && (
-                    <span style={{ fontSize: 8, color: "var(--accent)", lineHeight: 1 }}>
-                      •
+                    <span style={{ fontSize: row.price_ascending ? 9 : 8, color: "var(--accent)", lineHeight: 1 }}>
+                      {row.price_ascending ? "↑" : "•"}
                     </span>
                   )}
                   <span>

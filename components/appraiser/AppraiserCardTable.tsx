@@ -237,12 +237,14 @@ export default function AppraiserCardTable({ collectionId, cards, onCardChanged 
                 <td
                   style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}
                   title={c.trendPrice != null && c.trend_source
-                    ? `${c.trend_source === "cm_ext" ? "ext" : "scryfall"} · ${c.trend_updated_at ? new Date(c.trend_updated_at).toLocaleDateString() : "?"}`
+                    ? `${c.trend_source === "cm_ext" ? "ext" : "scryfall"} · ${c.trend_updated_at ? new Date(c.trend_updated_at).toLocaleDateString() : "?"}${c.trend_ascending ? " · from > trend (rising / thin supply)" : ""}`
                     : undefined}
                 >
                   {eur(c.trendPrice)}
                   {c.trend_source === "cm_ext" && (
-                    <span style={{ marginLeft: 4, fontSize: 9, color: "var(--accent)", verticalAlign: "top" }}>•</span>
+                    <span style={{ marginLeft: 4, fontSize: c.trend_ascending ? 10 : 9, color: "var(--accent)", verticalAlign: "top" }}>
+                      {c.trend_ascending ? "↑" : "•"}
+                    </span>
                   )}
                 </td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 600 }}>

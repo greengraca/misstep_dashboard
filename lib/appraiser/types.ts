@@ -80,6 +80,8 @@ export interface AppraiserCard {
   trend_source?: "scryfall" | "cm_ext" | null;
   /** ISO timestamp of the trend source (scryfall's prices_updated_at or CM scrape's updatedAt). */
   trend_updated_at?: string | null;
+  /** True when `trendPrice` is actually the CM `from` price (higher than trend) — signals thin-supply / rising market. UI renders ↑ instead of •. */
+  trend_ascending?: boolean;
 }
 
 export interface CardInput {

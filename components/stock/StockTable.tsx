@@ -174,19 +174,20 @@ const columns: Column[] = [
       const when = r.trend_updated_at
         ? new Date(r.trend_updated_at).toLocaleDateString()
         : "?";
+      const ascSuffix = r.trend_ascending ? " · from > trend (rising / thin supply)" : "";
       return (
-        <span title={`${src} · ${when}`}>
+        <span title={`${src} · ${when}${ascSuffix}`}>
           €{r.trend_eur.toFixed(2)}
           {r.trend_source === "cm_ext" && (
             <span
               style={{
                 marginLeft: 4,
-                fontSize: 9,
+                fontSize: r.trend_ascending ? 10 : 9,
                 color: "var(--accent)",
                 verticalAlign: "top",
               }}
             >
-              •
+              {r.trend_ascending ? "↑" : "•"}
             </span>
           )}
         </span>

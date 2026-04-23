@@ -50,6 +50,8 @@ export interface StockListingWithTrend extends CmStockListing {
   trend_eur: number | null;
   trend_source: "scryfall" | "cm_ext" | null;
   trend_updated_at: string | null;
+  /** True when `trend_eur` is actually the CM `from` price (higher than trend) — signals a thin-supply / rising market. UI renders ↑ instead of •. */
+  trend_ascending: boolean;
   // True when (name, set) resolves to multiple ev_cards variants and this
   // stock row doesn't have a productId yet to disambiguate. UI should show
   // this differently from a plain "no join" miss so the user knows visiting
