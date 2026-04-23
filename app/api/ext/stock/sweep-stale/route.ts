@@ -17,12 +17,12 @@ import { COLLECTION_PREFIX } from "@/lib/constants";
  * strips non-2xx bodies, so structured errors come back as 200.
  *
  * Safety:
- *   - walk_started_at must be at least 30s in the past (guards against
- *     accidental immediate-clicks with an empty walk).
  *   - sum(qty) of rows with lastSeenAt >= walk_started_at for this set
  *     must be >= cm_cards, i.e. everything CM currently shows in the
  *     dropdown was touched during the walk. Otherwise we'd delete rows
- *     that simply weren't visited yet.
+ *     that simply weren't visited yet. This is the real safety gate;
+ *     there's no separate duration check because a small set can be
+ *     walked in seconds.
  */
 export const POST = withExtAuth(async (req: NextRequest) => {
   let body: {
@@ -45,10 +45,6 @@ export const POST = withExtAuth(async (req: NextRequest) => {
   const walkStartedAt = new Date(walkStartedAtRaw);
   if (Number.isNaN(walkStartedAt.getTime())) {
     return { data: { ok: false, reason: "bad_input", hint: "walk_started_at must be ISO string" } };
-  }
-  const nowMs = Date.now();
-  if (nowMs - walkStartedAt.getTime() < 30_000) {
-    return { data: { ok: false, reason: "walk_too_short", hint: "walk too short — give it at least 30s of walking" } };
   }
   if (!Number.isInteger(body.cm_cards) || (body.cm_cards as number) < 0) {
     return { data: { ok: false, reason: "bad_input", hint: "cm_cards required" } };
