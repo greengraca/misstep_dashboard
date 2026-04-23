@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
+import { TLA_JUMPSTART_THEMES } from "@/lib/ev-jumpstart-tla";
 import { effectivePriceValue, effectivePriceWithFallback, clampEurAgainstUsd, getEffectivePriceWithFallback } from "@/lib/ev-prices";
 import { getCardmarketIdOverride } from "@/lib/cardmarket-url";
 import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
@@ -27,6 +28,33 @@ import type {
 // ── Jumpstart seed data (used only for initial DB population) ──
 const JUMPSTART_SEED_DATA: Record<string, EvJumpstartTheme[]> = {
   j25: J25_THEMES,
+  jtla: TLA_JUMPSTART_THEMES,
+};
+
+// Virtual Jumpstart set codes that don't correspond to a Scryfall set with
+// its own card pool — we synthesize the pool from other sets' CN ranges in
+// priority order (later entries override earlier in name lookup).
+// Use when a Jumpstart product ships under an existing set's code (e.g.
+// Avatar Jumpstart is printed as TLE CN 74-170 with fallbacks into TLA).
+const JUMPSTART_VIRTUAL_POOLS: Record<
+  string,
+  ReadonlyArray<{ set: string; cnFrom: number; cnTo: number }>
+> = {
+  jtla: [
+    // Lowest priority first. TLE 265-287 (BB cover variants) is deliberately
+    // excluded: those printings are Beginner-Box-only per WOTC's product
+    // breakdown (see notes/ev/tla.md CN 265-287 row) and never appear in a
+    // Jumpstart pack. Including them would let e.g. Path to Redemption
+    // resolve to tle#271 (€0.22 BB cover variant) instead of tla#31
+    // (€0.04 mainline, the actual JS-pack printing).
+    { set: "tla", cnFrom: 1, cnTo: 281 },      // TLA mainline + dual/location lands
+    { set: "tla", cnFrom: 282, cnTo: 286 },    // TLA default basics
+    { set: "tla", cnFrom: 292, cnTo: 296 },    // TLA Avatar's Journey full-art basics
+    { set: "tla", cnFrom: 287, cnTo: 291 },    // TLA Appa full-art basics — wins by-name for "Plains/Island/..." because JS packs ship the Appa variant per theme
+    { set: "tle", cnFrom: 171, cnTo: 209 },    // Jumpstart Extended Art (in CB only, but included for completeness — never wins over JS-main for shared names)
+    { set: "tle", cnFrom: 210, cnTo: 264 },    // Beginner Box main (includes Thriving lands + cards like Momo, Rambunctious Rascal that JS themes reuse)
+    { set: "tle", cnFrom: 74, cnTo: 170 },     // JS-main — HIGHEST priority. Wins for every shared-name legendary (Aang, Katara, etc.)
+  ],
 };
 
 // ── Collection names ───────────────────────────────────────────
@@ -297,10 +325,23 @@ export async function getSets(): Promise<EvSet[]> {
     .toArray();
   const productReferencedCodes = productSets.map((d) => d._id as string).filter(Boolean);
 
+  // Check which sets have jumpstart themes in DB — used both to mark sets as
+  // configured and to bypass the set_type / release-year filter below
+  // (virtual Jumpstart codes like `jtla` won't pass the normal filter because
+  // Scryfall tags their base row as `memorabilia`).
+  const jumpstartCodes = await db
+    .collection(COL_JUMPSTART_THEMES)
+    .aggregate([
+      { $group: { _id: "$set_code" } },
+    ])
+    .toArray();
+  const jumpstartSet = new Set(jumpstartCodes.map((c) => c._id as string));
+  const jumpstartReferencedCodes = Array.from(jumpstartSet);
+
   // Read-time filter: EV calculator UI only wants booster sets released in 2020+,
   // excluding digital-only. The underlying collection may contain every Scryfall set
   // (since refreshAllScryfall populates the full catalog for canonical sort).
-  // Product-referenced sets bypass the year filter via $or.
+  // Product-referenced and Jumpstart-referenced sets bypass the year filter via $or.
   const sets = await db
     .collection(COL_SETS)
     .find({
@@ -311,6 +352,7 @@ export async function getSets(): Promise<EvSet[]> {
           $or: [{ digital: { $ne: true } }, { digital: { $exists: false } }],
         },
         ...(productReferencedCodes.length > 0 ? [{ code: { $in: productReferencedCodes } }] : []),
+        ...(jumpstartReferencedCodes.length > 0 ? [{ code: { $in: jumpstartReferencedCodes } }] : []),
       ],
     })
     .sort({ released_at: -1 })
@@ -322,15 +364,6 @@ export async function getSets(): Promise<EvSet[]> {
     .find({}, { projection: { set_code: 1 } })
     .toArray();
   const configSet = new Set(configCodes.map((c) => c.set_code));
-
-  // Check which sets have jumpstart themes in DB
-  const jumpstartCodes = await db
-    .collection(COL_JUMPSTART_THEMES)
-    .aggregate([
-      { $group: { _id: "$set_code" } },
-    ])
-    .toArray();
-  const jumpstartSet = new Set(jumpstartCodes.map((c) => c._id));
 
   // Get latest snapshot per set
   const latestSnapshots = await db
@@ -552,6 +585,28 @@ export async function getCardsForSet(
   await ensureIndexes();
   const db = await getDb();
   const col = db.collection(COL_CARDS);
+
+  // Virtual Jumpstart codes (e.g. jtla): synthesize pool from other sets'
+  // CN ranges in priority order. Later specs override earlier ones in the
+  // name-lookup Map inside calculateJumpstartEv, so the highest-priority
+  // printing wins for any shared card name.
+  const virtualRanges = JUMPSTART_VIRTUAL_POOLS[setCode];
+  if (virtualRanges) {
+    const buckets: EvCard[][] = [];
+    for (const spec of virtualRanges) {
+      const cns = Array.from(
+        { length: spec.cnTo - spec.cnFrom + 1 },
+        (_, i) => String(spec.cnFrom + i)
+      );
+      const docs = await col
+        .find({ set: spec.set, collector_number: { $in: cns } })
+        .toArray();
+      buckets.push(docs.map((d) => ({ ...d, _id: d._id.toString() }) as EvCard));
+    }
+    const merged = buckets.flat();
+    return { cards: merged, total: merged.length };
+  }
+
   // MB2: combine native mb2 cards with plst pick-up reprints stored as "mb2-list"
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: any = setCode === "mb2" ? { set: { $in: ["mb2", "mb2-list"] } } : { set: setCode };
@@ -1551,6 +1606,11 @@ const JUMPSTART_TIER_WEIGHTS: Record<string, number> = {
 // when the weights collection is empty.
 const JUMPSTART_PRIOR_SAMPLES: Record<string, { tier_counts: { common: number; rare: number; mythic: number }; packs: number }> = {
   j25: { tier_counts: { common: 79, rare: 36, mythic: 5 }, packs: 120 },
+  // TLA Jumpstart: WOTC publishes 46 theme names split 20 common × 2 variants
+  // + 15 rare × 1 + 11 mythic × 1 = 66 variants, uniformly distributed per
+  // pack. tier_counts matching the variant counts produces exactly uniform
+  // per-variant weights (1/66) via tierWeightsFromCounts + tier/variantCount.
+  jtla: { tier_counts: { common: 40, rare: 15, mythic: 11 }, packs: 66 },
 };
 
 export type JumpstartTierKey = "common" | "rare" | "mythic";
