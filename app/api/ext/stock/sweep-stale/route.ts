@@ -52,7 +52,15 @@ export const POST = withExtAuth(async (req: NextRequest) => {
   // Date in Mongo never matches because of BSON type ordering, so we
   // must compare string-to-string. ISO-8601 UTC strings are
   // lexicographically sortable.
-  const walkStartedAt = walkStartedAtDate.toISOString();
+  //
+  // Back the threshold off by 30s to absorb client/server clock skew:
+  // the walk's started_at is stamped by the user's browser clock, but
+  // lastSeenAt is stamped by the server when /api/ext/sync runs. Even
+  // a 2-3 second skew would drop legitimate touches.
+  const CLOCK_SKEW_MS = 30_000;
+  const walkStartedAt = new Date(
+    walkStartedAtDate.getTime() - CLOCK_SKEW_MS
+  ).toISOString();
   if (!Number.isInteger(body.cm_cards) || (body.cm_cards as number) < 0) {
     return { data: { ok: false, reason: "bad_input", hint: "cm_cards required" } };
   }
@@ -60,6 +68,25 @@ export const POST = withExtAuth(async (req: NextRequest) => {
 
   const db = await getDb();
   const col = db.collection(`${COLLECTION_PREFIX}cm_stock`);
+
+  // Overall set stats for debugging "0 touched" reports. If the set is
+  // empty in our DB the user has a different problem (the dropdown
+  // name doesn't match any rows' `set` field) and the hint should say
+  // so, not "incomplete walk".
+  const setTotalsAgg = await col
+    .aggregate<{ cards: number; rows: number; max_last_seen: string | null }>([
+      { $match: { set: setName } },
+      {
+        $group: {
+          _id: null,
+          cards: { $sum: "$qty" },
+          rows: { $sum: 1 },
+          max_last_seen: { $max: "$lastSeenAt" },
+        },
+      },
+    ])
+    .toArray();
+  const setTotals = setTotalsAgg[0] ?? { cards: 0, rows: 0, max_last_seen: null };
 
   const touchedAgg = await col
     .aggregate<{ cards: number; rows: number }>([
@@ -70,6 +97,16 @@ export const POST = withExtAuth(async (req: NextRequest) => {
   const touchedCards = touchedAgg[0]?.cards ?? 0;
   const touchedRows = touchedAgg[0]?.rows ?? 0;
 
+  if (setTotals.rows === 0) {
+    return {
+      data: {
+        ok: false,
+        reason: "no_rows_for_set",
+        hint: `no dashboard_cm_stock rows have set='${setName}' — the dropdown name may not match the DB's set field`,
+      },
+    };
+  }
+
   if (touchedCards < cmCards) {
     return {
       data: {
@@ -78,7 +115,11 @@ export const POST = withExtAuth(async (req: NextRequest) => {
         touched_cards: touchedCards,
         touched_rows: touchedRows,
         cm_cards: cmCards,
-        hint: `walked ${touchedCards} of ${cmCards} cards — visit the remaining stock pages and try again`,
+        set_total_cards: setTotals.cards,
+        set_total_rows: setTotals.rows,
+        last_seen_max: setTotals.max_last_seen,
+        walk_started_at_effective: walkStartedAt,
+        hint: `walked ${touchedCards} of ${cmCards} cards — walk the remaining stock pages and try again (set has ${setTotals.rows} rows / ${setTotals.cards} cards total; most recent sync: ${setTotals.max_last_seen || "never"})`,
       },
     };
   }
