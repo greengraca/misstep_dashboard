@@ -550,8 +550,15 @@ export default function EvProductDetail({ slug }: Props) {
                 const cmUrl = buildCardmarketUrl(
                   data.data.set_names?.[c.set_code],
                   c.name,
-                  c.is_foil
+                  c.is_foil,
+                  c.cardmarket_id
                 );
+                const srcBase = c.price_source
+                  ? `${c.price_source === "cm_ext" ? "ext" : "scryfall"} · ${c.price_updated_at ? new Date(c.price_updated_at).toLocaleDateString() : "?"}`
+                  : undefined;
+                const srcTitle = c.price_estimated
+                  ? `${srcBase ?? "scryfall"} · estimated from USD (EUR was null or USD-clamped)`
+                  : srcBase;
                 return (
                 <tr
                   key={c.scryfall_id + (c.is_foil ? "-f" : "")}
@@ -628,10 +635,22 @@ export default function EvProductDetail({ slug }: Props) {
                         ? "Basic land — excluded from EV (toggle 'Count basic lands' to include)"
                         : c.excluded_reason === "below_sift_floor"
                           ? "Below €0.25 sift floor — excluded from EV (toggle 'Sift floor' to include)"
-                          : undefined
+                          : srcTitle
                     }
                   >
-                    {fmt(applyDiscount(c.unit_price))}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {c.price_source === "cm_ext" && !c.excluded_reason && (
+                        <span style={{ fontSize: 9, color: "var(--accent)", lineHeight: 1 }}>
+                          •
+                        </span>
+                      )}
+                      <span>
+                        {c.price_estimated && !c.excluded_reason && (
+                          <span style={{ color: "var(--text-muted)" }}>~</span>
+                        )}
+                        {fmt(applyDiscount(c.unit_price))}
+                      </span>
+                    </span>
                   </td>
                   <td
                     style={{

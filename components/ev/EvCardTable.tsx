@@ -29,7 +29,7 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       label: "Card",
       sortable: true,
       render: (row) => {
-        const cmUrl = buildCardmarketUrl(setNames?.[row.set], row.name, row.is_foil);
+        const cmUrl = buildCardmarketUrl(setNames?.[row.set], row.name, row.is_foil, row.cardmarket_id, row.set, row.collector_number);
         return (
         <div className="flex items-center gap-2">
           {row.image_uri && (
@@ -121,11 +121,39 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
       sortable: true,
       sortValue: (row) => row.price,
       className: "text-right",
-      render: (row) => (
-        <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-          &euro;{row.price.toFixed(2)}
-        </span>
-      ),
+      render: (row) => {
+        const src = row.price_source === "cm_ext" ? "ext" : "scryfall";
+        const when = row.price_updated_at
+          ? new Date(row.price_updated_at).toLocaleDateString()
+          : "?";
+        const title = row.price_estimated
+          ? `${src} · ${when} · estimated from USD (EUR was null or USD-clamped)`
+          : row.price_source ? `${src} · ${when}` : undefined;
+        return (
+          <span
+            style={{
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-mono)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+            title={title}
+          >
+            {row.price_source === "cm_ext" && (
+              <span style={{ fontSize: 9, color: "var(--accent)", lineHeight: 1 }}>
+                •
+              </span>
+            )}
+            <span>
+              {row.price_estimated && (
+                <span style={{ color: "var(--text-muted)" }}>~</span>
+              )}
+              &euro;{row.price.toFixed(2)}
+            </span>
+          </span>
+        );
+      },
     },
     {
       key: "pull_rate_per_box",
@@ -216,7 +244,18 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
                 &euro;{row.ev_contribution.toFixed(2)}
               </p>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                &euro;{row.price.toFixed(2)} &times; {row.pull_rate_per_box.toFixed(2)}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                  {row.price_source === "cm_ext" && (
+                    <span style={{ fontSize: 8, color: "var(--accent)", lineHeight: 1 }}>
+                      •
+                    </span>
+                  )}
+                  <span>
+                    {row.price_estimated && <span>~</span>}
+                    &euro;{row.price.toFixed(2)}
+                  </span>
+                </span>
+                {" "}&times;{" "}{row.pull_rate_per_box.toFixed(2)}
               </p>
             </div>
           </div>

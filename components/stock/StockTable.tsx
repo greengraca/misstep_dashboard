@@ -69,7 +69,10 @@ interface Column {
 }
 
 function CardmarketLink({ row }: { row: StockListingWithTrend }) {
-  const href = buildCardmarketUrl(row.set, row.name, row.foil) ?? "#";
+  // When the extension has captured productId (v1.7.1+), deep-link to the
+  // exact printing via idProduct=…. Older rows without productId fall through
+  // to the set+name slug builder.
+  const href = buildCardmarketUrl(row.set, row.name, row.foil, row.productId) ?? "#";
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       <a

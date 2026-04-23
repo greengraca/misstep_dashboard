@@ -15,11 +15,15 @@ export interface EvCardPriceRef {
   name?: string;
   price_eur: number | null;
   price_eur_foil: number | null;
+  /** USD-derived-estimate flag (per variant). Both optional; absent = false. */
+  price_eur_estimated?: boolean;
+  price_eur_foil_estimated?: boolean;
   prices_updated_at?: string | null;
   cm_prices?: {
     nonfoil?: EvCardCmPriceSnapshot;
     foil?: EvCardCmPriceSnapshot;
   } | null;
+  cardmarket_id?: number | null;
 }
 
 export interface CalculateProductEvOptions {
@@ -59,7 +63,8 @@ export function calculateProductEv(
 
   for (const pc of product.cards) {
     const c = cardById.get(pc.scryfall_id);
-    const rawUnit = c ? getEffectivePrice(c, pc.is_foil).price : null;
+    const eff = c ? getEffectivePrice(c, pc.is_foil) : null;
+    const rawUnit = eff?.price ?? null;
     if (!c) missing.push(pc.scryfall_id);
 
     // Determine why a card might not count toward EV. Reasons are mutually
@@ -86,6 +91,10 @@ export function calculateProductEv(
       unit_price: displayUnit,
       line_total: displayLine,
       ...(excludedReason ? { excluded_reason: excludedReason } : {}),
+      price_source: eff?.source ?? null,
+      price_updated_at: eff?.updatedAt ?? null,
+      price_estimated: eff?.estimated ?? false,
+      cardmarket_id: c?.cardmarket_id ?? null,
     });
   }
 
@@ -295,8 +304,11 @@ export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPric
           name: 1,
           price_eur: 1,
           price_eur_foil: 1,
+          price_eur_estimated: 1,
+          price_eur_foil_estimated: 1,
           prices_updated_at: 1,
           cm_prices: 1,
+          cardmarket_id: 1,
         },
       }
     )
@@ -306,8 +318,11 @@ export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPric
     name: d.name as string | undefined,
     price_eur: (d.price_eur ?? null) as number | null,
     price_eur_foil: (d.price_eur_foil ?? null) as number | null,
+    price_eur_estimated: (d.price_eur_estimated ?? false) as boolean,
+    price_eur_foil_estimated: (d.price_eur_foil_estimated ?? false) as boolean,
     prices_updated_at: (d.prices_updated_at ?? null) as string | null,
     cm_prices: (d.cm_prices ?? null) as EvCardPriceRef["cm_prices"],
+    cardmarket_id: (d.cardmarket_id ?? null) as number | null,
   }));
 }
 

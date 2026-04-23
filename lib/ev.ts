@@ -1,7 +1,8 @@
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
-import { effectivePriceValue, effectivePriceWithFallback } from "@/lib/ev-prices";
+import { effectivePriceValue, effectivePriceWithFallback, clampEurAgainstUsd, getEffectivePriceWithFallback } from "@/lib/ev-prices";
+import { getCardmarketIdOverride } from "@/lib/cardmarket-url";
 import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
 import { generateAllProductSnapshots, COL_EV_SNAPSHOTS as COL_SNAPSHOTS } from "./ev-products";
 import type {
@@ -117,6 +118,11 @@ function deriveCardTreatment(card: any): string {
   if (pt.includes("serialized")) return "serialized";
   if (pt.includes("galaxyfoil")) return "galaxy_foil";
   if (pt.includes("surgefoil")) return "surge_foil";
+  // Foil-etched is a finish with a distinct visual frame effect. Placed last
+  // so it only fires on cards that aren't already classified by a more
+  // visually-dominant treatment (borderless / showcase / extended / textured).
+  // mh3 #473-494 (22 cards) and m3c #17-24 (8 face commanders) land here.
+  if (fe.includes("etched")) return "etched";
   return "normal";
 }
 
@@ -142,11 +148,19 @@ async function getUsdToEurRate(): Promise<number> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyUsdFallback(card: any, usdToEur: number): { price_eur: number | null; price_eur_foil: number | null; price_eur_estimated: boolean } {
+function applyUsdFallback(card: any, usdToEur: number): { price_eur: number | null; price_eur_foil: number | null; price_eur_estimated: boolean; price_eur_foil_estimated: boolean } {
   let price_eur = card.prices?.eur ? parseFloat(card.prices.eur) : null;
   let price_eur_foil = card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null;
   let price_eur_estimated = false;
+  let price_eur_foil_estimated = false;
   const factor = usdToEur * EUR_MARKET_DISCOUNT;
+
+  // Sanity-clamp Scryfall EUR against USD-converted: catches Cardmarket
+  // thin-market spikes that Scryfall passes through as the EUR trend price.
+  const eurClamp = clampEurAgainstUsd(price_eur, card.prices?.usd, factor);
+  if (eurClamp.clamped) { price_eur = eurClamp.value; price_eur_estimated = true; }
+  const foilClamp = clampEurAgainstUsd(price_eur_foil, card.prices?.usd_foil, factor);
+  if (foilClamp.clamped) { price_eur_foil = foilClamp.value; price_eur_foil_estimated = true; }
 
   // Fallback chain for EUR: eur → usd (converted)
   if (price_eur === null && card.prices?.usd) {
@@ -156,7 +170,19 @@ function applyUsdFallback(card: any, usdToEur: number): { price_eur: number | nu
   // Fallback chain for EUR foil: eur_foil → usd_foil (converted)
   if (price_eur_foil === null && card.prices?.usd_foil) {
     price_eur_foil = Math.round(parseFloat(card.prices.usd_foil) * factor * 100) / 100;
-    if (price_eur === null) price_eur_estimated = true;
+    price_eur_foil_estimated = true;
+  }
+  // Etched fallback for foil-etched-only cards (MH3 #473-494, m3c #17-24 face
+  // commanders, etc.). Scryfall stores these in `eur_etched` / `usd_etched`
+  // separately from `eur_foil`. For EV purposes, they're premium treatments
+  // and best represented as the card's foil price. Mark as estimated either way.
+  if (price_eur_foil === null && card.prices?.eur_etched) {
+    price_eur_foil = parseFloat(card.prices.eur_etched);
+    price_eur_foil_estimated = true;
+  }
+  if (price_eur_foil === null && card.prices?.usd_etched) {
+    price_eur_foil = Math.round(parseFloat(card.prices.usd_etched) * factor * 100) / 100;
+    price_eur_foil_estimated = true;
   }
   // Last resort: if still no EUR price, use foil price (for foil-only cards)
   if (price_eur === null && price_eur_foil !== null) {
@@ -164,7 +190,7 @@ function applyUsdFallback(card: any, usdToEur: number): { price_eur: number | nu
     price_eur_estimated = true;
   }
 
-  return { price_eur, price_eur_foil, price_eur_estimated };
+  return { price_eur, price_eur_foil, price_eur_estimated, price_eur_foil_estimated };
 }
 
 // ── Scryfall Sync: Sets ────────────────────────────────────────
@@ -387,7 +413,7 @@ export async function syncCards(
     for (const card of page.data as any[]) {
       total++;
       const treatment = deriveCardTreatment(card);
-      const { price_eur, price_eur_foil, price_eur_estimated } = applyUsdFallback(card, usdToEur);
+      const { price_eur, price_eur_foil, price_eur_estimated, price_eur_foil_estimated } = applyUsdFallback(card, usdToEur);
       const doc = {
         scryfall_id: card.id,
         set: card.set,
@@ -397,10 +423,11 @@ export async function syncCards(
         price_eur,
         price_eur_foil,
         price_eur_estimated,
+        price_eur_foil_estimated,
         finishes: card.finishes || [],
         booster: card.booster ?? false,
         image_uri: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || null,
-        cardmarket_id: card.cardmarket_id ?? null,
+        cardmarket_id: getCardmarketIdOverride(card.set, card.collector_number) ?? card.cardmarket_id ?? null,
         type_line: card.type_line || "",
         frame_effects: card.frame_effects || [],
         promo_types: card.promo_types || [],
@@ -475,7 +502,7 @@ export async function syncMB2Cards(
         finishes: card.finishes || [],
         booster: card.booster ?? false,
         image_uri: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || null,
-        cardmarket_id: card.cardmarket_id ?? null,
+        cardmarket_id: getCardmarketIdOverride(card.set, card.collector_number) ?? card.cardmarket_id ?? null,
         type_line: card.type_line || "",
         frame_effects: card.frame_effects || [],
         promo_types: card.promo_types || [],
@@ -588,7 +615,19 @@ export function getDefaultPlayBoosterConfig(): EvBoosterConfig {
         slot_number: 7, label: "Common / SPG", is_foil: false,
         outcomes: [
           { probability: 0.96875, filter: { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } },
-          { probability: 0.03125, filter: { promo_types: ["spg"] } },
+          // Legacy filter was `promo_types: ["spg"]` — matched zero cards because
+          // Scryfall tags modern SPG cards with `promo_types: ["boosterfun"]`, not
+          // "spg". When zero-match outcomes are encountered, calculateEv skips
+          // them and the slot's probability mass silently evaporates, systematically
+          // under-counting slot-7 EV for any set using this default config.
+          //
+          // Using `set_codes: ["spg"]` correctly matches SPG cards (and pulls them
+          // into the calc pool via collectExtraSetCodes). The whole `spg` set is
+          // ~165 cards spanning many parent sets, so this is intentionally overbroad
+          // for unconfigured sets — each set's real SPG subset is ~10 cards. Sets
+          // that want precise per-card rates should ship a saved config with a
+          // collector_number range (e.g. mh3 uses 39-48). See notes/ev/mh3.md.
+          { probability: 0.03125, filter: { set_codes: ["spg"] } },
         ],
       },
       { slot_number: 8, label: "Uncommon 1", is_foil: false, outcomes: [{ probability: 1, filter: { rarity: ["uncommon"], treatment: ["normal"], booster: true } }] },
@@ -1304,30 +1343,42 @@ export function calculateEv(
   for (const e of allCardEvs) uniqueAboveFloor.add(e.card.scryfall_id);
   const cardsAboveFloor = uniqueAboveFloor.size;
 
-  // Biggest pulls — sorted by raw price (most expensive cards you could open)
+  // Biggest pulls — sorted by the contribution's effective price (foil when
+  // the contribution came from a foil slot/outcome, nonfoil otherwise).
+  // Hardcoding isFoil=false here was a bug: it pushed foil-only contributions
+  // (e.g. borderless cards in slot 14) below their true pull value.
   const allCardsByPrice = Array.from(cardEvMap.values())
     .filter((e) => e.ev > 0)
-    .sort((a, b) => getCardPrice(b.card, false, 0) - getCardPrice(a.card, false, 0));
+    .sort((a, b) => getCardPrice(b.card, b.isFoil, 0) - getCardPrice(a.card, a.isFoil, 0));
 
-  const mapToTopCard = (e: { card: EvCard; isFoil: boolean; ev: number; pullRate: number }, i: number) => ({
-    // uid: same card can appear in multiple slot outcomes (rare + wildcard,
-    // etc.), so scryfall_id alone isn't unique. Suffix the list index.
-    uid: `${e.card.scryfall_id}-${i}`,
-    scryfall_id: e.card.scryfall_id,
-    name: e.card.name,
-    set: e.card.set,
-    collector_number: e.card.collector_number,
-    rarity: e.card.rarity,
-    treatment: e.card.treatment,
-    is_foil: e.isFoil,
-    // Use the foil price when the contribution came from a foil slot —
-    // otherwise foil-only outcomes (e.g. Masterpieces) would display nonfoil
-    // prices that don't exist for those cards.
-    price: getCardPrice(e.card, e.isFoil, 0),
-    pull_rate_per_box: Math.round(e.pullRate * 10000) / 10000,
-    ev_contribution: Math.round(e.ev * 100) / 100,
-    image_uri: e.card.image_uri,
-  });
+  const mapToTopCard = (e: { card: EvCard; isFoil: boolean; ev: number; pullRate: number }, i: number) => {
+    // Single source of truth for both the displayed price AND its source/
+    // timestamp. getEffectivePriceWithFallback falls through to the other
+    // variant when the requested one is null, AND returns the fallback
+    // variant's source — so the dot/tooltip never lies about where the
+    // number came from.
+    const eff = getEffectivePriceWithFallback(e.card, e.isFoil);
+    return {
+      // uid: same card can appear in multiple slot outcomes (rare + wildcard,
+      // etc.), so scryfall_id alone isn't unique. Suffix the list index.
+      uid: `${e.card.scryfall_id}-${i}`,
+      scryfall_id: e.card.scryfall_id,
+      name: e.card.name,
+      set: e.card.set,
+      collector_number: e.card.collector_number,
+      rarity: e.card.rarity,
+      treatment: e.card.treatment,
+      is_foil: e.isFoil,
+      price: eff.price ?? 0,
+      pull_rate_per_box: Math.round(e.pullRate * 10000) / 10000,
+      ev_contribution: Math.round(e.ev * 100) / 100,
+      image_uri: e.card.image_uri,
+      cardmarket_id: e.card.cardmarket_id ?? null,
+      price_source: eff.source,
+      price_updated_at: eff.updatedAt,
+      price_estimated: eff.estimated,
+    };
+  };
 
   return {
     set_code: setCode,
@@ -1343,8 +1394,8 @@ export function calculateEv(
     cards_above_floor: cardsAboveFloor,
     cards_total: cards.length,
     slot_breakdown: slotBreakdown,
-    top_ev_cards: allCardEvs.slice(0, 20).map(mapToTopCard),
-    top_price_cards: allCardsByPrice.slice(0, 20).map(mapToTopCard),
+    top_ev_cards: allCardEvs.slice(0, 30).map(mapToTopCard),
+    top_price_cards: allCardsByPrice.slice(0, 30).map(mapToTopCard),
   };
 }
 

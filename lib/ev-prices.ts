@@ -15,9 +15,62 @@
 
 import type { EvCardCmPriceSnapshot } from "@/lib/types";
 
+/**
+ * Threshold for flagging a EUR price as anomalous vs USD-converted.
+ *
+ * Catches two distinct but similar-looking data quality bugs:
+ *
+ * 1. **Thin-market Cardmarket trend spikes.** A handful of inflated listings
+ *    on a low-availability card drive the CM trend far above fair value;
+ *    Scryfall passes the trend through as `eur`/`eur_foil`.
+ *
+ * 2. **Cross-printing misattribution.** Scryfall's `cardmarket_id` for a
+ *    card maps to a Cardmarket product page whose listings include copies
+ *    of a DIFFERENT (rarer / more expensive) printing — e.g. mh3 #381
+ *    Emrakul (non-serialized, Play Booster eligible) whose CM page picks
+ *    up listings of the serialized #381z variant (Collector Booster
+ *    exclusive), inflating the reported trend to €2,292 vs the real
+ *    non-serialized value of ~€40. See notes/ev/mh3.md for the full case.
+ *
+ * TCGplayer's catalog is more granular (distinct `productId` per printing),
+ * so USD stays accurate in both scenarios — which is why a USD ceiling
+ * works as the sanity check.
+ *
+ * A 5× gap almost always means one of the two scenarios above; real EUR/USD
+ * price divergence on the same printing rarely exceeds ~3×.
+ */
+const EUR_USD_ANOMALY_RATIO = 5;
+
+/**
+ * Sanity-check Scryfall's EUR prices against its USD prices. When the EUR
+ * value is more than EUR_USD_ANOMALY_RATIO times the USD-converted value,
+ * replace it with the USD-converted figure. Used by both the per-set sync
+ * (`applyUsdFallback` in lib/ev.ts) and the bulk sync (`parseScryfallCardToDoc`
+ * in lib/scryfall-bulk.ts).
+ *
+ * `usdToEurFactor` is the combined ECB rate × EU market discount that
+ * callers already use for null-EUR fallback (typically ~0.856 × 0.75).
+ */
+export function clampEurAgainstUsd(
+  eur: number | null,
+  usd: string | undefined | null,
+  usdToEurFactor: number
+): { value: number | null; clamped: boolean } {
+  if (eur === null || !usd || !usdToEurFactor) return { value: eur, clamped: false };
+  const usdConverted = parseFloat(usd) * usdToEurFactor;
+  if (eur > usdConverted * EUR_USD_ANOMALY_RATIO) {
+    return { value: Math.round(usdConverted * 100) / 100, clamped: true };
+  }
+  return { value: eur, clamped: false };
+}
+
 export interface EffectivePriceInput {
   price_eur: number | null;
   price_eur_foil: number | null;
+  /** True when the nonfoil price was derived from USD (EUR was null or USD-clamped at sync). */
+  price_eur_estimated?: boolean;
+  /** True when the foil price was derived from USD. Separate flag so we don't falsely mark a clean nonfoil as estimated just because its foil was clamped. */
+  price_eur_foil_estimated?: boolean;
   prices_updated_at?: string | null;
   cm_prices?: {
     nonfoil?: EvCardCmPriceSnapshot;
@@ -29,6 +82,8 @@ export interface EffectivePrice {
   price: number | null;
   source: "scryfall" | "cm_ext" | null;
   updatedAt: string | null;
+  /** True when the returned price is a USD-derived estimate (Scryfall only; CM-ext is always real market data). */
+  estimated: boolean;
 }
 
 export function getEffectivePrice(
@@ -37,20 +92,37 @@ export function getEffectivePrice(
 ): EffectivePrice {
   const scryfallPrice = isFoil ? card.price_eur_foil : card.price_eur;
   const scryfallAt = card.prices_updated_at ?? null;
+  // The estimated flag is per-variant: nonfoil has its own flag, foil has its own.
+  // Older card docs may only have the legacy single `price_eur_estimated` flag (applied
+  // when either variant was estimated). Fall back to it so we don't silently drop the
+  // signal on un-resynced data.
+  const scryfallEstimated = isFoil
+    ? (card.price_eur_foil_estimated ?? card.price_eur_estimated ?? false)
+    : (card.price_eur_estimated ?? false);
   const variant = isFoil ? card.cm_prices?.foil : card.cm_prices?.nonfoil;
-  const cmPrice = variant?.trend ?? null;
+  let cmPrice = variant?.trend ?? null;
   const cmAt = variant?.updatedAt ?? null;
+
+  // Sanity check: discard Cardmarket trend when it's wildly higher than the
+  // (already USD-clamped) Scryfall price. Same thin-market rationale as
+  // clampEurAgainstUsd above — CM "trend" derives from listing prices, and
+  // for ultra-rare cards with a handful of copies globally a single inflated
+  // ask becomes the trend. The Scryfall price has already been clamped at
+  // sync time, so it serves as a trustworthy ceiling here.
+  if (cmPrice != null && scryfallPrice != null && cmPrice > scryfallPrice * EUR_USD_ANOMALY_RATIO) {
+    cmPrice = null;
+  }
 
   if (cmPrice != null && scryfallPrice != null && cmAt && scryfallAt) {
     return cmAt >= scryfallAt
-      ? { price: cmPrice, source: "cm_ext", updatedAt: cmAt }
-      : { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt };
+      ? { price: cmPrice, source: "cm_ext", updatedAt: cmAt, estimated: false }
+      : { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt, estimated: scryfallEstimated };
   }
-  if (cmPrice != null) return { price: cmPrice, source: "cm_ext", updatedAt: cmAt };
+  if (cmPrice != null) return { price: cmPrice, source: "cm_ext", updatedAt: cmAt, estimated: false };
   if (scryfallPrice != null) {
-    return { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt };
+    return { price: scryfallPrice, source: "scryfall", updatedAt: scryfallAt, estimated: scryfallEstimated };
   }
-  return { price: null, source: null, updatedAt: null };
+  return { price: null, source: null, updatedAt: null, estimated: false };
 }
 
 /**
@@ -76,4 +148,25 @@ export function effectivePriceWithFallback(
   if (primary != null) return primary;
   const other = getEffectivePrice(card, !isFoil).price;
   return other ?? 0;
+}
+
+/**
+ * Same as `effectivePriceWithFallback` but returns the full `EffectivePrice`
+ * (price + source + updatedAt) with fallback semantics. When the requested
+ * variant is missing, falls through to the other variant and returns THAT
+ * variant's source/timestamp — so callers rendering a "source dot" annotate
+ * the price with the variant that actually produced the number.
+ *
+ * Fixes the mismatch where `price` came from the fallback but `source` /
+ * `updatedAt` were null because `getEffectivePrice` (no fallback) was called
+ * separately.
+ */
+export function getEffectivePriceWithFallback(
+  card: EffectivePriceInput,
+  isFoil: boolean
+): EffectivePrice {
+  const primary = getEffectivePrice(card, isFoil);
+  if (primary.price != null) return primary;
+  const other = getEffectivePrice(card, !isFoil);
+  return other;
 }

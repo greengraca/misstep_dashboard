@@ -6,6 +6,9 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { clampEurAgainstUsd } from "@/lib/ev-prices";
+import { getCardmarketIdOverride } from "@/lib/cardmarket-url";
+
 export interface EvCardDoc {
   scryfall_id: string;
   set: string;
@@ -15,6 +18,7 @@ export interface EvCardDoc {
   price_eur: number | null;
   price_eur_foil: number | null;
   price_eur_estimated: boolean;
+  price_eur_foil_estimated: boolean;
   finishes: string[];
   booster: boolean;
   image_uri: string | null;
@@ -44,6 +48,7 @@ function deriveCardTreatment(card: any): string {
   if (pt.includes("serialized")) return "serialized";
   if (pt.includes("galaxyfoil")) return "galaxy_foil";
   if (pt.includes("surgefoil")) return "surge_foil";
+  if (fe.includes("etched")) return "etched";
   return "normal";
 }
 
@@ -75,13 +80,34 @@ export function parseScryfallCardToDoc(card: any, nowIso: string, usdToEurFactor
   let priceEur = card.prices?.eur ? parseFloat(card.prices.eur) : null;
   let priceEurFoil = card.prices?.eur_foil ? parseFloat(card.prices.eur_foil) : null;
   let priceEurEstimated = false;
+  let priceEurFoilEstimated = false;
+
+  // Sanity-clamp Scryfall EUR against USD-converted: catches Cardmarket
+  // thin-market spikes (see notes/ev/mh3.md for the canonical example).
+  if (usdToEurFactor) {
+    const eurClamp = clampEurAgainstUsd(priceEur, card.prices?.usd, usdToEurFactor);
+    if (eurClamp.clamped) { priceEur = eurClamp.value; priceEurEstimated = true; }
+    const foilClamp = clampEurAgainstUsd(priceEurFoil, card.prices?.usd_foil, usdToEurFactor);
+    if (foilClamp.clamped) { priceEurFoil = foilClamp.value; priceEurFoilEstimated = true; }
+  }
+
   if (priceEur === null && card.prices?.usd && usdToEurFactor) {
     priceEur = Math.round(parseFloat(card.prices.usd) * usdToEurFactor * 100) / 100;
     priceEurEstimated = true;
   }
   if (priceEurFoil === null && card.prices?.usd_foil && usdToEurFactor) {
     priceEurFoil = Math.round(parseFloat(card.prices.usd_foil) * usdToEurFactor * 100) / 100;
-    if (priceEur === null) priceEurEstimated = true;
+    priceEurFoilEstimated = true;
+  }
+  // Etched fallback — for foil-etched-only cards (Scryfall stores them in a
+  // separate price field). Treat as foil for EV purposes.
+  if (priceEurFoil === null && card.prices?.eur_etched) {
+    priceEurFoil = parseFloat(card.prices.eur_etched);
+    priceEurFoilEstimated = true;
+  }
+  if (priceEurFoil === null && card.prices?.usd_etched && usdToEurFactor) {
+    priceEurFoil = Math.round(parseFloat(card.prices.usd_etched) * usdToEurFactor * 100) / 100;
+    priceEurFoilEstimated = true;
   }
 
   return {
@@ -93,10 +119,11 @@ export function parseScryfallCardToDoc(card: any, nowIso: string, usdToEurFactor
     price_eur: priceEur,
     price_eur_foil: priceEurFoil,
     price_eur_estimated: priceEurEstimated,
+    price_eur_foil_estimated: priceEurFoilEstimated,
     finishes: card.finishes ?? [],
     booster: card.booster ?? false,
     image_uri: imageUri,
-    cardmarket_id: card.cardmarket_id ?? null,
+    cardmarket_id: getCardmarketIdOverride(card.set, card.collector_number) ?? card.cardmarket_id ?? null,
     type_line: card.type_line ?? "",
     frame_effects: card.frame_effects ?? [],
     promo_types: card.promo_types ?? [],

@@ -21,7 +21,10 @@ interface EvSetDetailProps {
 
 export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
   const isMB2 = set.name.toLowerCase().includes("mystery booster 2");
-  const isJumpstart = !isMB2 && (set.set_type === "draft_innovation" || set.name.toLowerCase().includes("jumpstart"));
+  // Detect Jumpstart by name only — set_type "draft_innovation" also covers
+  // Modern Horizons, Commander Legends, Conspiracy, LOTR, etc., none of which
+  // use Jumpstart boosters.
+  const isJumpstart = !isMB2 && set.name.toLowerCase().includes("jumpstart");
   const boosterLabel = isJumpstart ? "Jumpstart Booster" : isMB2 ? "Mystery Booster" : undefined;
   const [boosterType, setBoosterType] = useState<"play" | "collector">("play");
   const [siftFloor, setSiftFloor] = useState(0.25);

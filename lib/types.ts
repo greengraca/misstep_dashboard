@@ -260,6 +260,10 @@ export interface EvCard {
   rarity: string;
   price_eur: number | null;
   price_eur_foil: number | null;
+  /** True when `price_eur` was derived from TCGplayer USD (null EUR) or USD-clamped (EUR >5× USD-converted). */
+  price_eur_estimated?: boolean;
+  /** True when `price_eur_foil` was derived from TCGplayer USD. Separate flag per variant. */
+  price_eur_foil_estimated?: boolean;
   finishes: string[];
   booster: boolean;
   image_uri: string | null;
@@ -406,6 +410,14 @@ export interface EvTopCard {
   pull_rate_per_box: number;
   ev_contribution: number;
   image_uri: string | null;
+  /** Used to deep-link to the exact printing on Cardmarket (idProduct=…). */
+  cardmarket_id: number | null;
+  /** Which data source won the freshness comparison in getEffectivePrice. */
+  price_source: "scryfall" | "cm_ext" | null;
+  /** ISO timestamp of the winning source — used for the hover title in tables. */
+  price_updated_at: string | null;
+  /** True when the displayed price is a USD-derived estimate (null EUR or USD-clamped). CM-ext prices are never estimated. */
+  price_estimated: boolean;
 }
 
 export interface EvSimulationResult {
@@ -574,6 +586,14 @@ export interface EvProductCardBreakdown extends EvProductCard {
    * it. Use to render a "sifted" indicator in the UI.
    */
   excluded_reason?: "basic_land" | "below_sift_floor";
+  /** Which data source won the freshness comparison in getEffectivePrice. */
+  price_source?: "scryfall" | "cm_ext" | null;
+  /** ISO timestamp of the winning source — used for the hover title. */
+  price_updated_at?: string | null;
+  /** Needed to deep-link the decklist row to the exact Cardmarket printing. */
+  cardmarket_id?: number | null;
+  /** True when the displayed unit price is a USD-derived estimate. */
+  price_estimated?: boolean;
 }
 
 export interface EvProductBoosterBreakdown extends EvIncludedBooster {

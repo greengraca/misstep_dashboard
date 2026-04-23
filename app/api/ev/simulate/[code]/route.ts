@@ -17,7 +17,10 @@ export const POST = withAuthParams<{ code: string }>(async (req, _session, param
   if (!boosterConfig) {
     const set = await getSetByCode(params.code);
     const isMB2 = set?.name?.toLowerCase().includes("mystery booster 2");
-    const isJumpstart = !isMB2 && (set?.set_type === "draft_innovation" || set?.name?.toLowerCase().includes("jumpstart"));
+    // Detect Jumpstart by name only — set_type "draft_innovation" also covers
+    // Modern Horizons, Commander Legends, Conspiracy, LOTR, etc., none of which
+    // use Jumpstart boosters.
+    const isJumpstart = !isMB2 && !!set?.name?.toLowerCase().includes("jumpstart");
     boosterConfig = boosterType === "play"
       ? (isMB2 ? getDefaultMB2BoosterConfig() : isJumpstart ? getDefaultJumpstartBoosterConfig() : getDefaultPlayBoosterConfig())
       : getDefaultCollectorBoosterConfig();
