@@ -19,13 +19,20 @@ export const GET = withExtAuthRead(async (req) => {
     );
   }
 
-  const since = new Date(sinceParam);
-  if (Number.isNaN(since.getTime())) {
+  const sinceDate = new Date(sinceParam);
+  if (Number.isNaN(sinceDate.getTime())) {
     return NextResponse.json(
       { error: "since must be a valid ISO timestamp" },
       { status: 400 }
     );
   }
+  // firstSeenAt is stored as an ISO string (see upsertStockListings —
+  // `const now = new Date().toISOString()`).  Comparing a string field
+  // against a JS Date via \$gt never matches under Mongo's BSON type
+  // ordering (Date > String), which made this endpoint silently always
+  // return zero new keys. Compare string-to-string — ISO-8601 UTC
+  // strings are lexicographically sortable.
+  const since = sinceDate.toISOString();
 
   const db = await getDb();
   const col = db.collection(COL_STOCK);
