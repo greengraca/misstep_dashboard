@@ -1,5 +1,5 @@
 import { withAuthParams } from "@/lib/api-helpers";
-import { getConfig, getSetByCode, getCardsForSet, simulateBoxOpening, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig } from "@/lib/ev";
+import { getConfig, getSetByCode, getCardsForSet, simulateBoxOpening, getDefaultPlayBoosterConfig, getDefaultCollectorBoosterConfig, getDefaultJumpstartBoosterConfig, getDefaultMB2BoosterConfig, collectExtraSetCodes } from "@/lib/ev";
 
 export const POST = withAuthParams<{ code: string }>(async (req, _session, params) => {
   const body = await req.json();
@@ -28,6 +28,14 @@ export const POST = withAuthParams<{ code: string }>(async (req, _session, param
 
   const feeRate = config?.fee_rate ?? 0.05;
   const { cards } = await getCardsForSet(params.code, { boosterOnly: false, limit: 10000 });
+  // Cross-set pools (Masterpieces, SPG, cross-set commanders): must match
+  // the hydration the /api/ev/calculate route does or MC mean drifts below
+  // deterministic because outcomes filtered by foreign set_codes match zero
+  // cards and silently contribute €0.
+  for (const extra of collectExtraSetCodes(boosterConfig, params.code)) {
+    const { cards: extraCards } = await getCardsForSet(extra, { boosterOnly: false, limit: 10000 });
+    cards.push(...extraCards);
+  }
 
   const data = simulateBoxOpening(cards, boosterConfig, {
     siftFloor: floor,
