@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
@@ -27,6 +27,23 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [offerPct, setOfferPct] = useState<number>(5);
   const [editingQty, setEditingQty] = useState<string | null>(null);
   const [qtyValue, setQtyValue] = useState("");
+  const [bulkExclude, setBulkExclude] = useState<boolean>(false);
+  const [bulkThreshold, setBulkThreshold] = useState<number>(1);
+  const [bulkRate, setBulkRate] = useState<number>(0);
+
+  // Hydrate bulk settings on collection ID change ONLY — not on every collection
+  // update. Otherwise SWR polling would overwrite mid-typing edits in the
+  // threshold/rate fields. The debounced PUT (Task 6) is the source of truth
+  // from the moment the user starts editing.
+  const lastHydratedId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!collection) return;
+    if (lastHydratedId.current === collection._id) return;
+    setBulkExclude(collection.bulkExcludeEnabled);
+    setBulkThreshold(collection.bulkThreshold);
+    setBulkRate(collection.bulkRate);
+    lastHydratedId.current = collection._id;
+  }, [collection]);
 
   const putCard = async (cardId: string, body: Record<string, unknown>) => {
     const res = await fetch(`/api/appraiser/collections/${collectionId}/cards/${cardId}`, {
@@ -41,9 +58,21 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     onCardChanged();
   };
 
-  const totalCards = cards.reduce((s, c) => s + c.qty, 0);
-  const totalFrom = cards.reduce((s, c) => s + (c.fromPrice ?? 0) * c.qty, 0);
-  const totalTrend = cards.reduce((s, c) => s + (c.trendPrice ?? 0) * c.qty, 0);
+  const { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal } = useMemo(() => {
+    const isBulk = (c: AppraiserCard) =>
+      bulkExclude && (c.trendPrice == null || c.trendPrice < bulkThreshold);
+    const mainCards = cards.filter((c) => !isBulk(c));
+    const bulkCards = cards.filter((c) =>  isBulk(c));
+    const totalCards = cards.reduce((s, c) => s + c.qty, 0);
+    const totalFrom  = mainCards.reduce((s, c) => s + (c.fromPrice  ?? 0) * c.qty, 0);
+    const totalTrend = mainCards.reduce((s, c) => s + (c.trendPrice ?? 0) * c.qty, 0);
+    const bulkCount  = bulkCards.reduce((s, c) => s + c.qty, 0);
+    const bulkAddOn  = bulkCount * bulkRate;
+    const offerTotal = totalFrom * (1 - offerPct / 100) + bulkAddOn;
+    return { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal };
+  }, [cards, bulkExclude, bulkThreshold, bulkRate, offerPct]);
+
+  const bulkIds = useMemo(() => new Set(bulkCards.map((c) => c._id)), [bulkCards]);
 
   const copyAll = async () => {
     const header = `Name\tSet\tCN\tLang\tFoil\tQty\tFrom\tTrend\tOffer -${offerPct}%`;
