@@ -106,20 +106,32 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
 
   const copyAll = async () => {
     const header = `Name\tSet\tCN\tLang\tFoil\tQty\tFrom\tTrend\tOffer -${offerPct}%`;
-    const lines = cards.map((c) => [
+    const formatRow = (c: AppraiserCard) => [
       c.name, c.set.toUpperCase(), c.collectorNumber, c.language,
       c.foil ? "foil" : "", c.qty,
       eur(c.fromPrice), eur(c.trendPrice),
       eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null),
-    ].join("\t"));
+    ].join("\t");
+    const mainLines = mainCards.map(formatRow);
+    const bulkBlock =
+      bulkExclude && bulkCards.length > 0
+        ? [
+            "",
+            `# Bulk (Trend < €${bulkThreshold.toFixed(2).replace(".", ",")}) — excluded from offer math`,
+            ...bulkCards.map(formatRow),
+          ]
+        : [];
     const summary = [
       "",
-      `Total cards: ${totalCards}`,
-      `Total From: ${eur(totalFrom)}`,
-      `Total Trend: ${eur(totalTrend)}`,
-      `Offer -${offerPct}%: ${eur(totalFrom * (1 - offerPct / 100))}`,
+      `Total cards: ${totalCards}${bulkExclude && bulkCards.length > 0 ? ` (${totalCards - bulkCount} main + ${bulkCount} bulk)` : ""}`,
+      `Total From${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}: ${eur(totalFrom)}`,
+      `Total Trend${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}: ${eur(totalTrend)}`,
+      ...(bulkExclude && bulkRate > 0 && bulkCount > 0
+        ? [`Bulk add-on: ${bulkCount} × ${eur(bulkRate)} = ${eur(bulkAddOn)}`]
+        : []),
+      `Offer -${offerPct}%: ${eur(offerTotal)}`,
     ];
-    await navigator.clipboard.writeText([header, ...lines, ...summary].join("\n"));
+    await navigator.clipboard.writeText([header, ...mainLines, ...bulkBlock, ...summary].join("\n"));
   };
 
   if (cards.length === 0) return null;
@@ -221,6 +233,13 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               size="sm"
             />
           </span>
+          <button
+            onClick={copyAll}
+            className={btnSecondaryClass}
+            style={btnSecondary}
+          >
+            Copy
+          </button>
         </div>
       </div>
 
@@ -234,13 +253,6 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             -{p}%: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom * (1 - p / 100))}</strong>
           </span>
         ))}
-        <button
-          onClick={copyAll}
-          className={btnSecondaryClass}
-          style={{ ...btnSecondary, marginLeft: "auto" }}
-        >
-          Copy
-        </button>
       </div>
 
       {bulkExclude && bulkCards.length > 0 && (
