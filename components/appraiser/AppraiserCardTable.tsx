@@ -146,16 +146,81 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
 
   return (
     <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", gap: 12 }}>
         <h3 style={sectionHeader}>Cards</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-muted)" }}>
-          <span>Offer</span>
-          <Select
-            value={String(offerPct)}
-            onChange={(v) => setOfferPct(Number(v))}
-            options={OFFER_SELECT_OPTIONS}
-            size="sm"
-          />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "var(--text-muted)", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+            <input
+              type="checkbox"
+              checked={bulkExclude}
+              onChange={(e) => setBulkExclude(e.target.checked)}
+              style={{ accentColor: "var(--accent)" }}
+            />
+            Exclude bulk
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: bulkExclude ? 1 : 0.5 }}>
+            Trend &lt;
+            <input
+              type="number"
+              min={0}
+              max={1000}
+              step={0.1}
+              value={bulkThreshold}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v) && v >= 0) setBulkThreshold(v);
+              }}
+              disabled={!bulkExclude}
+              className="appraiser-field"
+              style={{
+                width: 60,
+                padding: "2px 6px",
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+              }}
+            />
+            €
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: bulkExclude ? 1 : 0.5 }}>
+            Bulk @
+            <input
+              type="number"
+              min={0}
+              max={bulkThreshold}
+              step={0.01}
+              value={bulkRate}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v) && v >= 0 && v <= bulkThreshold) setBulkRate(v);
+              }}
+              disabled={!bulkExclude}
+              className="appraiser-field"
+              style={{
+                width: 60,
+                padding: "2px 6px",
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+              }}
+            />
+            €/ea
+          </label>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            Offer
+            <Select
+              value={String(offerPct)}
+              onChange={(v) => setOfferPct(Number(v))}
+              options={OFFER_SELECT_OPTIONS}
+              size="sm"
+            />
+          </span>
         </div>
       </div>
 
