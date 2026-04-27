@@ -8,7 +8,7 @@ import { TLA_JUMPSTART_THEMES } from "../lib/ev-jumpstart-tla";
 // TLE-first priority order for targeted card pool load.
 // Later pushes override earlier via Map.set.
 const POOL_SPECS: { set: string; cnFrom: number; cnTo: number; label: string }[] = [
-  // Lowest priority first. Mirror of JUMPSTART_VIRTUAL_POOLS["jtla"] in lib/ev.ts:
+  // Lowest priority first. Mirror of VIRTUAL_POOLS["jtla"].extensions in lib/ev-virtual-pools.ts:
   { set: "tla", cnFrom: 1, cnTo: 281, label: "TLA mainline + dual/location lands" },
   { set: "tla", cnFrom: 282, cnTo: 286, label: "TLA default basics" },
   { set: "tla", cnFrom: 292, cnTo: 296, label: "TLA Avatar's Journey basics" },

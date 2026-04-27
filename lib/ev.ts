@@ -4,7 +4,7 @@ import { J25_THEMES } from "@/lib/ev-jumpstart-j25";
 import { TLA_JUMPSTART_THEMES } from "@/lib/ev-jumpstart-tla";
 import { effectivePriceValue, effectivePriceWithFallback, clampEurAgainstUsd, getEffectivePriceWithFallback } from "@/lib/ev-prices";
 import { getCardmarketIdOverride } from "@/lib/cardmarket-url";
-import { MB2_PICKUP_CARDS } from "@/lib/ev-mb2-list";
+import { VIRTUAL_POOLS, expandPoolToBuckets, type PoolBucket } from "@/lib/ev-virtual-pools";
 import { generateAllProductSnapshots, COL_EV_SNAPSHOTS as COL_SNAPSHOTS } from "./ev-products";
 import type {
   EvSet,
@@ -31,31 +31,10 @@ const JUMPSTART_SEED_DATA: Record<string, EvJumpstartTheme[]> = {
   jtla: TLA_JUMPSTART_THEMES,
 };
 
-// Virtual Jumpstart set codes that don't correspond to a Scryfall set with
-// its own card pool — we synthesize the pool from other sets' CN ranges in
-// priority order (later entries override earlier in name lookup).
-// Use when a Jumpstart product ships under an existing set's code (e.g.
-// Avatar Jumpstart is printed as TLE CN 74-170 with fallbacks into TLA).
-const JUMPSTART_VIRTUAL_POOLS: Record<
-  string,
-  ReadonlyArray<{ set: string; cnFrom: number; cnTo: number }>
-> = {
-  jtla: [
-    // Lowest priority first. TLE 265-287 (BB cover variants) is deliberately
-    // excluded: those printings are Beginner-Box-only per WOTC's product
-    // breakdown (see notes/ev/tla.md CN 265-287 row) and never appear in a
-    // Jumpstart pack. Including them would let e.g. Path to Redemption
-    // resolve to tle#271 (€0.22 BB cover variant) instead of tla#31
-    // (€0.04 mainline, the actual JS-pack printing).
-    { set: "tla", cnFrom: 1, cnTo: 281 },      // TLA mainline + dual/location lands
-    { set: "tla", cnFrom: 282, cnTo: 286 },    // TLA default basics
-    { set: "tla", cnFrom: 292, cnTo: 296 },    // TLA Avatar's Journey full-art basics
-    { set: "tla", cnFrom: 287, cnTo: 291 },    // TLA Appa full-art basics — wins by-name for "Plains/Island/..." because JS packs ship the Appa variant per theme
-    { set: "tle", cnFrom: 171, cnTo: 209 },    // Jumpstart Extended Art (in CB only, but included for completeness — never wins over JS-main for shared names)
-    { set: "tle", cnFrom: 210, cnTo: 264 },    // Beginner Box main (includes Thriving lands + cards like Momo, Rambunctious Rascal that JS themes reuse)
-    { set: "tle", cnFrom: 74, cnTo: 170 },     // JS-main — HIGHEST priority. Wins for every shared-name legendary (Aang, Katara, etc.)
-  ],
-};
+// Virtual / cross-set pool definitions live in lib/ev-virtual-pools.ts.
+// (Both Jumpstart-style pure-virtual codes like `jtla` and native+extension
+// pools like `mb2` are resolved here at read time so the registry shape stays
+// pure and testable.)
 
 // ── Collection names ───────────────────────────────────────────
 const COL_SETS = "dashboard_ev_sets";
@@ -117,6 +96,15 @@ async function ensureIndexes(): Promise<void> {
       db.collection(COL_JUMPSTART_THEMES).createIndex({ set_code: 1 }, { name: "jst_set_code" }),
       db.collection(COL_JUMPSTART_WEIGHTS).createIndex({ set_code: 1 }, { unique: true, name: "jsw_set_code_unique" }),
     ]);
+    // Self-heal: legacy mb2 pickups were stored with a synthetic
+    // `set: "mb2-list"` value, which the 3-day Scryfall bulk sync silently
+    // overwrote (see notes/ev/mb2.md). Cards now live under their real
+    // `set: "plst"` and the mb2 EV pool is composed via VIRTUAL_POOLS at
+    // read time. updateMany is a no-op once everything has been flipped.
+    await db.collection(COL_CARDS).updateMany(
+      { set: "mb2-list" },
+      { $set: { set: "plst" } }
+    );
     indexesEnsured = true;
   } catch {
     indexesEnsured = true;
@@ -375,15 +363,38 @@ export async function getSets(): Promise<EvSet[]> {
     .toArray();
   const snapMap = new Map(latestSnapshots.map((s) => [s._id, s.doc]));
 
-  // Count mb2-list cards to show accurate total for MB2
-  const mb2ListCount = await db.collection(COL_CARDS).countDocuments({ set: "mb2-list" });
+  // For sets whose pool is composed via VIRTUAL_POOLS (e.g. mb2 = native +
+  // plst name_list), the raw `card_count` on the set doc only covers the
+  // native printings. Add the deduped count from each extension bucket so the
+  // dashboard total reflects the actual EV pool size.
+  const virtualBoosts = new Map<string, number>();
+  for (const [code, def] of Object.entries(VIRTUAL_POOLS)) {
+    if (!def.native) continue; // pure-virtual codes don't have a base set_doc to enrich
+    const buckets = expandPoolToBuckets(def);
+    let extra = 0;
+    for (const bucket of buckets) {
+      if (bucket.filter.set === def.native) continue; // skip native — already counted
+      if (bucket.dedupeBy === "name") {
+        const cur = await db.collection(COL_CARDS).aggregate([
+          { $match: bucket.filter },
+          { $group: { _id: "$name" } },
+          { $count: "n" },
+        ]).toArray();
+        extra += (cur[0]?.n as number) ?? 0;
+      } else {
+        extra += await db.collection(COL_CARDS).countDocuments(bucket.filter);
+      }
+    }
+    if (extra > 0) virtualBoosts.set(code, extra);
+  }
 
   return sets.map((s) => {
     const snap = snapMap.get(s.code);
+    const extraCount = virtualBoosts.get(s.code) ?? 0;
     return {
       ...s,
       _id: s._id.toString(),
-      card_count: s.code === "mb2" && mb2ListCount > 0 ? s.card_count + mb2ListCount : s.card_count,
+      card_count: s.card_count + extraCount,
       // "Configured" = we've actually iterated on this set's EV. That means
       // a saved config, a Jumpstart theme list, the special MB2 case, OR an
       // existing snapshot (we wouldn't have generated one without manual
@@ -494,89 +505,14 @@ export async function syncCards(
   return { added, updated, total };
 }
 
-// ── MB2 Pick-up Reprint Sync ──────────────────────────────────
-
-export async function syncMB2Cards(
-  onProgress?: (pct: number, phase: string) => void,
-): Promise<{ native: { added: number; updated: number; total: number }; pickups: { added: number; updated: number; total: number } }> {
-  // 1. Sync the 385 native mb2 cards (futureshifted, white-bordered, test, acorn)
-  onProgress?.(0, "Syncing native mb2 cards...");
-  const native = await syncCards("mb2", (pct) => onProgress?.(Math.round(pct * 0.2), "Syncing native mb2 cards..."));
-
-  // 2. Sync the 1451 pick-up reprints from plst via /cards/collection
-  await ensureIndexes();
-  const db = await getDb();
-  const col = db.collection(COL_CARDS);
-  const now = new Date().toISOString();
-  const usdToEur = await getUsdToEurRate(); // already cached from syncCards above
-  let added = 0, updated = 0, total = 0;
-
-  const BATCH_SIZE = 75;
-  for (let i = 0; i < MB2_PICKUP_CARDS.length; i += BATCH_SIZE) {
-    const batch = MB2_PICKUP_CARDS.slice(i, i + BATCH_SIZE);
-    const identifiers = batch.map((c) => ({ name: c.name, set: "plst" }));
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = (await scryfallPost("/cards/collection", { identifiers })) as any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const card of (res.data || []) as any[]) {
-      total++;
-      const treatment = deriveCardTreatment(card);
-      const { price_eur, price_eur_foil, price_eur_estimated } = applyUsdFallback(card, usdToEur);
-      const doc = {
-        scryfall_id: card.id,
-        set: "mb2-list",
-        name: card.name,
-        collector_number: card.collector_number,
-        rarity: card.rarity,
-        price_eur,
-        price_eur_foil,
-        price_eur_estimated,
-        finishes: card.finishes || [],
-        booster: card.booster ?? false,
-        image_uri: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || null,
-        cardmarket_id: getCardmarketIdOverride(card.set, card.collector_number) ?? card.cardmarket_id ?? null,
-        type_line: card.type_line || "",
-        frame_effects: card.frame_effects || [],
-        promo_types: card.promo_types || [],
-        border_color: card.border_color || "black",
-        treatment,
-        colors: card.colors ?? [],
-        color_identity: card.color_identity ?? [],
-        cmc: typeof card.cmc === "number" ? card.cmc : 0,
-        released_at: card.released_at ?? "9999-12-31",
-        layout: card.layout ?? "normal",
-        frame: card.frame ?? "2015",
-        prices_updated_at: now,
-        synced_at: now,
-      };
-      const result = await col.updateOne(
-        { scryfall_id: card.id },
-        { $set: doc },
-        { upsert: true }
-      );
-      if (result.upsertedCount) added++;
-      else if (result.modifiedCount) updated++;
-    }
-    if (i + BATCH_SIZE < MB2_PICKUP_CARDS.length) await sleep(SCRYFALL_DELAY_MS);
-    // 20-100% range (native sync is 0-20%)
-    onProgress?.(20 + Math.round(((i + BATCH_SIZE) / MB2_PICKUP_CARDS.length) * 80), "Syncing pick-up reprints...");
-  }
-  onProgress?.(100, "Done");
-
-  return { native, pickups: { added, updated, total } };
-}
-
-async function scryfallPost(path: string, body: unknown): Promise<unknown> {
-  const url = `${SCRYFALL_BASE}${path}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "User-Agent": SCRYFALL_UA, Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Scryfall POST ${res.status}: ${await res.text()}`);
-  return res.json();
-}
+// ── MB2 Pick-up Reprint Sync (removed) ─────────────────────────
+// MB2's pickup reprints used to be synced via a dedicated `syncMB2Cards`
+// function that wrote them with a synthetic `set: "mb2-list"` value. The
+// 3-day Scryfall bulk sync silently overwrote that field every cron run
+// (see notes/ev/mb2.md). Pickups now live under their real `set: "plst"`
+// and the EV pool is composed at read time via VIRTUAL_POOLS["mb2"] in
+// lib/ev-virtual-pools.ts. The bulk sync (refreshAllScryfall) keeps plst
+// cards fresh on its own — no MB2-specific sync path needed.
 
 export async function getCardsForSet(
   setCode: string,
@@ -586,30 +522,34 @@ export async function getCardsForSet(
   const db = await getDb();
   const col = db.collection(COL_CARDS);
 
-  // Virtual Jumpstart codes (e.g. jtla): synthesize pool from other sets'
-  // CN ranges in priority order. Later specs override earlier ones in the
-  // name-lookup Map inside calculateJumpstartEv, so the highest-priority
-  // printing wins for any shared card name.
-  const virtualRanges = JUMPSTART_VIRTUAL_POOLS[setCode];
-  if (virtualRanges) {
-    const buckets: EvCard[][] = [];
-    for (const spec of virtualRanges) {
-      const cns = Array.from(
-        { length: spec.cnTo - spec.cnFrom + 1 },
-        (_, i) => String(spec.cnFrom + i)
-      );
-      const docs = await col
-        .find({ set: spec.set, collector_number: { $in: cns } })
-        .toArray();
-      buckets.push(docs.map((d) => ({ ...d, _id: d._id.toString() }) as EvCard));
+  // Cross-set / virtual pools (jtla, mb2, etc.). Buckets are resolved in
+  // order so spec priority is preserved (later specs win in the per-name Map
+  // inside calculateJumpstartEv); name_list buckets are deduped by name.
+  const virtualDef = VIRTUAL_POOLS[setCode];
+  if (virtualDef) {
+    const buckets = expandPoolToBuckets(virtualDef);
+    const merged: EvCard[] = [];
+    const seenIds = new Set<string>();
+    for (const bucket of buckets) {
+      const docs = await resolveBucket(col, bucket, options?.boosterOnly);
+      for (const d of docs) {
+        // Dedupe across buckets by scryfall_id — protects against a card
+        // belonging to multiple specs (e.g. native mb2 + plst pickup of the
+        // same printing). Within a single name_list bucket, dedupeBy: "name"
+        // already collapsed printings inside resolveBucket.
+        if (seenIds.has(d.scryfall_id)) continue;
+        seenIds.add(d.scryfall_id);
+        merged.push({ ...d, _id: d._id.toString() } as EvCard);
+      }
     }
-    const merged = buckets.flat();
-    return { cards: merged, total: merged.length };
+    const page = options?.page ?? 1;
+    const limit = options?.limit ?? 200;
+    const skip = (page - 1) * limit;
+    return { cards: merged.slice(skip, skip + limit), total: merged.length };
   }
 
-  // MB2: combine native mb2 cards with plst pick-up reprints stored as "mb2-list"
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filter: any = setCode === "mb2" ? { set: { $in: ["mb2", "mb2-list"] } } : { set: setCode };
+  const filter: any = { set: setCode };
   if (options?.boosterOnly) filter.booster = true;
   const total = await col.countDocuments(filter);
   const page = options?.page ?? 1;
@@ -620,6 +560,36 @@ export async function getCardsForSet(
     cards: docs.map((d) => ({ ...d, _id: d._id.toString() }) as EvCard),
     total,
   };
+}
+
+/**
+ * Run a single virtual-pool bucket against the cards collection. For
+ * `dedupeBy: "name"` buckets, returns one document per name — picks the
+ * **most recently released** printing as a tiebreaker, mirroring what
+ * Scryfall's `/cards/collection` endpoint returns for `{name, set}` lookups
+ * (which the legacy syncMB2Cards used to seed the pool). This keeps the
+ * post-migration pool aligned with the cards the user has been seeing on
+ * the existing mb2-list docs. For plain filter buckets, returns the full
+ * match list sorted by `collector_number`.
+ */
+async function resolveBucket(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  col: any,
+  bucket: PoolBucket,
+  boosterOnly?: boolean
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const filter = boosterOnly ? { ...bucket.filter, booster: true } : bucket.filter;
+  if (bucket.dedupeBy === "name") {
+    return col.aggregate([
+      { $match: filter },
+      { $sort: { released_at: -1, collector_number: -1 } },
+      { $group: { _id: "$name", doc: { $first: "$$ROOT" } } },
+      { $replaceRoot: { newRoot: "$doc" } },
+      { $sort: { collector_number: 1 } },
+    ]).toArray();
+  }
+  return col.find(filter).sort({ collector_number: 1 }).toArray();
 }
 
 // ── Config ─────────────────────────────────────────────────────
@@ -2097,8 +2067,18 @@ export async function refreshAllScryfall(): Promise<{
   let cardsWritten = 0;
   let priceSnapshotsWritten = 0;
 
+  // Pass the same combined ECB rate × EU market discount factor that
+  // applyUsdFallback uses on the per-set sync path. Without this, the
+  // bulk sync would skip the EUR/USD clamp inside parseScryfallCardToDoc
+  // and silently overwrite per-set-clamped prices on every cron run —
+  // re-inflating thin-market / cross-printing-misattributed EUR values
+  // (canonical case: mh3 #381 Emrakul borderless, raw eur €2292.62 vs
+  // USD-converted ~€40). See lib/ev-prices.ts → clampEurAgainstUsd.
+  const usdToEurFactor = (await getUsdToEurRate()) * EUR_MARKET_DISCOUNT;
+
   const { processed: cardsProcessed } = await streamBulkCards(body, {
     batchSize: 1000,
+    usdToEurFactor,
     onBatch: async (batch) => {
       const ops = batch.map((doc) => ({
         updateOne: {

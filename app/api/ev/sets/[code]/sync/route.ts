@@ -1,7 +1,13 @@
 import { withAuthParams } from "@/lib/api-helpers";
-import { syncCards, syncMB2Cards } from "@/lib/ev";
+import { syncCards } from "@/lib/ev";
 import { logActivity } from "@/lib/activity";
 
+// Note: mb2 used to dispatch to a dedicated `syncMB2Cards` that fetched the
+// plst pickup reprints over /cards/collection. Pickups now live under their
+// real `set: "plst"` and the EV pool is composed via VIRTUAL_POOLS at read
+// time (lib/ev-virtual-pools.ts), so the per-set Sync only needs to refresh
+// the 385 native mb2 cards. The full plst catalog stays fresh via the 3-day
+// Scryfall bulk sync (.github/workflows/ev-sync.yml).
 export const POST = withAuthParams<{ code: string }>(async (_req, session, params) => {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -11,16 +17,9 @@ export const POST = withAuthParams<{ code: string }>(async (_req, session, param
       };
 
       try {
-        if (params.code === "mb2") {
-          const result = await syncMB2Cards((pct, phase) => send({ pct, phase }));
-          const totalCards = result.native.total + result.pickups.total;
-          logActivity("sync", "ev_cards", params.code, `Synced ${totalCards} cards (${result.native.total} native + ${result.pickups.total} pick-ups)`, "system", session.user?.name || "unknown");
-          send({ done: true, data: { added: result.native.added + result.pickups.added, updated: result.native.updated + result.pickups.updated, total: totalCards } });
-        } else {
-          const result = await syncCards(params.code, (pct) => send({ pct, phase: "Syncing cards..." }));
-          logActivity("sync", "ev_cards", params.code, `Synced ${result.total} cards`, "system", session.user?.name || "unknown");
-          send({ done: true, data: result });
-        }
+        const result = await syncCards(params.code, (pct) => send({ pct, phase: "Syncing cards..." }));
+        logActivity("sync", "ev_cards", params.code, `Synced ${result.total} cards`, "system", session.user?.name || "unknown");
+        send({ done: true, data: result });
       } catch (err) {
         send({ error: String(err) });
       }

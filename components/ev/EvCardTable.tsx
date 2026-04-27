@@ -62,7 +62,7 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
               {row.is_foil && <FoilStar size={14} />}
             </div>
             <a
-              href={`https://scryfall.com/card/${row.set === "mb2-list" ? "plst" : row.set}/${row.collector_number}`}
+              href={`https://scryfall.com/card/${row.set}/${row.collector_number}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-xs hover:underline"
