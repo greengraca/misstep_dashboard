@@ -243,6 +243,21 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
         </button>
       </div>
 
+      {bulkExclude && bulkCards.length > 0 && (
+        <div style={{ display: "flex", gap: 14, padding: "8px 14px 10px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 11, color: "var(--text-muted)", background: "var(--bg-card)" }}>
+          <span>↳ excludes {bulkCount} bulk card{bulkCount !== 1 ? "s" : ""} (Trend &lt; €{bulkThreshold.toFixed(2).replace(".", ",")})</span>
+          {bulkRate > 0 && (
+            <span>
+              Bulk add-on: {bulkCount} × €{bulkRate.toFixed(2).replace(".", ",")} ={" "}
+              <strong style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>{eur(bulkAddOn)}</strong>
+            </span>
+          )}
+          <span style={{ marginLeft: "auto", color: "var(--accent)" }}>
+            Offer total: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(offerTotal)}</strong>
+          </span>
+        </div>
+      )}
+
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -260,7 +275,11 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
           </thead>
           <tbody>
             {cards.map((c) => (
-              <tr key={c._id} className="hover:bg-[var(--bg-card-hover)] transition-colors">
+              <tr
+                key={c._id}
+                className="hover:bg-[var(--bg-card-hover)] transition-colors"
+                style={bulkIds.has(c._id) ? { opacity: 0.4 } : undefined}
+              >
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     {c.imageUrl && <img src={c.imageUrl} alt="" style={{ width: 22, height: 30, objectFit: "cover", borderRadius: 3 }} />}
@@ -343,18 +362,37 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                       }}
                     />
                   ) : (
-                    <span
-                      onClick={() => { setEditingQty(c._id); setQtyValue(String(c.qty)); }}
-                      title="Click to edit quantity"
-                      className="hover:bg-[var(--bg-hover)] transition-colors"
-                      style={{
-                        cursor: "pointer",
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        borderBottom: "1px dashed var(--text-muted)",
-                      }}
-                    >
-                      {c.qty}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span
+                        onClick={() => { setEditingQty(c._id); setQtyValue(String(c.qty)); }}
+                        title="Click to edit quantity"
+                        className="hover:bg-[var(--bg-hover)] transition-colors"
+                        style={{
+                          cursor: "pointer",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          borderBottom: "1px dashed var(--text-muted)",
+                        }}
+                      >
+                        {c.qty}
+                      </span>
+                      {bulkIds.has(c._id) && (
+                        <span
+                          title={`Trend < €${bulkThreshold.toFixed(2).replace(".", ",")} — excluded from main totals`}
+                          style={{
+                            fontSize: 9,
+                            padding: "1px 5px",
+                            borderRadius: 3,
+                            background: "rgba(255,255,255,0.06)",
+                            color: "var(--text-muted)",
+                            fontFamily: "var(--font-mono)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          bulk
+                        </span>
+                      )}
                     </span>
                   )}
                 </td>
