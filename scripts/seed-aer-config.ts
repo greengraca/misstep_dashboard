@@ -50,10 +50,10 @@ const P_FOIL_MYTHIC = P_FOIL_ANY * (1 / 37);
 
 // Reusable filters. AER has no basic lands so type_line_not_contains is
 // defensive only; matches the default-config style.
-const COMMON_FILTER = { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" } as const;
-const UNCOMMON_FILTER = { rarity: ["uncommon"], treatment: ["normal"], booster: true } as const;
-const RARE_FILTER = { rarity: ["rare"], treatment: ["normal"], booster: true } as const;
-const MYTHIC_FILTER = { rarity: ["mythic"], treatment: ["normal"], booster: true } as const;
+const COMMON_FILTER = { rarity: ["common"], treatment: ["normal"], booster: true, type_line_not_contains: "Basic Land" };
+const UNCOMMON_FILTER = { rarity: ["uncommon"], treatment: ["normal"], booster: true };
+const RARE_FILTER = { rarity: ["rare"], treatment: ["normal"], booster: true };
+const MYTHIC_FILTER = { rarity: ["mythic"], treatment: ["normal"], booster: true };
 
 function buildPlayBooster(): EvBoosterConfig {
   const slot10Outcomes: EvSlotOutcome[] = [
