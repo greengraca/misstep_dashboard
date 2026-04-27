@@ -15,6 +15,14 @@ export interface AppraiserCollectionDoc {
   /** Flat EUR/card rate added back to the offer total via `bulkCount × bulkRate`.
    *  0 means pure exclusion. Default 0. */
   bulkRate?: number;
+  /** When true, displayed `fromPrice` and `trendPrice` are scaled by
+   *  (1 - undercutPercent/100). Captures the realistic resale discount on
+   *  played-condition collections where buyers price into the floor.
+   *  Default false. */
+  undercutEnabled?: boolean;
+  /** Percent (0-100) subtracted from displayed prices when undercut is on.
+   *  Default 20. */
+  undercutPercent?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,6 +37,8 @@ export interface AppraiserCollection {
   bulkExcludeEnabled: boolean;
   bulkThreshold: number;
   bulkRate: number;
+  undercutEnabled: boolean;
+  undercutPercent: number;
   createdAt: string;
   updatedAt: string;
 }

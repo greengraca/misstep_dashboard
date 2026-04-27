@@ -77,6 +77,8 @@ export const GET = withAuthReadParams<{ id: string }>(async (_req, { id }) => {
     bulkExcludeEnabled: c.bulkExcludeEnabled ?? false,
     bulkThreshold: c.bulkThreshold ?? 1,
     bulkRate: c.bulkRate ?? 0,
+    undercutEnabled: c.undercutEnabled ?? false,
+    undercutPercent: c.undercutPercent ?? 20,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
@@ -94,6 +96,8 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
     bulkExcludeEnabled?: unknown;
     bulkThreshold?: unknown;
     bulkRate?: unknown;
+    undercutEnabled?: unknown;
+    undercutPercent?: unknown;
   };
   const update: Partial<AppraiserCollectionDoc> = { updatedAt: new Date() };
   const db = await getDb();
@@ -130,6 +134,18 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
     }
     update.bulkRate = body.bulkRate;
   }
+  if (body.undercutEnabled !== undefined) {
+    if (typeof body.undercutEnabled !== "boolean") {
+      return NextResponse.json({ error: "undercutEnabled must be a boolean" }, { status: 400 });
+    }
+    update.undercutEnabled = body.undercutEnabled;
+  }
+  if (body.undercutPercent !== undefined) {
+    if (typeof body.undercutPercent !== "number" || !Number.isFinite(body.undercutPercent) || body.undercutPercent < 0 || body.undercutPercent > 100) {
+      return NextResponse.json({ error: "undercutPercent must be a finite number between 0 and 100" }, { status: 400 });
+    }
+    update.undercutPercent = body.undercutPercent;
+  }
 
   const result = await db
     .collection<AppraiserCollectionDoc>(COL_APPRAISER_COLLECTIONS)
@@ -144,6 +160,8 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
     update.bulkExcludeEnabled !== undefined ? `bulkExcludeEnabled=${update.bulkExcludeEnabled}` : null,
     update.bulkThreshold !== undefined ? `bulkThreshold=${update.bulkThreshold}` : null,
     update.bulkRate !== undefined ? `bulkRate=${update.bulkRate}` : null,
+    update.undercutEnabled !== undefined ? `undercutEnabled=${update.undercutEnabled}` : null,
+    update.undercutPercent !== undefined ? `undercutPercent=${update.undercutPercent}` : null,
   ].filter(Boolean).join(", ");
   logActivity(
     "update",

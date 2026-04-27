@@ -56,6 +56,8 @@ export const GET = withAuthRead(async (_req: NextRequest) => {
       bulkExcludeEnabled: c.bulkExcludeEnabled ?? false,
       bulkThreshold: c.bulkThreshold ?? 1,
       bulkRate: c.bulkRate ?? 0,
+      undercutEnabled: c.undercutEnabled ?? false,
+      undercutPercent: c.undercutPercent ?? 20,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
     };
@@ -102,6 +104,8 @@ export const POST = withAuth(async (req: NextRequest, session) => {
       bulkExcludeEnabled: false,
       bulkThreshold: 1,
       bulkRate: 0,
+      undercutEnabled: false,
+      undercutPercent: 20,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     } satisfies AppraiserCollection,
