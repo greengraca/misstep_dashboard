@@ -7,6 +7,14 @@ export interface AppraiserCollectionDoc {
   _id: ObjectId;
   name: string;
   notes: string;
+  /** When true, cards with `trendPrice < bulkThreshold` (or null trend) are
+   *  excluded from main From/Trend totals and the offer-tier math. Default false. */
+  bulkExcludeEnabled?: boolean;
+  /** EUR threshold below which a card is treated as bulk. Default 1.0. */
+  bulkThreshold?: number;
+  /** Flat EUR/card rate added back to the offer total via `bulkCount × bulkRate`.
+   *  0 means pure exclusion. Default 0. */
+  bulkRate?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,6 +26,9 @@ export interface AppraiserCollection {
   cardCount: number;
   totalTrend: number;
   totalFrom: number;
+  bulkExcludeEnabled: boolean;
+  bulkThreshold: number;
+  bulkRate: number;
   createdAt: string;
   updatedAt: string;
 }
