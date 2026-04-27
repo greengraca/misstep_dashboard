@@ -104,7 +104,7 @@ export const POST = withAuth(async (req, session) => {
     }
   }
   const validProductTypes: EvProduct["product_type"][] = [
-    "planeswalker_deck", "commander", "starter", "welcome", "duel", "challenger", "other",
+    "planeswalker_deck", "commander", "starter", "welcome", "duel", "challenger", "event_deck", "other",
   ];
   if (!validProductTypes.includes(body.product_type as EvProduct["product_type"])) {
     return NextResponse.json(

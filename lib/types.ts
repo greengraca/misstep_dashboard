@@ -536,6 +536,7 @@ export type EvProductType =
   | "welcome"
   | "duel"
   | "challenger"
+  | "event_deck"
   | "other";
 
 export type EvProductCardRole =
