@@ -30,6 +30,8 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [bulkExclude, setBulkExclude] = useState<boolean>(false);
   const [bulkThreshold, setBulkThreshold] = useState<number>(1);
   const [bulkRate, setBulkRate] = useState<number>(0);
+  const [undercutEnabled, setUndercutEnabled] = useState<boolean>(false);
+  const [undercutPercent, setUndercutPercent] = useState<number>(20);
 
   // Hydrate bulk settings on collection ID change ONLY — not on every collection
   // update. Otherwise SWR polling would overwrite mid-typing edits in the
@@ -42,6 +44,8 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     setBulkExclude(collection.bulkExcludeEnabled);
     setBulkThreshold(collection.bulkThreshold);
     setBulkRate(collection.bulkRate);
+    setUndercutEnabled(collection.undercutEnabled);
+    setUndercutPercent(collection.undercutPercent);
     lastHydratedId.current = collection._id;
   }, [collection]);
 
@@ -52,9 +56,11 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     if (!collection || lastHydratedId.current !== collection._id) return;
     // Skip if local state still matches the hydrated values — nothing to save.
     if (
-      bulkExclude   === collection.bulkExcludeEnabled &&
-      bulkThreshold === collection.bulkThreshold &&
-      bulkRate      === collection.bulkRate
+      bulkExclude       === collection.bulkExcludeEnabled &&
+      bulkThreshold     === collection.bulkThreshold &&
+      bulkRate          === collection.bulkRate &&
+      undercutEnabled   === collection.undercutEnabled &&
+      undercutPercent   === collection.undercutPercent
     ) return;
     const handle = setTimeout(async () => {
       try {
@@ -65,6 +71,8 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             bulkExcludeEnabled: bulkExclude,
             bulkThreshold,
             bulkRate,
+            undercutEnabled,
+            undercutPercent,
           }),
         });
       } catch (err) {
@@ -73,7 +81,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
       }
     }, 300);
     return () => clearTimeout(handle);
-  }, [collectionId, collection, bulkExclude, bulkThreshold, bulkRate]);
+  }, [collectionId, collection, bulkExclude, bulkThreshold, bulkRate, undercutEnabled, undercutPercent]);
 
   const putCard = async (cardId: string, body: Record<string, unknown>) => {
     const res = await fetch(`/api/appraiser/collections/${collectionId}/cards/${cardId}`, {
@@ -88,19 +96,23 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     onCardChanged();
   };
 
-  const { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal } = useMemo(() => {
+  const { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal, undercutFactor } = useMemo(() => {
     const isBulk = (c: AppraiserCard) =>
       bulkExclude && (c.trendPrice == null || c.trendPrice < bulkThreshold);
     const mainCards = cards.filter((c) => !isBulk(c));
     const bulkCards = cards.filter((c) =>  isBulk(c));
+    // Undercut multiplier — applied AFTER bulk classification so the threshold
+    // compares against the original trend (a card with trend €1.20 stays main
+    // even if undercut would push the displayed value below €1).
+    const undercutFactor = undercutEnabled ? 1 - undercutPercent / 100 : 1;
     const totalCards = cards.reduce((s, c) => s + c.qty, 0);
-    const totalFrom  = mainCards.reduce((s, c) => s + (c.fromPrice  ?? 0) * c.qty, 0);
-    const totalTrend = mainCards.reduce((s, c) => s + (c.trendPrice ?? 0) * c.qty, 0);
+    const totalFrom  = mainCards.reduce((s, c) => s + (c.fromPrice  ?? 0) * c.qty, 0) * undercutFactor;
+    const totalTrend = mainCards.reduce((s, c) => s + (c.trendPrice ?? 0) * c.qty, 0) * undercutFactor;
     const bulkCount  = bulkCards.reduce((s, c) => s + c.qty, 0);
     const bulkAddOn  = bulkCount * bulkRate;
     const offerTotal = totalFrom * (1 - offerPct / 100) + bulkAddOn;
-    return { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal };
-  }, [cards, bulkExclude, bulkThreshold, bulkRate, offerPct]);
+    return { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal, undercutFactor };
+  }, [cards, bulkExclude, bulkThreshold, bulkRate, offerPct, undercutEnabled, undercutPercent]);
 
   const bulkIds = useMemo(() => new Set(bulkCards.map((c) => c._id)), [bulkCards]);
 
@@ -109,8 +121,9 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     const formatRow = (c: AppraiserCard) => [
       c.name, c.set.toUpperCase(), c.collectorNumber, c.language,
       c.foil ? "foil" : "", c.qty,
-      eur(c.fromPrice), eur(c.trendPrice),
-      eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null),
+      eur(c.fromPrice != null ? c.fromPrice * undercutFactor : null),
+      eur(c.trendPrice != null ? c.trendPrice * undercutFactor : null),
+      eur(c.fromPrice !== null ? c.fromPrice * undercutFactor * (1 - offerPct / 100) : null),
     ].join("\t");
     const mainLines = mainCards.map(formatRow);
     const bulkBlock =
@@ -124,8 +137,8 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     const summary = [
       "",
       `Total cards: ${totalCards}${bulkExclude && bulkCards.length > 0 ? ` (${totalCards - bulkCount} main + ${bulkCount} bulk)` : ""}`,
-      `Total From${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}: ${eur(totalFrom)}`,
-      `Total Trend${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}: ${eur(totalTrend)}`,
+      `Total From${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}${undercutEnabled ? ` (-${undercutPercent}%)` : ""}: ${eur(totalFrom)}`,
+      `Total Trend${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}${undercutEnabled ? ` (-${undercutPercent}%)` : ""}: ${eur(totalTrend)}`,
       ...(bulkExclude && bulkRate > 0 && bulkCount > 0
         ? [`Bulk add-on: ${bulkCount} × ${eur(bulkRate)} = ${eur(bulkAddOn)}`]
         : []),
@@ -223,6 +236,40 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               }}
             />
             €/ea
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+            <input
+              type="checkbox"
+              checked={undercutEnabled}
+              onChange={(e) => setUndercutEnabled(e.target.checked)}
+              style={{ accentColor: "var(--accent)" }}
+            />
+            Undercut
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={undercutPercent}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v) && v >= 0 && v <= 100) setUndercutPercent(v);
+              }}
+              disabled={!undercutEnabled}
+              className="appraiser-field"
+              style={{
+                width: 44,
+                padding: "2px 6px",
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                opacity: undercutEnabled ? 1 : 0.5,
+              }}
+            />
+            %
           </label>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
             Offer
@@ -408,14 +455,14 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                     </span>
                   )}
                 </td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>{eur(c.fromPrice)}</td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>{eur(c.fromPrice != null ? c.fromPrice * undercutFactor : null)}</td>
                 <td
                   style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}
                   title={c.trendPrice != null && c.trend_source
                     ? `${c.trend_source === "cm_ext" ? "ext" : "scryfall"} · ${c.trend_updated_at ? new Date(c.trend_updated_at).toLocaleDateString() : "?"}${c.trend_ascending ? " · from > trend (rising / thin supply)" : ""}`
                     : undefined}
                 >
-                  {eur(c.trendPrice)}
+                  {eur(c.trendPrice != null ? c.trendPrice * undercutFactor : null)}
                   {c.trend_source === "cm_ext" && (
                     <span style={{ marginLeft: 4, fontSize: c.trend_ascending ? 10 : 9, color: "var(--accent)", verticalAlign: "top" }}>
                       {c.trend_ascending ? "↑" : "•"}
@@ -423,7 +470,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                   )}
                 </td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 600 }}>
-                  {eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null)}
+                  {eur(c.fromPrice !== null ? c.fromPrice * undercutFactor * (1 - offerPct / 100) : null)}
                 </td>
                 <td style={{ ...td, textAlign: "right" }}>
                   <button
