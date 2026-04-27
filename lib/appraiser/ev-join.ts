@@ -19,6 +19,25 @@ import type {
   CmPricesSnapshot,
 } from "./types";
 
+/**
+ * Returns true when a Cardmarket-style condition string indicates the card is
+ * "heavily played" enough that trend price won't apply — buyers price these to
+ * the floor (the `from` ask), not the trend midpoint.
+ *
+ * Matched as: Heavily Played / HP, Poor / PO, Damaged, Played / PL,
+ * Moderately Played / MP. Lightly Played (LP) is intentionally NOT included —
+ * those still trade close to NM. Case-insensitive.
+ *
+ * Returns false for null/undefined/empty.
+ */
+export function isHeavilyPlayedCondition(condition: string | undefined | null): boolean {
+  if (!condition) return false;
+  const c = condition.trim().toLowerCase();
+  // Lightly Played / LP is NOT heavily played — buyer expectations match NM.
+  if (c === "lightly played" || c === "lp") return false;
+  return /^(hp|po|pl|mp|heavily played|moderately played|played|poor|damaged)$/.test(c);
+}
+
 function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
   return {
     _id: String(d._id),
@@ -69,7 +88,16 @@ export async function hydrateAppraiserCards(
         .filter((x): x is number => x != null)
     )
   );
-  if (cmIds.length === 0) return cards.map(cardDocToPayload);
+  if (cmIds.length === 0) {
+    return cards.map((c) => {
+      const payload = cardDocToPayload(c);
+      const isHp = isHeavilyPlayedCondition(c.condition);
+      if (isHp && payload.fromPrice != null) {
+        return { ...payload, trendPrice: payload.fromPrice, trend_hp_override: true };
+      }
+      return payload;
+    });
+  }
 
   const evCards = (await db
     .collection("dashboard_ev_cards")
@@ -92,9 +120,14 @@ export async function hydrateAppraiserCards(
 
   return cards.map((c) => {
     const payload = cardDocToPayload(c);
-    if (c.cardmarket_id == null) return payload;
+    const isHpEarly = isHeavilyPlayedCondition(c.condition);
+    const applyEarlyHp = (p: AppraiserCard): AppraiserCard =>
+      isHpEarly && p.fromPrice != null
+        ? { ...p, trendPrice: p.fromPrice, trend_hp_override: true }
+        : p;
+    if (c.cardmarket_id == null) return applyEarlyHp(payload);
     const ev = evByCmId.get(c.cardmarket_id);
-    if (!ev) return payload;
+    if (!ev) return applyEarlyHp(payload);
 
     // Variant fallback on the CM side is deliberately conservative. A
     // cross-variant fallback is only valid when the card is single-variant
@@ -153,9 +186,18 @@ export async function hydrateAppraiserCards(
         }
       : payload.cm_prices;
 
-    const trendPrice = eff.price ?? payload.trendPrice;
+    const baseTrendPrice = eff.price ?? payload.trendPrice;
     const fromPrice = fromFromCm ?? payload.fromPrice;
     const pricedAt = variant?.updatedAt ?? payload.pricedAt;
+
+    // HP swap — for heavily-played cards, the realistic price is the floor
+    // (lowest current ask), not the trend midpoint. We only override when
+    // we actually have a `fromPrice` to substitute; otherwise we leave the
+    // trend value as-is and don't flag the override.
+    const isHp = isHeavilyPlayedCondition(c.condition);
+    const trendHpOverride = isHp && fromPrice != null;
+    const trendPrice = trendHpOverride ? fromPrice : baseTrendPrice;
+
     const status: AppraiserCard["status"] =
       fromPrice != null || trendPrice != null ? "priced" : payload.status;
 
@@ -169,6 +211,7 @@ export async function hydrateAppraiserCards(
       trend_source: eff.price != null ? eff.source : null,
       trend_updated_at: eff.price != null ? eff.updatedAt : null,
       trend_ascending: eff.price != null ? eff.ascending : false,
+      trend_hp_override: trendHpOverride,
     };
   });
 }
