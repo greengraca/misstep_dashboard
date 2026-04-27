@@ -45,6 +45,36 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     lastHydratedId.current = collection._id;
   }, [collection]);
 
+  // Debounced persistence — fires 300ms after the last change to any of the
+  // three bulk fields. Skip until hydration has happened (avoids saving the
+  // initial useState defaults over the persisted values on mount).
+  useEffect(() => {
+    if (!collection || lastHydratedId.current !== collection._id) return;
+    // Skip if local state still matches the hydrated values — nothing to save.
+    if (
+      bulkExclude   === collection.bulkExcludeEnabled &&
+      bulkThreshold === collection.bulkThreshold &&
+      bulkRate      === collection.bulkRate
+    ) return;
+    const handle = setTimeout(async () => {
+      try {
+        await fetch(`/api/appraiser/collections/${collectionId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bulkExcludeEnabled: bulkExclude,
+            bulkThreshold,
+            bulkRate,
+          }),
+        });
+      } catch (err) {
+        // Silent failure — user can keep editing; next debounced save will retry.
+        console.warn("[appraiser] bulk-settings save failed", err);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [collectionId, collection, bulkExclude, bulkThreshold, bulkRate]);
+
   const putCard = async (cardId: string, body: Record<string, unknown>) => {
     const res = await fetch(`/api/appraiser/collections/${collectionId}/cards/${cardId}`, {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
