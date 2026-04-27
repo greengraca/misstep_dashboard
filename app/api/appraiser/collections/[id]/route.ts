@@ -74,6 +74,9 @@ export const GET = withAuthReadParams<{ id: string }>(async (_req, { id }) => {
     cardCount: totals.cardCount,
     totalTrend: totals.totalTrend,
     totalFrom: totals.totalFrom,
+    bulkExcludeEnabled: c.bulkExcludeEnabled ?? false,
+    bulkThreshold: c.bulkThreshold ?? 1,
+    bulkRate: c.bulkRate ?? 0,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
