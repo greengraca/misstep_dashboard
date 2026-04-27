@@ -52,6 +52,7 @@ export interface AppraiserCardDoc {
   setName: string;
   collectorNumber: string;
   language: string;
+  condition?: string;
   foil: boolean;
   qty: number;
   scryfallId: string;
@@ -75,6 +76,7 @@ export interface AppraiserCard {
   setName: string;
   collectorNumber: string;
   language: string;
+  condition?: string;
   foil: boolean;
   qty: number;
   scryfallId: string;
@@ -93,6 +95,10 @@ export interface AppraiserCard {
   trend_updated_at?: string | null;
   /** True when `trendPrice` is actually the CM `from` price (higher than trend) — signals thin-supply / rising market. UI renders ↑ instead of •. */
   trend_ascending?: boolean;
+  /** True when condition is heavily-played and trendPrice was substituted from
+   *  fromPrice in `hydrateAppraiserCards`. UI uses this to render an HP chip
+   *  on the Trend column. */
+  trend_hp_override?: boolean;
 }
 
 export interface CardInput {
@@ -102,6 +108,7 @@ export interface CardInput {
   qty?: number;
   foil?: boolean;
   language?: string;
+  condition?: string;
   scryfallId?: string;           // fast-path: skip fuzzy resolution
   cardmarket_id?: number | null; // pre-known from Delver Lens CSV
 }

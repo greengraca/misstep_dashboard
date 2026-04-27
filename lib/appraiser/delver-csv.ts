@@ -16,14 +16,18 @@ function parseQty(raw: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
-function parseLanguage(raw: string | undefined): string {
-  if (!raw) return "English";
-  // Format: "(Condition, Language)" — e.g. "(, )" or "(, Portuguese)" or "(NM, English)"
+/**
+ * Pull "Condition" and "Language" out of the legacy combined column
+ * "(Condition,Language)" — e.g. "(, )" / "(, Portuguese)" / "(NM, English)".
+ * Returns trimmed strings; empty when not present.
+ */
+function parseCombinedConditionLanguage(raw: string | undefined): { condition: string; language: string } {
+  if (!raw) return { condition: "", language: "" };
   const inner = raw.trim().replace(/^\(/, "").replace(/\)$/, "");
   const parts = inner.split(",");
-  if (parts.length < 2) return "English";
-  const lang = parts[1].trim();
-  return lang || "English";
+  const condition = (parts[0] ?? "").trim();
+  const language = (parts[1] ?? "").trim();
+  return { condition, language };
 }
 
 function parseFoil(raw: string | undefined): boolean {
@@ -62,17 +66,36 @@ export function parseDelverCsv(csvText: string): CardInput[] {
     );
   }
 
+  // Format detection: newer Delver Lens exports split condition + language into
+  // separate columns; older exports use a single "(Condition,Language)" column.
+  // Support both — we read whichever is present.
+  const hasCombinedColumn = headers.includes("(Condition,Language)");
+  const hasSplitColumns = headers.includes("Condition") || headers.includes("Language");
+
   const cards: CardInput[] = [];
   for (const row of parsed.data) {
     const scryfallId = (row["Scryfall ID"] || "").trim();
     if (!scryfallId) continue; // skip rows with missing ID — partial exports
+
+    let condition = "";
+    let language = "";
+    if (hasSplitColumns) {
+      condition = (row["Condition"] || "").trim();
+      language = (row["Language"] || "").trim();
+    } else if (hasCombinedColumn) {
+      const split = parseCombinedConditionLanguage(row["(Condition,Language)"]);
+      condition = split.condition;
+      language = split.language;
+    }
+
     cards.push({
       name: (row["Name"] || "").trim() || scryfallId, // Scryfall will overwrite on resolve
       scryfallId,
       cardmarket_id: parseCardmarketId(row["CardMarket ID"]),
       qty: parseQty(row["QuantityX"]),
       foil: parseFoil(row["Foil"]),
-      language: parseLanguage(row["(Condition,Language)"]),
+      language: language || "English",
+      ...(condition ? { condition } : {}),
     });
   }
 

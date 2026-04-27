@@ -92,4 +92,56 @@ describe("parseDelverCsv", () => {
     ].join("\n");
     expect(() => parseDelverCsv(csv)).toThrow(/No rows with Scryfall ID/);
   });
+
+  it("parses NEW format with separate Condition and Language columns (empty values)", () => {
+    const csv = [
+      "QuantityX\tName\tEdition\tFoil\tPrice\tCardMarket ID\tCondition\tLanguage\tScryfall ID",
+      "1x\tChamber Sentry\tGuilds of Ravnica\t\t0,26 €\t364310\t\t\t15dfd5f2-5298-4cf4-80fe-43db9be24f57",
+    ].join("\n");
+    const cards = parseDelverCsv(csv);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toEqual({
+      name: "Chamber Sentry",
+      scryfallId: "15dfd5f2-5298-4cf4-80fe-43db9be24f57",
+      cardmarket_id: 364310,
+      qty: 1,
+      foil: false,
+      language: "English",
+    });
+    expect(cards[0]).not.toHaveProperty("condition");
+  });
+
+  it("parses NEW format with populated Condition and Language", () => {
+    const csv = [
+      "QuantityX\tName\tEdition\tFoil\tPrice\tCardMarket ID\tCondition\tLanguage\tScryfall ID",
+      "2x\tFoo\tSet\tFoil\t1,00 €\t12345\tHeavily Played\tPortuguese\tabc-uuid",
+    ].join("\n");
+    const cards = parseDelverCsv(csv);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toEqual({
+      name: "Foo",
+      scryfallId: "abc-uuid",
+      cardmarket_id: 12345,
+      qty: 2,
+      foil: true,
+      language: "Portuguese",
+      condition: "Heavily Played",
+    });
+  });
+
+  it("parses OLD combined-column format with populated Condition and Language", () => {
+    const csv = [
+      "QuantityX\tName\tEdition\tFoil\tPrice\t(Condition,Language)\tCardMarket ID\tScryfall ID",
+      "1x\tBar\tSet\t\t0,50 €\t(NM, Japanese)\t999\tdef-uuid",
+    ].join("\n");
+    const cards = parseDelverCsv(csv);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      name: "Bar",
+      qty: 1,
+      foil: false,
+      language: "Japanese",
+      condition: "NM",
+    });
+  });
 });
