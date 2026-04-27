@@ -88,8 +88,16 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
   const oid = parseId(id);
   if (!oid) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const body = (await req.json()) as { name?: unknown; notes?: unknown };
+  const body = (await req.json()) as {
+    name?: unknown;
+    notes?: unknown;
+    bulkExcludeEnabled?: unknown;
+    bulkThreshold?: unknown;
+    bulkRate?: unknown;
+  };
   const update: Partial<AppraiserCollectionDoc> = { updatedAt: new Date() };
+  const db = await getDb();
+
   if (typeof body.name === "string") {
     const n = body.name.trim();
     if (!n) return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
@@ -97,7 +105,32 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
   }
   if (typeof body.notes === "string") update.notes = body.notes;
 
-  const db = await getDb();
+  if (body.bulkExcludeEnabled !== undefined) {
+    if (typeof body.bulkExcludeEnabled !== "boolean") {
+      return NextResponse.json({ error: "bulkExcludeEnabled must be a boolean" }, { status: 400 });
+    }
+    update.bulkExcludeEnabled = body.bulkExcludeEnabled;
+  }
+  if (body.bulkThreshold !== undefined) {
+    if (typeof body.bulkThreshold !== "number" || !Number.isFinite(body.bulkThreshold) || body.bulkThreshold < 0 || body.bulkThreshold > 1000) {
+      return NextResponse.json({ error: "bulkThreshold must be a finite number between 0 and 1000" }, { status: 400 });
+    }
+    update.bulkThreshold = body.bulkThreshold;
+  }
+  if (body.bulkRate !== undefined) {
+    if (typeof body.bulkRate !== "number" || !Number.isFinite(body.bulkRate) || body.bulkRate < 0) {
+      return NextResponse.json({ error: "bulkRate must be a finite non-negative number" }, { status: 400 });
+    }
+    const effectiveThreshold =
+      update.bulkThreshold !== undefined
+        ? update.bulkThreshold
+        : (await db.collection<AppraiserCollectionDoc>(COL_APPRAISER_COLLECTIONS).findOne({ _id: oid }))?.bulkThreshold ?? 1;
+    if (body.bulkRate > effectiveThreshold) {
+      return NextResponse.json({ error: "bulkRate cannot exceed bulkThreshold" }, { status: 400 });
+    }
+    update.bulkRate = body.bulkRate;
+  }
+
   const result = await db
     .collection<AppraiserCollectionDoc>(COL_APPRAISER_COLLECTIONS)
     .updateOne({ _id: oid }, { $set: update });
@@ -108,6 +141,9 @@ export const PUT = withAuthParams<{ id: string }>(async (req, session, { id }) =
   const updateBits = [
     update.name !== undefined ? `name="${update.name}"` : null,
     update.notes !== undefined ? `notes=${update.notes.length} chars` : null,
+    update.bulkExcludeEnabled !== undefined ? `bulkExcludeEnabled=${update.bulkExcludeEnabled}` : null,
+    update.bulkThreshold !== undefined ? `bulkThreshold=${update.bulkThreshold}` : null,
+    update.bulkRate !== undefined ? `bulkRate=${update.bulkRate}` : null,
   ].filter(Boolean).join(", ");
   logActivity(
     "update",
