@@ -30,6 +30,7 @@ function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
     setName: d.setName,
     collectorNumber: d.collectorNumber,
     language: d.language,
+    condition: d.condition,
     foil: d.foil,
     qty: d.qty,
     scryfallId: d.scryfallId,
@@ -84,6 +85,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
     const qty = Math.max(1, Number(input.qty) || 1);
     const foil = !!input.foil;
     const language = (input.language ?? "English").trim() || "English";
+    const condition = (input.condition ?? "").trim() || undefined;
 
     let resolved;
     try {
@@ -105,6 +107,13 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       set: resolved.set,
       collectorNumber: resolved.collectorNumber,
       foil,
+      language,
+      // Match docs without a condition field via $exists:false; only when an
+      // input condition is provided do we look for that exact value. Avoids
+      // creating duplicate rows for the (very common) condition-absent case.
+      ...(condition !== undefined
+        ? { condition }
+        : { condition: { $exists: false } }),
     };
     const existing = await db
       .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
@@ -125,6 +134,7 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       setName: resolved.setName,
       collectorNumber: resolved.collectorNumber,
       language,
+      ...(condition !== undefined ? { condition } : {}),
       foil: resolved.foilOnly ? true : foil,
       qty,
       scryfallId: resolved.scryfallId,

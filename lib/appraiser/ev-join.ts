@@ -28,6 +28,7 @@ function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
     setName: d.setName,
     collectorNumber: d.collectorNumber,
     language: d.language,
+    condition: d.condition,
     foil: d.foil,
     qty: d.qty,
     scryfallId: d.scryfallId,
