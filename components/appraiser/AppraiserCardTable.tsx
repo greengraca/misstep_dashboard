@@ -5,11 +5,12 @@ import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
 import { cleanCardmarketUrl, isCardmarketProductUrl } from "@/lib/appraiser/scryfall-resolve";
-import type { AppraiserCard } from "@/lib/appraiser/types";
+import type { AppraiserCard, AppraiserCollection } from "@/lib/appraiser/types";
 import { sectionHeader, btnSecondaryClass, btnSecondary } from "./ui";
 
 interface Props {
   collectionId: string;
+  collection: AppraiserCollection | undefined;
   cards: AppraiserCard[];
   onCardChanged: () => void;
 }
@@ -22,7 +23,7 @@ function eur(n: number | null): string {
   return n.toFixed(2).replace(".", ",") + " €";
 }
 
-export default function AppraiserCardTable({ collectionId, cards, onCardChanged }: Props) {
+export default function AppraiserCardTable({ collectionId, collection, cards, onCardChanged }: Props) {
   const [offerPct, setOfferPct] = useState<number>(5);
   const [editingQty, setEditingQty] = useState<string | null>(null);
   const [qtyValue, setQtyValue] = useState("");

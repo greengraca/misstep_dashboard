@@ -86,6 +86,7 @@ export default function Appraiser() {
           <AppraiserInput collectionId={selectedId} onCardsAdded={handleCardsAdded} />
           <AppraiserCardTable
             collectionId={selectedId}
+            collection={detailSwr.data?.collection}
             cards={cards}
             onCardChanged={handleCardChanged}
           />
