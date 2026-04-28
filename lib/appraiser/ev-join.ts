@@ -200,7 +200,9 @@ function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
 }
 
 interface EvCardPriceRow {
-  cardmarket_id: number;
+  cardmarket_id: number | null;
+  set: string;
+  collector_number: string;
   price_eur: number | null;
   price_eur_foil: number | null;
   prices_updated_at: string | null;
@@ -240,7 +242,27 @@ export async function hydrateAppraiserCards(
     return { from_source: "cm_ext", from_updated_at: updatedAt };
   }
 
-  if (cmIds.length === 0) {
+  // Two lookup paths into ev_cards:
+  //   - By cardmarket_id (preferred — exact CM product match).
+  //   - By {set, collector_number} fallback for cards whose appraiser doc
+  //     has no cardmarket_id yet. Covers a real case: a card was added
+  //     before Scryfall mapped the printing's idProduct, then Scryfall's
+  //     daily bulk sync filled in ev_cards.cardmarket_id, but the
+  //     appraiser doc was never re-resolved. Without this fallback, the
+  //     join would miss and the user sees no prices even though ev_cards
+  //     has them.
+  const setCnLookups = Array.from(
+    new Set(
+      cards
+        .filter((c) => c.cardmarket_id == null && c.set && c.collectorNumber)
+        .map((c) => `${c.set.toLowerCase()}::${c.collectorNumber}`)
+    )
+  ).map((k) => {
+    const [set, collector_number] = k.split("::");
+    return { set, collector_number };
+  });
+
+  if (cmIds.length === 0 && setCnLookups.length === 0) {
     return cards.map((c) => {
       const payload = cardDocToPayload(c);
       const fromMeta = fallbackFromMeta(payload);
@@ -258,13 +280,21 @@ export async function hydrateAppraiserCards(
     });
   }
 
+  const orClauses: Record<string, unknown>[] = [];
+  if (cmIds.length) orClauses.push({ cardmarket_id: { $in: cmIds } });
+  if (setCnLookups.length) {
+    orClauses.push({ $or: setCnLookups });
+  }
+
   const evCards = (await db
     .collection("dashboard_ev_cards")
     .find(
-      { cardmarket_id: { $in: cmIds } },
+      orClauses.length === 1 ? orClauses[0] : { $or: orClauses },
       {
         projection: {
           cardmarket_id: 1,
+          set: 1,
+          collector_number: 1,
           price_eur: 1,
           price_eur_foil: 1,
           prices_updated_at: 1,
@@ -275,7 +305,41 @@ export async function hydrateAppraiserCards(
     .toArray()) as unknown as EvCardPriceRow[];
 
   const evByCmId = new Map<number, EvCardPriceRow>();
-  for (const ev of evCards) evByCmId.set(ev.cardmarket_id, ev);
+  const evBySetCn = new Map<string, EvCardPriceRow>();
+  for (const ev of evCards) {
+    if (ev.cardmarket_id != null) evByCmId.set(ev.cardmarket_id, ev);
+    if (ev.set && ev.collector_number) {
+      evBySetCn.set(`${ev.set.toLowerCase()}::${ev.collector_number}`, ev);
+    }
+  }
+
+  // Self-heal: appraiser docs with cardmarket_id=null whose matching ev_cards
+  // row HAS one — backfill the appraiser doc so the next CM scrape's
+  // fan-out (`{cardmarket_id, foil}` filter in processCardPrices) actually
+  // matches. Without this, the user has to manually re-add the card or
+  // set an override even though Scryfall already knows the right ID.
+  const backfillOps: Array<{
+    updateOne: { filter: Record<string, unknown>; update: Record<string, unknown> };
+  }> = [];
+  for (const c of cards) {
+    if (c.cardmarket_id != null || !c.set || !c.collectorNumber) continue;
+    const ev = evBySetCn.get(`${c.set.toLowerCase()}::${c.collectorNumber}`);
+    if (ev?.cardmarket_id != null) {
+      backfillOps.push({
+        updateOne: {
+          filter: { _id: c._id },
+          update: { $set: { cardmarket_id: ev.cardmarket_id } },
+        },
+      });
+    }
+  }
+  if (backfillOps.length > 0) {
+    // Fire-and-forget — failure is non-fatal. The in-memory override below
+    // makes the current request's response correct regardless.
+    db.collection("dashboard_appraiser_cards")
+      .bulkWrite(backfillOps, { ordered: false })
+      .catch(() => {});
+  }
 
   return cards.map((c) => {
     const payload = cardDocToPayload(c);
@@ -291,9 +355,30 @@ export async function hydrateAppraiserCards(
         ? { ...base, trendPrice: p.fromPrice, trend_hp_override: true }
         : base;
     };
-    if (c.cardmarket_id == null) return applyEarlyHp(payload);
-    const ev = evByCmId.get(c.cardmarket_id);
+
+    // Resolve ev_cards row: by cardmarket_id when known, else by set/cn.
+    let ev: EvCardPriceRow | undefined =
+      c.cardmarket_id != null ? evByCmId.get(c.cardmarket_id) : undefined;
+    if (!ev && c.set && c.collectorNumber) {
+      ev = evBySetCn.get(`${c.set.toLowerCase()}::${c.collectorNumber}`);
+    }
     if (!ev) return applyEarlyHp(payload);
+
+    // If we resolved via set/cn AND ev_cards has a cardmarket_id we didn't,
+    // patch the in-memory payload so this request renders the correct
+    // idProduct URL (the persisted backfill above takes care of next time).
+    if (payload.cardmarket_id == null && ev.cardmarket_id != null) {
+      payload.cardmarket_id = ev.cardmarket_id;
+      const built = buildCardmarketUrl(
+        c.setName,
+        c.name,
+        c.foil,
+        ev.cardmarket_id,
+        c.set,
+        c.collectorNumber,
+      );
+      if (built) payload.cardmarketUrl = built;
+    }
 
     // Variant fallback on the CM side is deliberately conservative. A
     // cross-variant fallback is only valid when the card is single-variant
