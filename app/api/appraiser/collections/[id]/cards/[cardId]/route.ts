@@ -35,6 +35,7 @@ function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
     pricedAt: d.pricedAt ? d.pricedAt.toISOString() : null,
     cm_prices: d.cm_prices,
     status: d.status,
+    excluded: d.excluded ?? false,
     createdAt: d.createdAt.toISOString(),
   };
 }
@@ -48,6 +49,7 @@ interface PutBody {
   collectorNumber?: string;  // re-resolve
   manualFromPrice?: number | null;
   manualTrendPrice?: number | null;
+  excluded?: boolean;
 }
 
 export const PUT = withAuthParams<{ id: string; cardId: string }>(
@@ -81,6 +83,9 @@ export const PUT = withAuthParams<{ id: string; cardId: string }>(
     if (body.manualTrendPrice !== undefined) {
       update.trendPrice = body.manualTrendPrice;
       update.status = "manual";
+    }
+    if (body.excluded !== undefined) {
+      update.excluded = !!body.excluded;
     }
 
     if (needsResolve) {

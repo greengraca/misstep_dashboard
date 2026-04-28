@@ -181,25 +181,31 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     c.fromPrice != null &&
     c.trendPrice * undercutFactor < c.fromPrice;
 
-  const { mainCards, bulkCards, displayCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal } = useMemo(() => {
+  const { mainCards, bulkCards, excludedCards, displayCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, excludedCount, offerTotal } = useMemo(() => {
     const isBulk = (c: AppraiserCard) =>
       bulkExclude && (c.trendPrice == null || c.trendPrice < bulkThreshold);
     const byTrendDesc = (a: AppraiserCard, b: AppraiserCard) =>
       (b.trendPrice ?? 0) - (a.trendPrice ?? 0);
-    const mainCards = cards.filter((c) => !isBulk(c)).sort(byTrendDesc);
-    const bulkCards = cards.filter((c) =>  isBulk(c)).sort(byTrendDesc);
-    const displayCards = [...mainCards, ...bulkCards];
+    // Excluded cards are split off FIRST — they don't enter bulk classification
+    // or any totals/offer math. Kept visible at the very bottom for reversal.
+    const excludedCards = cards.filter((c) => c.excluded).sort(byTrendDesc);
+    const inPlayCards = cards.filter((c) => !c.excluded);
+    const mainCards = inPlayCards.filter((c) => !isBulk(c)).sort(byTrendDesc);
+    const bulkCards = inPlayCards.filter((c) =>  isBulk(c)).sort(byTrendDesc);
+    const displayCards = [...mainCards, ...bulkCards, ...excludedCards];
     const totalCards = cards.reduce((s, c) => s + c.qty, 0);
     const totalFrom  = mainCards.reduce((s, c) => s + (c.fromPrice  ?? 0) * c.qty, 0);
     const totalTrend = mainCards.reduce((s, c) => s + (displayTrend(c) ?? 0) * c.qty, 0);
     const bulkCount  = bulkCards.reduce((s, c) => s + c.qty, 0);
     const bulkAddOn  = bulkCount * bulkRate;
+    const excludedCount = excludedCards.reduce((s, c) => s + c.qty, 0);
     const offerTotal = totalFrom * (1 - offerPct / 100) + bulkAddOn;
-    return { mainCards, bulkCards, displayCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal };
+    return { mainCards, bulkCards, excludedCards, displayCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, excludedCount, offerTotal };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- displayTrend's inputs (undercutEnabled, undercutPercent) are already in deps
   }, [cards, bulkExclude, bulkThreshold, bulkRate, offerPct, undercutEnabled, undercutPercent]);
 
   const bulkIds = useMemo(() => new Set(bulkCards.map((c) => c._id)), [bulkCards]);
+  const excludedIds = useMemo(() => new Set(excludedCards.map((c) => c._id)), [excludedCards]);
 
   const copyAll = async () => {
     const header = `Name\tSet\tCN\tLang\tFoil\tQty\tFrom\tTrend\tOffer -${offerPct}%`;
@@ -219,9 +225,23 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             ...bulkCards.map(formatRow),
           ]
         : [];
+    const skippedBlock =
+      excludedCards.length > 0
+        ? [
+            "",
+            `# Skipped — not in offer math`,
+            ...excludedCards.map(formatRow),
+          ]
+        : [];
+    const splitBits = [
+      bulkExclude && bulkCards.length > 0 ? `${totalCards - bulkCount - excludedCount} main` : null,
+      bulkExclude && bulkCards.length > 0 ? `${bulkCount} bulk` : null,
+      excludedCount > 0 ? `${excludedCount} skipped` : null,
+    ].filter(Boolean);
+    const totalSuffix = splitBits.length > 0 ? ` (${splitBits.join(" + ")})` : "";
     const summary = [
       "",
-      `Total cards: ${totalCards}${bulkExclude && bulkCards.length > 0 ? ` (${totalCards - bulkCount} main + ${bulkCount} bulk)` : ""}`,
+      `Total cards: ${totalCards}${totalSuffix}`,
       `Total From${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}: ${eur(totalFrom)}`,
       `Total Trend${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}${undercutEnabled ? ` (-${undercutPercent}%)` : ""}: ${eur(totalTrend)}`,
       ...(bulkExclude && bulkRate > 0 && bulkCount > 0
@@ -229,7 +249,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
         : []),
       `Offer -${offerPct}%: ${eur(offerTotal)}`,
     ];
-    await navigator.clipboard.writeText([header, ...mainLines, ...bulkBlock, ...summary].join("\n"));
+    await navigator.clipboard.writeText([header, ...mainLines, ...bulkBlock, ...skippedBlock, ...summary].join("\n"));
   };
 
   if (cards.length === 0) return null;
@@ -387,7 +407,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
 
       {/* Summary bar (moved to top: totals + offer tiers always visible) */}
       <div style={{ display: "flex", gap: 14, padding: "10px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 12, background: "var(--bg-card)" }}>
-        <span style={{ color: "var(--text-muted)" }}>{totalCards} card{totalCards !== 1 ? "s" : ""}</span>
+        <span style={{ color: "var(--text-muted)" }}>
+          {totalCards} card{totalCards !== 1 ? "s" : ""}
+          {excludedCount > 0 && ` (${excludedCount} skipped)`}
+        </span>
         <span>From: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(totalFrom)}</strong></span>
         <span
           style={{ color: undercutEnabled ? "var(--error)" : "var(--text-secondary)" }}
@@ -414,6 +437,12 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
           <span style={{ marginLeft: "auto", color: "var(--accent)" }}>
             Offer total: <strong style={{ fontFamily: "var(--font-mono)" }}>{eur(offerTotal)}</strong>
           </span>
+        </div>
+      )}
+
+      {excludedCards.length > 0 && (
+        <div style={{ display: "flex", gap: 14, padding: "8px 14px 10px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap", alignItems: "center", fontSize: 11, color: "var(--text-muted)", background: "var(--bg-card)" }}>
+          <span>↳ {excludedCount} skipped card{excludedCount !== 1 ? "s" : ""} — not in totals or offer math</span>
         </div>
       )}
 
@@ -459,7 +488,13 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               <tr
                 key={c._id}
                 className="hover:bg-[var(--bg-card-hover)] transition-colors"
-                style={bulkIds.has(c._id) ? { opacity: 0.4 } : undefined}
+                style={
+                  excludedIds.has(c._id)
+                    ? { opacity: 0.25 }
+                    : bulkIds.has(c._id)
+                      ? { opacity: 0.4 }
+                      : undefined
+                }
               >
                 <td style={td}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -572,6 +607,23 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                           }}
                         >
                           bulk
+                        </span>
+                      )}
+                      {excludedIds.has(c._id) && (
+                        <span
+                          title="Skipped — not in totals or offer math. Click ↑ to restore."
+                          style={{
+                            fontSize: 9,
+                            padding: "1px 5px",
+                            borderRadius: 3,
+                            background: "rgba(252, 165, 165, 0.10)",
+                            color: "var(--error)",
+                            fontFamily: "var(--font-mono)",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          skipped
                         </span>
                       )}
                     </span>
@@ -698,7 +750,15 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 600 }}>
                   {eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null)}
                 </td>
-                <td style={{ ...td, textAlign: "right" }}>
+                <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button
+                    onClick={() => putCard(c._id, { excluded: !c.excluded })}
+                    title={c.excluded ? "Restore to main list" : "Skip — push to bottom, drop from totals & offer"}
+                    className="hover:text-[var(--accent)] transition-colors"
+                    style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "2px 4px", marginRight: 2 }}
+                  >
+                    {c.excluded ? "↑" : "↓"}
+                  </button>
                   <button
                     onClick={() => deleteCard(c._id, c.name)}
                     title="Remove card"

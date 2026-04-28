@@ -75,6 +75,10 @@ export interface AppraiserCardDoc {
   pricedAt: Date | null;
   cm_prices: CmPricesSnapshot | null;
   status: "pending" | "priced" | "error" | "manual";
+  /** User flagged "I don't want this card" — pushed to bottom, dropped from
+   *  totals and offer math, kept in the list so it's reversible. Independent
+   *  of the bulk flag. Default false / undefined. */
+  excluded?: boolean;
   createdAt: Date;
 }
 
@@ -98,6 +102,9 @@ export interface AppraiserCard {
   pricedAt: string | null;
   cm_prices: CmPricesSnapshot | null;
   status: "pending" | "priced" | "error" | "manual";
+  /** User flagged "I don't want this card" — pushed to bottom of the table,
+   *  dropped from totals and offer math, restorable via the same toggle. */
+  excluded?: boolean;
   createdAt: string;
   /** Where the displayed trendPrice came from — 'cm_ext' means fresher than Scryfall bulk. Null when no price. */
   trend_source?: "scryfall" | "cm_ext" | null;

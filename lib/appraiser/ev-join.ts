@@ -144,6 +144,7 @@ function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
     pricedAt: d.pricedAt ? d.pricedAt.toISOString() : null,
     cm_prices: d.cm_prices,
     status: d.status,
+    excluded: d.excluded ?? false,
     createdAt: d.createdAt.toISOString(),
   };
 }
