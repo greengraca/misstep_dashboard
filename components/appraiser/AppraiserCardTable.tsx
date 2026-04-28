@@ -27,7 +27,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [offerPct, setOfferPct] = useState<number>(5);
   const [editingQty, setEditingQty] = useState<string | null>(null);
   const [qtyValue, setQtyValue] = useState("");
-  const [bulkExclude, setBulkExclude] = useState<boolean>(false);
+  const [bulkExclude, setBulkExclude] = useState<boolean>(true);
   const [bulkThreshold, setBulkThreshold] = useState<number>(1);
   const [bulkRate, setBulkRate] = useState<number>(0);
   const [undercutEnabled, setUndercutEnabled] = useState<boolean>(false);
@@ -96,22 +96,26 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     onCardChanged();
   };
 
-  const { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal, undercutFactor } = useMemo(() => {
+  const { mainCards, bulkCards, displayCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal, undercutFactor } = useMemo(() => {
     const isBulk = (c: AppraiserCard) =>
       bulkExclude && (c.trendPrice == null || c.trendPrice < bulkThreshold);
-    const mainCards = cards.filter((c) => !isBulk(c));
-    const bulkCards = cards.filter((c) =>  isBulk(c));
-    // Undercut multiplier — applied AFTER bulk classification so the threshold
-    // compares against the original trend (a card with trend €1.20 stays main
-    // even if undercut would push the displayed value below €1).
+    const byTrendDesc = (a: AppraiserCard, b: AppraiserCard) =>
+      (b.trendPrice ?? 0) - (a.trendPrice ?? 0);
+    const mainCards = cards.filter((c) => !isBulk(c)).sort(byTrendDesc);
+    const bulkCards = cards.filter((c) =>  isBulk(c)).sort(byTrendDesc);
+    const displayCards = [...mainCards, ...bulkCards];
+    // Undercut models the resale haircut on TREND only — buyers undercut my
+    // listings, so what I'd actually realize is N% below trend. From price
+    // is what I'm offering / paying so it stays raw; the offer math uses raw
+    // From too.
     const undercutFactor = undercutEnabled ? 1 - undercutPercent / 100 : 1;
     const totalCards = cards.reduce((s, c) => s + c.qty, 0);
-    const totalFrom  = mainCards.reduce((s, c) => s + (c.fromPrice  ?? 0) * c.qty, 0) * undercutFactor;
+    const totalFrom  = mainCards.reduce((s, c) => s + (c.fromPrice  ?? 0) * c.qty, 0);
     const totalTrend = mainCards.reduce((s, c) => s + (c.trendPrice ?? 0) * c.qty, 0) * undercutFactor;
     const bulkCount  = bulkCards.reduce((s, c) => s + c.qty, 0);
     const bulkAddOn  = bulkCount * bulkRate;
     const offerTotal = totalFrom * (1 - offerPct / 100) + bulkAddOn;
-    return { mainCards, bulkCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal, undercutFactor };
+    return { mainCards, bulkCards, displayCards, totalCards, totalFrom, totalTrend, bulkCount, bulkAddOn, offerTotal, undercutFactor };
   }, [cards, bulkExclude, bulkThreshold, bulkRate, offerPct, undercutEnabled, undercutPercent]);
 
   const bulkIds = useMemo(() => new Set(bulkCards.map((c) => c._id)), [bulkCards]);
@@ -121,9 +125,9 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     const formatRow = (c: AppraiserCard) => [
       c.name, c.set.toUpperCase(), c.collectorNumber, c.language,
       c.foil ? "foil" : "", c.qty,
-      eur(c.fromPrice != null ? c.fromPrice * undercutFactor : null),
+      eur(c.fromPrice),
       eur(c.trendPrice != null ? c.trendPrice * undercutFactor : null),
-      eur(c.fromPrice !== null ? c.fromPrice * undercutFactor * (1 - offerPct / 100) : null),
+      eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null),
     ].join("\t");
     const mainLines = mainCards.map(formatRow);
     const bulkBlock =
@@ -137,7 +141,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     const summary = [
       "",
       `Total cards: ${totalCards}${bulkExclude && bulkCards.length > 0 ? ` (${totalCards - bulkCount} main + ${bulkCount} bulk)` : ""}`,
-      `Total From${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}${undercutEnabled ? ` (-${undercutPercent}%)` : ""}: ${eur(totalFrom)}`,
+      `Total From${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}: ${eur(totalFrom)}`,
       `Total Trend${bulkExclude && bulkCards.length > 0 ? " (main)" : ""}${undercutEnabled ? ` (-${undercutPercent}%)` : ""}: ${eur(totalTrend)}`,
       ...(bulkExclude && bulkRate > 0 && bulkCount > 0
         ? [`Bulk add-on: ${bulkCount} × ${eur(bulkRate)} = ${eur(bulkAddOn)}`]
@@ -333,7 +337,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             </tr>
           </thead>
           <tbody>
-            {cards.map((c) => (
+            {displayCards.map((c) => (
               <tr
                 key={c._id}
                 className="hover:bg-[var(--bg-card-hover)] transition-colors"
@@ -455,7 +459,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                     </span>
                   )}
                 </td>
-                <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>{eur(c.fromPrice != null ? c.fromPrice * undercutFactor : null)}</td>
+                <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>{eur(c.fromPrice)}</td>
                 <td
                   style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}
                   title={c.trendPrice != null && c.trend_source
@@ -470,7 +474,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                   )}
                 </td>
                 <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--accent)", fontWeight: 600 }}>
-                  {eur(c.fromPrice !== null ? c.fromPrice * undercutFactor * (1 - offerPct / 100) : null)}
+                  {eur(c.fromPrice !== null ? c.fromPrice * (1 - offerPct / 100) : null)}
                 </td>
                 <td style={{ ...td, textAlign: "right" }}>
                   <button

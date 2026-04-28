@@ -8,19 +8,19 @@ export interface AppraiserCollectionDoc {
   name: string;
   notes: string;
   /** When true, cards with `trendPrice < bulkThreshold` (or null trend) are
-   *  excluded from main From/Trend totals and the offer-tier math. Default false. */
+   *  excluded from main From/Trend totals and the offer-tier math. Default true. */
   bulkExcludeEnabled?: boolean;
   /** EUR threshold below which a card is treated as bulk. Default 1.0. */
   bulkThreshold?: number;
   /** Flat EUR/card rate added back to the offer total via `bulkCount × bulkRate`.
    *  0 means pure exclusion. Default 0. */
   bulkRate?: number;
-  /** When true, displayed `fromPrice` and `trendPrice` are scaled by
-   *  (1 - undercutPercent/100). Captures the realistic resale discount on
-   *  played-condition collections where buyers price into the floor.
-   *  Default false. */
+  /** When true, displayed `trendPrice` is scaled by (1 - undercutPercent/100)
+   *  to model the resale haircut on played-condition collections. From price
+   *  and the offer math are NOT affected — From is what the user is paying,
+   *  Trend is what they'd realize on resale. Default false. */
   undercutEnabled?: boolean;
-  /** Percent (0-100) subtracted from displayed prices when undercut is on.
+  /** Percent (0-100) subtracted from displayed Trend when undercut is on.
    *  Default 20. */
   undercutPercent?: number;
   createdAt: Date;
