@@ -461,7 +461,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             />
             €
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: bulkExclude ? 1 : 0.5 }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: 4, opacity: bulkExclude ? 1 : 0.5 }}
+            title="Price you'll pay for bulk"
+          >
             Bulk @
             <input
               type="number"
