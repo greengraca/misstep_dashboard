@@ -635,7 +635,16 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                 }}
                 onClick={toggleVelocityCollapsed}
                 className="hover:bg-[var(--bg-card-hover)] transition-colors"
-                title={velocityCollapsed ? "Expand Velocity — sales-cadence column" : "Collapse Velocity column"}
+                title={
+                  (velocityCollapsed
+                    ? "Expand Velocity — sales-cadence column"
+                    : "Collapse Velocity column") +
+                  "\n\nN/30 = days with ≥1 CM sale in the last 30 days." +
+                  "\nFast (green): ≥20 active days AND last sale ≤2d" +
+                  "\nSlow (red): <5 active days OR last sale ≥8d" +
+                  "\nMedium (yellow): in between" +
+                  "\nUnknown (grey): no chart data"
+                }
               >
                 {velocityCollapsed ? (
                   <span style={{ color: "var(--text-muted)" }}>&lt;</span>
