@@ -14,6 +14,12 @@ import { useState } from "react";
  */
 const SCRYFALL_ICON_REMAP: Record<string, string> = {
   plst: "planeswalker", // The List shares the planeswalker symbol
+  p30a: "star",         // 30th Anniversary Play Promos uses the star symbol
+  // Promo sets typically share their parent set's symbol on Scryfall.
+  // When a "p<setcode>" set falls through to the text fallback, check
+  // dashboard_ev_sets.icon_svg_uri for the basename and add it here.
+  pemn: "emn", // Eldritch Moon Promos → Eldritch Moon icon
+  paer: "aer", // Aether Revolt Promos → Aether Revolt icon
 };
 
 /**
