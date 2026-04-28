@@ -102,6 +102,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [overrideManagerList, setOverrideManagerList] = useState<OverrideListEntry[] | null>(null);
   const [overrideManagerLoading, setOverrideManagerLoading] = useState(false);
   const [deletingOverrideKey, setDeletingOverrideKey] = useState<string | null>(null);
+  // Edit-IDs mode is opt-in: cards with a working cardmarket_id only expose
+  // the "edit ID" button when the user explicitly enables this. Per-session
+  // (no persistence) — it's a transient repair tool, not a default-on view.
+  const [editIdsEnabled, setEditIdsEnabled] = useState<boolean>(false);
   // useTransition lets React schedule the table re-render as a non-urgent
   // update — the chevron flips instantly, the (expensive) per-row reconciliation
   // happens during idle frames instead of blocking the click. Without this,
@@ -537,6 +541,18 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               size="sm"
             />
           </span>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}
+            title="Show an inline edit button on cards that already have a Cardmarket ID. Off by default so the table stays clean."
+          >
+            <input
+              type="checkbox"
+              checked={editIdsEnabled}
+              onChange={(e) => setEditIdsEnabled(e.target.checked)}
+              style={{ accentColor: "var(--accent)" }}
+            />
+            Edit IDs
+          </label>
           <button
             onClick={openOverrideManager}
             className={btnSecondaryClass}
@@ -671,29 +687,31 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                         {c.name} ↗
                       </a>
                     ) : c.name}
-                    <button
-                      onClick={() => openIdOverride(c)}
-                      title={c.cardmarket_id == null
-                        ? "Cardmarket couldn't find this printing — click to paste the right idProduct manually. Applies to every collection with the same set + collector number."
-                        : `Currently bound to idProduct=${c.cardmarket_id}. Click to change or clear.`}
-                      className="hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
-                      style={{
-                        background: "transparent",
-                        border: c.cardmarket_id == null ? "1px dashed var(--border)" : "1px solid transparent",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        fontSize: 9,
-                        padding: "1px 5px",
-                        borderRadius: 3,
-                        fontFamily: "var(--font-mono)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.05em",
-                        lineHeight: 1.3,
-                        opacity: c.cardmarket_id == null ? 1 : 0.5,
-                      }}
-                    >
-                      {c.cardmarket_id == null ? "set ID" : "edit ID"}
-                    </button>
+                    {(c.cardmarket_id == null || editIdsEnabled) && (
+                      <button
+                        onClick={() => openIdOverride(c)}
+                        title={c.cardmarket_id == null
+                          ? "Cardmarket couldn't find this printing — click to paste the right idProduct manually. Applies to every collection with the same set + collector number."
+                          : `Currently bound to idProduct=${c.cardmarket_id}. Click to change or clear.`}
+                        className="hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                        style={{
+                          background: "transparent",
+                          border: c.cardmarket_id == null ? "1px dashed var(--border)" : "1px solid transparent",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          fontSize: 9,
+                          padding: "1px 5px",
+                          borderRadius: 3,
+                          fontFamily: "var(--font-mono)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          lineHeight: 1.3,
+                          opacity: c.cardmarket_id == null ? 1 : 0.5,
+                        }}
+                      >
+                        {c.cardmarket_id == null ? "set ID" : "edit ID"}
+                      </button>
+                    )}
                   </div>
                 </td>
                 <td style={td}>
