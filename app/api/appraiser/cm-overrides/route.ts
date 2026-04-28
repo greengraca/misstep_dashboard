@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activity";
 import {
   COL_APPRAISER_CARDS,
   COL_APPRAISER_CM_OVERRIDES,
+  COL_EV_CARDS,
   parseCardmarketIdInput,
   setCmOverride,
   type CardmarketIdOverrideDoc,
@@ -70,29 +71,46 @@ export const DELETE = withAuth(async (req, session) => {
   }
 
   const db = await getDb();
-  const result = await db
-    .collection<CardmarketIdOverrideDoc>(COL_APPRAISER_CM_OVERRIDES)
-    .deleteOne({ set, collectorNumber });
 
-  if (result.deletedCount === 0) {
-    return NextResponse.json({ error: "Override not found" }, { status: 404 });
-  }
+  // Idempotent: works whether or not the override doc still exists.
+  // The cleanup of cardmarket_id on appraiser + ev_cards rows always runs,
+  // so this call also recovers cards left in a stuck state by an earlier
+  // delete (when the API only removed the override doc and not the
+  // propagated IDs).
+  //
+  // Setting cardmarket_id to null is the right pre-override state for the
+  // printings users actually override (promos / list-style sets where
+  // Scryfall returns null too); the next Scryfall bulk sync would restore
+  // any real upstream value.
+  const [overrideResult, appraiserResult, evResult] = await Promise.all([
+    db
+      .collection<CardmarketIdOverrideDoc>(COL_APPRAISER_CM_OVERRIDES)
+      .deleteOne({ set, collectorNumber }),
+    db.collection(COL_APPRAISER_CARDS).updateMany(
+      { set, collectorNumber },
+      { $set: { cardmarket_id: null } },
+    ),
+    db.collection(COL_EV_CARDS).updateMany(
+      { set, collector_number: collectorNumber },
+      { $set: { cardmarket_id: null } },
+    ),
+  ]);
 
-  // Note: existing appraiser docs that took on this override's cardmarket_id
-  // KEEP it. Removing the override only stops it from auto-applying to future
-  // imports of the same printing. To revert a specific card, use the per-card
-  // PUT endpoint. This avoids accidentally clobbering deliberate manual
-  // edits when an override is cleaned up.
   logActivity(
     "delete",
     "appraiser_cm_override",
     `${set}:${collectorNumber}`,
-    `Removed Cardmarket id override for ${set} #${collectorNumber}`,
+    `Cleared Cardmarket id for ${set} #${collectorNumber} (${overrideResult.deletedCount ? "override removed" : "no override doc"} · ${appraiserResult.modifiedCount ?? 0} appraiser card${appraiserResult.modifiedCount === 1 ? "" : "s"} + ${evResult.modifiedCount ?? 0} ev_cards row${evResult.modifiedCount === 1 ? "" : "s"} cleared)`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown",
   );
 
-  return { ok: true };
+  return {
+    ok: true,
+    overrideRemoved: (overrideResult.deletedCount ?? 0) > 0,
+    revertedAppraiserCards: appraiserResult.modifiedCount ?? 0,
+    revertedEvCards: evResult.modifiedCount ?? 0,
+  };
 }, "appraiser-cm-override-delete");
 
 export const POST = withAuth(async (req, session) => {

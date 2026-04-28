@@ -221,7 +221,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const deleteOverride = async (set: string, collectorNumber: string) => {
     const key = `${set}:${collectorNumber}`;
     if (deletingOverrideKey) return;
-    if (!confirm(`Remove the manual Cardmarket-ID override for ${set.toUpperCase()} #${collectorNumber}?\n\nExisting cards keep the ID they were assigned. Future imports of this printing won't auto-apply it.`)) return;
+    if (!confirm(`Remove the manual Cardmarket-ID override for ${set.toUpperCase()} #${collectorNumber}?\n\nThis clears the ID from every card with this set + collector number, so the "set ID" button reappears and you can re-add the override.`)) return;
     setDeletingOverrideKey(key);
     try {
       const res = await fetch("/api/appraiser/cm-overrides", {
@@ -260,6 +260,39 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
       onCardChanged();
       // If the manager modal happens to be open, refresh it so the new
       // override appears at the top.
+      if (overrideManagerOpen) await openOverrideManager();
+    } catch (err) {
+      setIdOverrideError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setIdOverrideSubmitting(false);
+    }
+  };
+
+  // Wipes the cardmarket_id from this {set, cn} pair across all collections.
+  // Covers both "remove an override I don't want" and "recover from a stuck
+  // ID left behind by an earlier delete". The DELETE endpoint is idempotent:
+  // it removes the override doc if present and ALWAYS clears cardmarket_id
+  // on every matching appraiser + ev_cards row.
+  const clearIdOverride = async () => {
+    if (!idOverrideTarget || idOverrideSubmitting) return;
+    setIdOverrideSubmitting(true);
+    setIdOverrideError("");
+    try {
+      const res = await fetch("/api/appraiser/cm-overrides", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          set: idOverrideTarget.set,
+          collectorNumber: idOverrideTarget.collectorNumber,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setIdOverrideError(data.error ?? "Failed to clear override");
+        return;
+      }
+      closeIdOverride();
+      onCardChanged();
       if (overrideManagerOpen) await openOverrideManager();
     } catch (err) {
       setIdOverrideError(err instanceof Error ? err.message : "Network error");
@@ -638,28 +671,29 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                         {c.name} ↗
                       </a>
                     ) : c.name}
-                    {c.cardmarket_id == null && (
-                      <button
-                        onClick={() => openIdOverride(c)}
-                        title="Cardmarket couldn't find this printing — click to paste the right idProduct manually. Applies to every collection with the same set + collector number."
-                        className="hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
-                        style={{
-                          background: "transparent",
-                          border: "1px dashed var(--border)",
-                          color: "var(--text-muted)",
-                          cursor: "pointer",
-                          fontSize: 9,
-                          padding: "1px 5px",
-                          borderRadius: 3,
-                          fontFamily: "var(--font-mono)",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        set ID
-                      </button>
-                    )}
+                    <button
+                      onClick={() => openIdOverride(c)}
+                      title={c.cardmarket_id == null
+                        ? "Cardmarket couldn't find this printing — click to paste the right idProduct manually. Applies to every collection with the same set + collector number."
+                        : `Currently bound to idProduct=${c.cardmarket_id}. Click to change or clear.`}
+                      className="hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                      style={{
+                        background: "transparent",
+                        border: c.cardmarket_id == null ? "1px dashed var(--border)" : "1px solid transparent",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        fontSize: 9,
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontFamily: "var(--font-mono)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        lineHeight: 1.3,
+                        opacity: c.cardmarket_id == null ? 1 : 0.5,
+                      }}
+                    >
+                      {c.cardmarket_id == null ? "set ID" : "edit ID"}
+                    </button>
                   </div>
                 </td>
                 <td style={td}>
@@ -928,6 +962,20 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                 {idOverrideTarget.set.toUpperCase()} #{idOverrideTarget.collectorNumber}
               </span>
             </p>
+            {idOverrideTarget.cardmarket_id != null && (
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                Currently bound to{" "}
+                <a
+                  href={`https://www.cardmarket.com/en/Magic/Products?idProduct=${idOverrideTarget.cardmarket_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "var(--accent)", textDecoration: "none" }}
+                  className="hover:underline"
+                >
+                  idProduct={idOverrideTarget.cardmarket_id} ↗
+                </a>
+              </div>
+            )}
             <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)" }}>
               <div style={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: 6 }}>How to find the idProduct</div>
               <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -965,7 +1013,18 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             {idOverrideError && (
               <div style={{ color: "var(--error)", fontSize: 12 }}>{idOverrideError}</div>
             )}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap" }}>
+              {idOverrideTarget.cardmarket_id != null && (
+                <button
+                  onClick={clearIdOverride}
+                  className={btnSecondaryClass}
+                  style={{ ...btnSecondary, marginRight: "auto", color: "var(--error)", borderColor: "var(--error-border)" }}
+                  disabled={idOverrideSubmitting}
+                  title={`Clear cardmarket_id ${idOverrideTarget.cardmarket_id} from every card with this set + CN`}
+                >
+                  Clear ID
+                </button>
+              )}
               <button
                 onClick={closeIdOverride}
                 className={btnSecondaryClass}
@@ -1004,7 +1063,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
-              Each override is keyed by <code style={{ fontFamily: "var(--font-mono)" }}>set:collectorNumber</code> and applies across every collection. Removing one stops auto-applying to future imports — existing cards keep the ID they were given.
+              Each override is keyed by <code style={{ fontFamily: "var(--font-mono)" }}>set:collectorNumber</code> and applies across every collection. Removing one clears the ID from every card with that set + CN — the &quot;set ID&quot; button reappears so you can re-add a different ID.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: "55vh", overflowY: "auto" }}>
               {overrideManagerList.map((o) => {
