@@ -20,6 +20,7 @@ const SCRYFALL_ICON_REMAP: Record<string, string> = {
   // dashboard_ev_sets.icon_svg_uri for the basename and add it here.
   pemn: "emn", // Eldritch Moon Promos → Eldritch Moon icon
   paer: "aer", // Aether Revolt Promos → Aether Revolt icon
+  plg21: "star", // Love Your LGS 2021 → star icon
 };
 
 /**
