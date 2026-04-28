@@ -19,6 +19,7 @@ import type { Db, ObjectId } from "mongodb";
 
 export const COL_APPRAISER_CM_OVERRIDES = "dashboard_appraiser_cm_overrides";
 export const COL_APPRAISER_CARDS = "dashboard_appraiser_cards";
+export const COL_EV_CARDS = "dashboard_ev_cards";
 
 export interface CardmarketIdOverrideDoc {
   _id: ObjectId;
@@ -47,11 +48,27 @@ export async function getCmOverride(
 
 /**
  * Upsert an override and propagate it to every matching appraiser card
- * across all collections. Returns the number of appraiser docs updated.
+ * across all collections, AND to the matching `dashboard_ev_cards` row.
+ * Returns the count of each.
  *
- * The propagation step is what makes the override feel "global" — the user
- * fixes Star of Extinction PLST #XLN-161 once and every collection that
- * holds it picks up the new cardmarket_id immediately.
+ * Why we touch ev_cards:
+ *   - The extension's `processCardPrices` keys both writes (ev_cards
+ *     update + appraiser fan-out) by `cardmarket_id`. If the ev_cards
+ *     doc still has cardmarket_id=null (typical for promo printings
+ *     Scryfall doesn't index), every scrape with the override's ID
+ *     misses the ev_cards updateOne and silently drops.
+ *   - The appraiser hydration also looks up ev_cards by cardmarket_id
+ *     to drive the foil/nonfoil variant fallback (single-variant CM
+ *     products → use the nonfoil scrape for foil rows). Without an
+ *     ev_cards match, that path can't run.
+ *
+ * Propagating the override to ev_cards makes both pipelines key off the
+ * same ID. The user fixes Star of Extinction PLST #XLN-161 once and
+ * every downstream surface — appraiser, EV, stock — sees the new ID.
+ *
+ * Note: Scryfall bulk sync respects DB overrides (see
+ * lib/scryfall-bulk.ts loading getCmOverridesMap), so the next bulk
+ * sync won't clobber the value with Scryfall's null.
  */
 export async function setCmOverride(
   db: Db,
@@ -61,7 +78,7 @@ export async function setCmOverride(
     cardmarket_id: number;
     userId: string;
   },
-): Promise<{ matchedAppraiserCards: number }> {
+): Promise<{ matchedAppraiserCards: number; matchedEvCards: number }> {
   const set = args.set.toLowerCase();
   const collectorNumber = args.collectorNumber;
   const cardmarket_id = args.cardmarket_id;
@@ -86,15 +103,41 @@ export async function setCmOverride(
       { upsert: true },
     );
 
-  // Propagate to all matching appraiser cards. cardDocToPayload always
-  // rebuilds cardmarketUrl from authoritative fields, so we don't need to
-  // touch the URL here — just the ID.
-  const result = await db.collection(COL_APPRAISER_CARDS).updateMany(
-    { set, collectorNumber },
-    { $set: { cardmarket_id } },
-  );
+  // ev_cards uses `collector_number` (snake) — different from appraiser's
+  // camelCase `collectorNumber`. Both surfaces need the same idProduct.
+  const [appraiserResult, evResult] = await Promise.all([
+    db.collection(COL_APPRAISER_CARDS).updateMany(
+      { set, collectorNumber },
+      { $set: { cardmarket_id } },
+    ),
+    db.collection(COL_EV_CARDS).updateMany(
+      { set, collector_number: collectorNumber },
+      { $set: { cardmarket_id } },
+    ),
+  ]);
 
-  return { matchedAppraiserCards: result.modifiedCount ?? 0 };
+  return {
+    matchedAppraiserCards: appraiserResult.modifiedCount ?? 0,
+    matchedEvCards: evResult.modifiedCount ?? 0,
+  };
+}
+
+/**
+ * Loads every DB-stored override into a `${set}:${collector_number}` →
+ * cardmarket_id map. Used by the Scryfall bulk sync to preserve user
+ * overrides across bulk re-syncs (Scryfall keeps returning null for
+ * these printings, and a naive sync would clobber the override).
+ */
+export async function getCmOverridesMap(db: Db): Promise<Record<string, number>> {
+  const docs = await db
+    .collection<CardmarketIdOverrideDoc>(COL_APPRAISER_CM_OVERRIDES)
+    .find({}, { projection: { _id: 0, set: 1, collectorNumber: 1, cardmarket_id: 1 } })
+    .toArray();
+  const map: Record<string, number> = {};
+  for (const d of docs) {
+    map[`${d.set.toLowerCase()}:${d.collectorNumber}`] = d.cardmarket_id;
+  }
+  return map;
 }
 
 /**

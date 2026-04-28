@@ -71,7 +71,20 @@ export function findDefaultCardsEntry(index: ScryfallBulkIndex): ScryfallBulkEnt
   return entry;
 }
 
-export function parseScryfallCardToDoc(card: any, nowIso: string, usdToEurFactor?: number): EvCardDoc {
+export function parseScryfallCardToDoc(
+  card: any,
+  nowIso: string,
+  usdToEurFactor?: number,
+  /**
+   * DB-stored cardmarket_id overrides keyed by `${set}:${collector_number}`.
+   * Loaded once at sync start (see lib/appraiser/cm-overrides.ts
+   * `getCmOverridesMap`) and passed through. Takes precedence over the
+   * static MANUAL_CARDMARKET_ID_OVERRIDES map and Scryfall's own value, so
+   * user-set overrides survive bulk re-syncs even when Scryfall keeps
+   * returning null for the printing.
+   */
+  cmIdOverrides?: Record<string, number>,
+): EvCardDoc {
   const imageUri =
     card.image_uris?.small ??
     card.card_faces?.[0]?.image_uris?.small ??
@@ -123,7 +136,11 @@ export function parseScryfallCardToDoc(card: any, nowIso: string, usdToEurFactor
     finishes: card.finishes ?? [],
     booster: card.booster ?? false,
     image_uri: imageUri,
-    cardmarket_id: getCardmarketIdOverride(card.set, card.collector_number) ?? card.cardmarket_id ?? null,
+    cardmarket_id:
+      cmIdOverrides?.[`${card.set}:${card.collector_number}`]
+      ?? getCardmarketIdOverride(card.set, card.collector_number)
+      ?? card.cardmarket_id
+      ?? null,
     type_line: card.type_line ?? "",
     frame_effects: card.frame_effects ?? [],
     promo_types: card.promo_types ?? [],
@@ -164,6 +181,8 @@ export interface StreamBulkCardsOptions {
   onBatch: (batch: EvCardDoc[]) => Promise<void>;
   now?: string;
   usdToEurFactor?: number;
+  /** See `parseScryfallCardToDoc` cmIdOverrides param. */
+  cmIdOverrides?: Record<string, number>;
 }
 
 export async function streamBulkCards(
@@ -186,7 +205,7 @@ export async function streamBulkCards(
   let processed = 0;
 
   for await (const chunk of pipeline as AsyncIterable<{ key: number; value: unknown }>) {
-    const doc = parseScryfallCardToDoc(chunk.value, nowIso, opts.usdToEurFactor);
+    const doc = parseScryfallCardToDoc(chunk.value, nowIso, opts.usdToEurFactor, opts.cmIdOverrides);
     batch.push(doc);
     processed++;
     if (batch.length >= opts.batchSize) {

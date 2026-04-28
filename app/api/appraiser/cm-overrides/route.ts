@@ -134,10 +134,15 @@ export const POST = withAuth(async (req, session) => {
     "update",
     "appraiser_cm_override",
     `${set}:${collectorNumber}`,
-    `Set Cardmarket id ${cardmarket_id} for ${set} #${collectorNumber} (propagated to ${result.matchedAppraiserCards} card${result.matchedAppraiserCards === 1 ? "" : "s"})`,
+    `Set Cardmarket id ${cardmarket_id} for ${set} #${collectorNumber} (propagated to ${result.matchedAppraiserCards} appraiser card${result.matchedAppraiserCards === 1 ? "" : "s"} + ${result.matchedEvCards} ev_cards row${result.matchedEvCards === 1 ? "" : "s"})`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown",
   );
 
-  return { ok: true, cardmarket_id, matchedAppraiserCards: result.matchedAppraiserCards };
+  return {
+    ok: true,
+    cardmarket_id,
+    matchedAppraiserCards: result.matchedAppraiserCards,
+    matchedEvCards: result.matchedEvCards,
+  };
 }, "appraiser-cm-override-set");

@@ -2076,9 +2076,17 @@ export async function refreshAllScryfall(): Promise<{
   // USD-converted ~€40). See lib/ev-prices.ts → clampEurAgainstUsd.
   const usdToEurFactor = (await getUsdToEurRate()) * EUR_MARKET_DISCOUNT;
 
+  // Load DB-stored cardmarket_id overrides once. These let user-set fixes
+  // (e.g. PLST and promo printings Scryfall doesn't index) survive bulk
+  // re-syncs — without this, every cron run would clobber the override
+  // back to Scryfall's null.
+  const { getCmOverridesMap } = await import("@/lib/appraiser/cm-overrides");
+  const cmIdOverrides = await getCmOverridesMap(db);
+
   const { processed: cardsProcessed } = await streamBulkCards(body, {
     batchSize: 1000,
     usdToEurFactor,
+    cmIdOverrides,
     onBatch: async (batch) => {
       const ops = batch.map((doc) => ({
         updateOne: {
