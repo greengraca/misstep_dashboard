@@ -98,19 +98,26 @@ export async function setCmOverride(
 }
 
 /**
- * Accepts either a Cardmarket URL with `idProduct=N` query param OR a bare
- * idProduct number. Returns the parsed numeric ID, or null when the input
- * doesn't yield one.
+ * Accepts any of:
+ *   - A Cardmarket URL with `idProduct=N` query param
+ *   - An HTML snippet containing `idAddProduct ... value="N"` (or the
+ *     reverse `value="N" ... idAddProduct`) — copied straight from the
+ *     CM product page's view-source
+ *   - A bare numeric idProduct
+ *
+ * Returns the parsed numeric ID, or null when the input doesn't yield one.
  *
  * Examples:
  *   parseCardmarketIdInput("12345")                                  → 12345
  *   parseCardmarketIdInput("https://...Products?idProduct=12345")    → 12345
+ *   parseCardmarketIdInput('<input name="idAddProduct" value="441234">') → 441234
  *   parseCardmarketIdInput("https://...Singles/Foo/Bar")             → null
  *   parseCardmarketIdInput("")                                       → null
  */
 export function parseCardmarketIdInput(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
+  // 1. URL with idProduct query param
   try {
     const u = new URL(trimmed);
     const id = u.searchParams.get("idProduct");
@@ -119,8 +126,22 @@ export function parseCardmarketIdInput(raw: string): number | null {
       if (n > 0) return n;
     }
   } catch {
-    // not a URL — fall through to bare-number parse
+    // not a URL — fall through
   }
+  // 2. HTML snippet: `name="idAddProduct" ... value="N"` or vice versa.
+  // The hidden input on every CM product page carries the idProduct in its
+  // value attribute. Both attribute orderings exist depending on theme.
+  const htmlForward = trimmed.match(/idAddProduct[^>]{0,200}?value\s*=\s*["']?(\d+)/i);
+  if (htmlForward) {
+    const n = parseInt(htmlForward[1], 10);
+    if (n > 0) return n;
+  }
+  const htmlBackward = trimmed.match(/value\s*=\s*["']?(\d+)[^<]{0,200}?idAddProduct/i);
+  if (htmlBackward) {
+    const n = parseInt(htmlBackward[1], 10);
+    if (n > 0) return n;
+  }
+  // 3. Bare number
   if (/^\d+$/.test(trimmed)) {
     const n = parseInt(trimmed, 10);
     if (n > 0) return n;

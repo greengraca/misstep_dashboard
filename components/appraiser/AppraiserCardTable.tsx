@@ -928,15 +928,33 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                 {idOverrideTarget.set.toUpperCase()} #{idOverrideTarget.collectorNumber}
               </span>
             </p>
-            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12 }}>
-              Paste a Cardmarket product URL (with <code style={{ fontFamily: "var(--font-mono)" }}>?idProduct=N</code>) or just the product number.
-              Applies to every collection with the same set + collector number, and to future imports.
-            </p>
+            <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", fontSize: 12, color: "var(--text-secondary)" }}>
+              <div style={{ color: "var(--text-primary)", fontWeight: 600, marginBottom: 6 }}>How to find the idProduct</div>
+              <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                <li>Open this card&apos;s product page on Cardmarket (use the search if needed).</li>
+                <li>
+                  Press <kbd style={{ fontFamily: "var(--font-mono)", padding: "1px 5px", border: "1px solid var(--border)", borderRadius: 3, fontSize: 11, background: "var(--bg-hover)" }}>Ctrl+U</kbd>
+                  {" "}(or{" "}
+                  <kbd style={{ fontFamily: "var(--font-mono)", padding: "1px 5px", border: "1px solid var(--border)", borderRadius: 3, fontSize: 11, background: "var(--bg-hover)" }}>Cmd+Option+U</kbd>
+                  {" "}on macOS) to view page source.
+                </li>
+                <li>
+                  <kbd style={{ fontFamily: "var(--font-mono)", padding: "1px 5px", border: "1px solid var(--border)", borderRadius: 3, fontSize: 11, background: "var(--bg-hover)" }}>Ctrl+F</kbd>
+                  {" "}for <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent)" }}>idAddProduct</code> — you&apos;ll land on a hidden input.
+                </li>
+                <li>
+                  Paste that whole line below (or just the number from <code style={{ fontFamily: "var(--font-mono)" }}>value=&quot;…&quot;</code>).
+                </li>
+              </ol>
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+                Applies to every collection with the same <span style={{ fontFamily: "var(--font-mono)" }}>{idOverrideTarget.set.toUpperCase()} #{idOverrideTarget.collectorNumber}</span> and to future imports.
+              </div>
+            </div>
             <input
               autoFocus
               className={inputClass}
               style={{ ...inputStyle, fontFamily: "var(--font-mono)", fontSize: 12 }}
-              placeholder="https://www.cardmarket.com/...?idProduct=441234   or   441234"
+              placeholder='441234   or   <input name="idAddProduct" value="441234">   or   ?idProduct=441234'
               value={idOverrideInput}
               onChange={(e) => setIdOverrideInput(e.target.value)}
               onKeyDown={(e) => {
