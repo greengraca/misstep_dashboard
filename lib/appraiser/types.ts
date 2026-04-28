@@ -109,6 +109,34 @@ export interface AppraiserCard {
    *  fromPrice in `hydrateAppraiserCards`. UI uses this to render an HP chip
    *  on the Trend column. */
   trend_hp_override?: boolean;
+  /** Source of fromPrice. "cm_ext" when sourced from a CM scrape (extension);
+   *  null when manually edited or never priced. fromPrice has no Scryfall
+   *  equivalent so this is binary. */
+  from_source?: "cm_ext" | null;
+  /** ISO timestamp of the cm_ext source's last scrape (variant.updatedAt or
+   *  doc's pricedAt fallback). */
+  from_updated_at?: string | null;
+  /** Sales-cadence signal derived from `cm_prices.<variant>.chart`. The chart
+   *  is one entry per day with ≥1 sale (no volume info), so this captures
+   *  consistency, not volume. Null when no CM scrape has happened. */
+  velocity?: VelocityInfo | null;
+}
+
+export interface VelocityInfo {
+  /** Days within the window that had at least one sale on Cardmarket. */
+  activeDays: number;
+  /** Length of the observation window in days (≤30, possibly less for new
+   *  printings or low-traffic cards where CM serves a shorter chart). */
+  windowDays: number;
+  /** Days since the most recent sale entry. Null when the window is empty. */
+  daysSinceLastSale: number | null;
+  /** Tiered classification driving the UI dot color. */
+  tier: "fast" | "medium" | "slow" | "unknown";
+  /** ISO timestamp of when the chart was last scraped. Used to caveat staleness. */
+  chartScrapedAt: string | null;
+  /** Which variant's chart we used. May differ from the row's foil flag
+   *  when the card is single-variant on CM (foil-only promos, etc.). */
+  variant: "foil" | "nonfoil";
 }
 
 export interface CardInput {

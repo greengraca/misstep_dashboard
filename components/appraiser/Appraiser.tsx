@@ -70,8 +70,8 @@ export default function Appraiser() {
   }, [detailSwr, listSwr]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "24px 32px", maxWidth: 1400, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0, color: "var(--text-primary)" }}>Appraiser</h1>
+    <div className="flex flex-col gap-6">
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Appraiser</h1>
 
       <CollectionSelector
         collections={collections}
