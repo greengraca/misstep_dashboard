@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useMemo, useRef, useTransition } from "react";
 import Select from "@/components/dashboard/select";
+import Modal from "@/components/dashboard/modal";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
 import { cleanCardmarketUrl, isCardmarketProductUrl } from "@/lib/appraiser/scryfall-resolve";
 import type { AppraiserCard, AppraiserCollection } from "@/lib/appraiser/types";
-import { sectionHeader, btnSecondaryClass, btnSecondary } from "./ui";
+import { sectionHeader, btnSecondaryClass, btnSecondary, btnPrimaryClass, btnPrimary, inputClass, inputStyle } from "./ui";
 
 interface Props {
   collectionId: string;
@@ -81,6 +82,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [undercutEnabled, setUndercutEnabled] = useState<boolean>(false);
   const [undercutPercent, setUndercutPercent] = useState<number>(20);
   const [velocityCollapsed, setVelocityCollapsed] = useState<boolean>(true);
+  const [idOverrideTarget, setIdOverrideTarget] = useState<AppraiserCard | null>(null);
+  const [idOverrideInput, setIdOverrideInput] = useState("");
+  const [idOverrideError, setIdOverrideError] = useState("");
+  const [idOverrideSubmitting, setIdOverrideSubmitting] = useState(false);
   // useTransition lets React schedule the table re-render as a non-urgent
   // update — the chevron flips instantly, the (expensive) per-row reconciliation
   // happens during idle frames instead of blocking the click. Without this,
@@ -162,6 +167,49 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     if (!confirm(`Remove "${name}" from this collection?`)) return;
     await fetch(`/api/appraiser/collections/${collectionId}/cards/${cardId}`, { method: "DELETE" });
     onCardChanged();
+  };
+
+  // Manual Cardmarket-ID override flow. Used for printings where Scryfall
+  // didn't know the right idProduct (PLST cards, niche promos, etc.) — the
+  // user pastes a CM URL or product number and we propagate it to every
+  // appraiser card with the same `{set, collectorNumber}` across all
+  // collections, plus persist for future imports of the same printing.
+  const openIdOverride = (c: AppraiserCard) => {
+    setIdOverrideTarget(c);
+    setIdOverrideInput("");
+    setIdOverrideError("");
+  };
+  const closeIdOverride = () => {
+    setIdOverrideTarget(null);
+    setIdOverrideInput("");
+    setIdOverrideError("");
+  };
+  const submitIdOverride = async () => {
+    if (!idOverrideTarget || idOverrideSubmitting) return;
+    setIdOverrideSubmitting(true);
+    setIdOverrideError("");
+    try {
+      const res = await fetch("/api/appraiser/cm-overrides", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          set: idOverrideTarget.set,
+          collectorNumber: idOverrideTarget.collectorNumber,
+          cardmarketIdInput: idOverrideInput,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIdOverrideError(data.error ?? "Failed to set override");
+        return;
+      }
+      closeIdOverride();
+      onCardChanged();
+    } catch (err) {
+      setIdOverrideError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setIdOverrideSubmitting(false);
+    }
   };
 
   // Undercut models the resale haircut on TREND only — buyers undercut my
@@ -526,6 +574,28 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                         {c.name} ↗
                       </a>
                     ) : c.name}
+                    {c.cardmarket_id == null && (
+                      <button
+                        onClick={() => openIdOverride(c)}
+                        title="Cardmarket couldn't find this printing — click to paste the right idProduct manually. Applies to every collection with the same set + collector number."
+                        className="hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                        style={{
+                          background: "transparent",
+                          border: "1px dashed var(--border)",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          fontSize: 9,
+                          padding: "1px 5px",
+                          borderRadius: 3,
+                          fontFamily: "var(--font-mono)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        set ID
+                      </button>
+                    )}
                   </div>
                 </td>
                 <td style={td}>
@@ -778,6 +848,62 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
           </tbody>
         </table>
       </div>
+
+      <Modal
+        open={!!idOverrideTarget}
+        onClose={closeIdOverride}
+        title="Set Cardmarket ID"
+        maxWidth="max-w-md"
+      >
+        {idOverrideTarget && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 13, color: "var(--text-secondary)" }}>
+            <p style={{ margin: 0 }}>
+              <strong style={{ color: "var(--text-primary)" }}>{idOverrideTarget.name}</strong>
+              {" "}
+              <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                {idOverrideTarget.set.toUpperCase()} #{idOverrideTarget.collectorNumber}
+              </span>
+            </p>
+            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12 }}>
+              Paste a Cardmarket product URL (with <code style={{ fontFamily: "var(--font-mono)" }}>?idProduct=N</code>) or just the product number.
+              Applies to every collection with the same set + collector number, and to future imports.
+            </p>
+            <input
+              autoFocus
+              className={inputClass}
+              style={{ ...inputStyle, fontFamily: "var(--font-mono)", fontSize: 12 }}
+              placeholder="https://www.cardmarket.com/...?idProduct=441234   or   441234"
+              value={idOverrideInput}
+              onChange={(e) => setIdOverrideInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitIdOverride();
+                if (e.key === "Escape") closeIdOverride();
+              }}
+            />
+            {idOverrideError && (
+              <div style={{ color: "var(--error)", fontSize: 12 }}>{idOverrideError}</div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={closeIdOverride}
+                className={btnSecondaryClass}
+                style={btnSecondary}
+                disabled={idOverrideSubmitting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitIdOverride}
+                className={btnPrimaryClass}
+                style={btnPrimary}
+                disabled={idOverrideSubmitting || !idOverrideInput.trim()}
+              >
+                {idOverrideSubmitting ? "Saving…" : "Save override"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
     </div>
   );

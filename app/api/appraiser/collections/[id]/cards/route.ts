@@ -4,6 +4,7 @@ import { withAuthParams } from "@/lib/api-helpers";
 import { getDb } from "@/lib/mongodb";
 import { logActivity } from "@/lib/activity";
 import { resolveScryfall } from "@/lib/appraiser/scryfall-resolve";
+import { getCmOverride } from "@/lib/appraiser/cm-overrides";
 import {
   COL_APPRAISER_COLLECTIONS,
   COL_APPRAISER_CARDS,
@@ -128,6 +129,11 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       continue;
     }
 
+    // Manual override lookup — when Scryfall doesn't know the right CM id
+    // for a printing, the user can set one once and every collection that
+    // imports the same `{set, collectorNumber}` later inherits it.
+    const overrideId = await getCmOverride(db, resolved.set, resolved.collectorNumber);
+
     const doc: Omit<AppraiserCardDoc, "_id"> = {
       collectionId: oid,
       name: resolved.name,
@@ -139,14 +145,17 @@ export const POST = withAuthParams<{ id: string }>(async (req, session, { id }) 
       foil: resolved.foilOnly ? true : foil,
       qty,
       scryfallId: resolved.scryfallId,
-      // Always use Scryfall's cardmarket_id — the card-name link opens
-      // Scryfall's purchase_uris.cardmarket (built from this field), and
-      // the extension scrape sends the productId of the page it lands on.
-      // If we stored a different CM ID (e.g. the one from the Delver Lens
-      // CSV, which can diverge for some variants), the fan-out filter
+      // User override (when set for this `{set, cn}`) trumps Scryfall — used
+      // for printings where Scryfall's bulk data has no cardmarket_id but
+      // the user knows the right idProduct from CM directly.
+      // Otherwise: always use Scryfall's cardmarket_id — the card-name link
+      // opens Scryfall's purchase_uris.cardmarket (built from this field),
+      // and the extension scrape sends the productId of the page it lands
+      // on. If we stored a different CM ID (e.g. the one from the Delver
+      // Lens CSV, which can diverge for some variants), the fan-out filter
       // {cardmarket_id: productId} would miss and prices would land in the
       // DB but never flow back to the appraiser doc.
-      cardmarket_id: resolved.cardmarketId,
+      cardmarket_id: overrideId ?? resolved.cardmarketId,
       cardmarketUrl: resolved.cardmarketUrl,
       imageUrl: resolved.imageUrl,
       trendPrice: resolved.trendPrice,

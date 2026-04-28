@@ -13,7 +13,7 @@
 
 import type { Db } from "mongodb";
 import { getEffectivePrice, type EffectivePriceInput } from "@/lib/ev-prices";
-import { buildCardmarketUrl, isCardmarketSearchUrl } from "@/lib/cardmarket-url";
+import { buildCardmarketUrl } from "@/lib/cardmarket-url";
 import type {
   AppraiserCard,
   AppraiserCardDoc,
@@ -156,23 +156,24 @@ export function isHeavilyPlayedCondition(condition: string | undefined | null): 
 }
 
 function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
-  // If the stored cardmarketUrl is Scryfall's search-page fallback (Scryfall
-  // didn't know an idProduct at resolve time), try to upgrade it to a slug
-  // URL we can build ourselves. Lets older docs benefit from the URL builder
-  // without forcing a re-resolve. Falls through to the stored value when
-  // we can't do better.
-  let cardmarketUrl = d.cardmarketUrl;
-  if (isCardmarketSearchUrl(cardmarketUrl)) {
-    const built = buildCardmarketUrl(
-      d.setName,
-      d.name,
-      d.foil,
-      d.cardmarket_id,
-      d.set,
-      d.collectorNumber,
-    );
-    if (built) cardmarketUrl = built;
-  }
+  // Always recompute cardmarketUrl from authoritative fields. This way:
+  //   - Manual cardmarket_id overrides set via the UI flow into the URL
+  //     automatically without any per-doc URL rewrite step.
+  //   - MANUAL_CARDMARKET_URLS (cross-printing fixes) take effect.
+  //   - Old docs with stored search-page URLs upgrade to slug URLs when
+  //     possible.
+  // Falls back to the stored URL only when the builder returns null
+  // (PLST without an idProduct, etc.) so we don't replace a search URL
+  // with nothing.
+  const built = buildCardmarketUrl(
+    d.setName,
+    d.name,
+    d.foil,
+    d.cardmarket_id,
+    d.set,
+    d.collectorNumber,
+  );
+  const cardmarketUrl = built ?? d.cardmarketUrl;
   return {
     _id: String(d._id),
     collectionId: String(d.collectionId),
