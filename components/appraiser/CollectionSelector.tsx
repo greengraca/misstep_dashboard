@@ -29,10 +29,6 @@ interface Props {
 
 type RefreshProgress = { processed: number; total: number } | null;
 
-function eur(n: number) {
-  return n.toFixed(2).replace(".", ",") + " €";
-}
-
 export default function CollectionSelector({ collections, selectedId, onSelect, onChanged, onAfterRefresh }: Props) {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -143,7 +139,7 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
     { value: "", label: "-- Select collection --" },
     ...collections.map((c) => ({
       value: c._id,
-      label: `${c.name} — ${c.cardCount} card${c.cardCount !== 1 ? "s" : ""} — From ${eur(c.totalFrom)} / Trend ${eur(c.totalTrend)}`,
+      label: `${c.name} — ${c.cardCount} card${c.cardCount !== 1 ? "s" : ""}`,
     })),
   ];
 
