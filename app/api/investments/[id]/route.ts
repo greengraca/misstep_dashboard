@@ -29,9 +29,8 @@ function validatePatch(body: unknown): string | null {
   return null;
 }
 
-// Dual-auth so the extension popup can read source.set_code / status for
-// the baseline mapping-form UI. The endpoint is read-only; PATCH/DELETE
-// stay session-only below.
+// Dual-auth so the extension popup can read the investment's code and
+// source for the listing-tag UX. PATCH/DELETE stay session-only below.
 export const GET = withExtAuthReadParams<{ id: string }>(async (_req, _identity, { id }) => {
   const inv = await getInvestment(id);
   if (!inv) return NextResponse.json({ error: "not found" }, { status: 404 });

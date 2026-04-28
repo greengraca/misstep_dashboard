@@ -103,6 +103,11 @@ export interface CmOrderItem {
   productId?: string;
   expansionPos?: string;
   langPos?: string;
+  /** Per-item comment scraped from the order-detail page. Carries the
+   *  investment provenance tag (`MS-XXXX`) when the user pasted one
+   *  into the listing's CM comment field. Required for tag-based
+   *  attribution; ext v1.13+. */
+  comment?: string | null;
 }
 
 export interface CmOrderDetail {

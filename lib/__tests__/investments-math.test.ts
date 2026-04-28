@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   computeExpectedOpenCardCount,
   computeCostBasisPerUnit,
-  computeAttributable,
   sumSealedFlipProceeds,
 } from "../investments/math";
 import type { Investment, SealedFlip } from "../investments/types";
@@ -11,6 +10,7 @@ function boxInvestment(over: Partial<Investment> = {}): Investment {
   return {
     _id: {} as never,
     name: "test",
+    code: "MS-TEST",
     created_at: new Date(),
     created_by: "u1",
     status: "listing",
@@ -89,22 +89,17 @@ describe("sumSealedFlipProceeds", () => {
   });
 });
 
-describe("computeAttributable", () => {
-  it("returns current_stock - baseline - lot_already_opened, floored at 0", () => {
-    expect(
-      computeAttributable({ currentStockQty: 7, baselineQty: 2, lotAlreadyOpened: 3 })
-    ).toBe(2);
-  });
-
-  it("returns 0 when delta is negative", () => {
-    expect(
-      computeAttributable({ currentStockQty: 1, baselineQty: 2, lotAlreadyOpened: 0 })
-    ).toBe(0);
-  });
-
-  it("returns 0 on exact balance", () => {
-    expect(
-      computeAttributable({ currentStockQty: 3, baselineQty: 1, lotAlreadyOpened: 2 })
-    ).toBe(0);
+describe("collection-kind expected_open_card_count", () => {
+  it("uses source.card_count directly, ignoring sealed flips", () => {
+    const inv: Investment = {
+      ...boxInvestment(),
+      source: {
+        kind: "collection",
+        appraiser_collection_id: "abcdef0123456789abcdef01",
+        card_count: 47,
+      },
+      sealed_flips: [{ recorded_at: new Date(), unit_count: 5, proceeds_eur: 99 }],
+    };
+    expect(computeExpectedOpenCardCount(inv)).toBe(47);
   });
 });

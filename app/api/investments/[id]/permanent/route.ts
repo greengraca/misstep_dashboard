@@ -4,13 +4,12 @@ import { logActivity } from "@/lib/activity";
 import { deleteInvestmentPermanent, getInvestment } from "@/lib/investments/service";
 
 /**
- * Hard-delete an investment and all its baseline / lot / sale-log rows.
- * Session-only — destructive, no ext caller should trigger this. Unlike
- * DELETE /api/investments/[id] which archives (soft-delete), this removes
- * the document and cascades. Activity log preserves a record of the name.
+ * Hard-delete an investment and all its lot / sale-log rows. Session-only
+ * — destructive, no ext caller should trigger this. Unlike DELETE
+ * /api/investments/[id] which archives (soft-delete), this removes the
+ * document and cascades. Activity log preserves the name.
  */
 export const DELETE = withAuthParams<{ id: string }>(async (_req, session, { id }) => {
-  // Read name BEFORE delete so the activity log has it.
   const inv = await getInvestment(id);
   const name = inv?.name ?? "(unknown)";
 
@@ -22,7 +21,7 @@ export const DELETE = withAuthParams<{ id: string }>(async (_req, session, { id 
     "delete",
     "investment",
     id,
-    `Permanently deleted investment "${name}" (${result.counts.baseline} baseline, ${result.counts.lots} lots, ${result.counts.sale_log} sale-log rows removed)`,
+    `Permanently deleted investment "${name}" (${result.counts.lots} lots, ${result.counts.sale_log} sale-log rows removed)`,
     session.user?.id ?? "system",
     session.user?.name ?? "unknown"
   );

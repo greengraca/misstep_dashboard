@@ -15,14 +15,20 @@ function sumSealedFlipUnits(flips: SealedFlip[]): number {
 /**
  * Compute expected cards to be opened, given the current source config + sealed flips.
  *
- * For product-kind investments, the total cards per unit is not on the Investment
- * document (it lives on EvProduct.cards[*].count). The caller must pass it in
- * via options.cardsPerProductUnit — the service layer reads that from the product.
+ * For product-kind, the total cards per unit is not on the Investment doc
+ * (it lives on EvProduct.cards[*].count). The caller passes it via
+ * options.cardsPerProductUnit — the service layer reads it from the product.
+ *
+ * For collection-kind, the count is fixed at conversion time
+ * (source.card_count) — sealed flips don't apply.
  */
 export function computeExpectedOpenCardCount(
   investment: Investment,
   options: { cardsPerProductUnit?: number } = {}
 ): number {
+  if (investment.source.kind === "collection") {
+    return investment.source.card_count;
+  }
   const flippedUnits = sumSealedFlipUnits(investment.sealed_flips);
   if (investment.source.kind === "box") {
     const { packs_per_box, cards_per_pack, box_count } = investment.source;
@@ -40,14 +46,4 @@ export function computeCostBasisPerUnit(
   if (totalOpened <= 0) return null;
   const net = investment.cost_total_eur - sumSealedFlipProceeds(investment.sealed_flips);
   return net / totalOpened;
-}
-
-/** How many more cards of this tuple we may attribute right now. */
-export function computeAttributable(params: {
-  currentStockQty: number;
-  baselineQty: number;
-  lotAlreadyOpened: number;
-}): number {
-  const delta = params.currentStockQty - params.baselineQty - params.lotAlreadyOpened;
-  return delta > 0 ? delta : 0;
 }

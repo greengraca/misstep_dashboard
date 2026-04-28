@@ -3,13 +3,14 @@ import { getDb } from "@/lib/mongodb";
 import { COL_PRODUCTS as COL_EV_PRODUCTS, latestPlayEvBySet } from "@/lib/ev-products";
 import {
   COL_INVESTMENTS,
-  COL_INVESTMENT_BASELINE,
   COL_INVESTMENT_LOTS,
   COL_INVESTMENT_SALE_LOG,
   ensureInvestmentIndexes,
 } from "./db";
+import { generateUniqueInvestmentCode } from "./codes";
 import { computeExpectedOpenCardCount, computeCostBasisPerUnit } from "./math";
 import type {
+  ConvertAppraiserToInvestmentBody,
   CreateInvestmentBody,
   Investment,
   InvestmentListItem,
@@ -17,6 +18,12 @@ import type {
   UpdateInvestmentBody,
 } from "./types";
 import type { EvProduct } from "@/lib/types";
+import {
+  COL_APPRAISER_CARDS,
+  COL_APPRAISER_COLLECTIONS,
+  type AppraiserCardDoc,
+  type AppraiserCollectionDoc,
+} from "@/lib/appraiser/types";
 
 /** Sum of EvProduct.cards[*].count — total cards in one unit of the product. */
 async function cardsPerProductUnit(db: Db, slug: string): Promise<number> {
@@ -43,13 +50,13 @@ export async function createInvestment(params: {
   await ensureInvestmentIndexes();
   const db = await getDb();
   const now = new Date();
-  // Compute expected_open_card_count up front.
   const stub: Investment = {
     _id: new ObjectId(),
     name: params.body.name.trim(),
+    code: await generateUniqueInvestmentCode(db),
     created_at: now,
     created_by: params.userId,
-    status: "baseline_captured",
+    status: "listing",
     cost_total_eur: params.body.cost_total_eur,
     cost_notes: params.body.cost_notes?.trim() || undefined,
     source: params.body.source,
@@ -62,8 +69,7 @@ export async function createInvestment(params: {
   return stub;
 }
 
-/** Resolve default CM set-name variants for an investment's source.
- *  Looks up dashboard_ev_sets for box-kind; uses EvProduct's parent_set_code for product-kind. */
+/** Resolve default CM set-name variants for an investment's source. */
 async function defaultCmSetNames(db: Db, source: InvestmentSource): Promise<string[]> {
   if (source.kind === "box") {
     const set = await db
@@ -71,14 +77,143 @@ async function defaultCmSetNames(db: Db, source: InvestmentSource): Promise<stri
       .findOne({ code: source.set_code }, { projection: { name: 1 } });
     return set?.name ? [set.name as string] : [];
   }
-  const p = await db
-    .collection<EvProduct>(COL_EV_PRODUCTS)
-    .findOne({ slug: source.product_slug }, { projection: { parent_set_code: 1 } });
-  if (!p?.parent_set_code) return [];
-  const set = await db
-    .collection("dashboard_ev_sets")
-    .findOne({ code: p.parent_set_code }, { projection: { name: 1 } });
-  return set?.name ? [set.name as string] : [];
+  if (source.kind === "product") {
+    const p = await db
+      .collection<EvProduct>(COL_EV_PRODUCTS)
+      .findOne({ slug: source.product_slug }, { projection: { parent_set_code: 1 } });
+    if (!p?.parent_set_code) return [];
+    const set = await db
+      .collection("dashboard_ev_sets")
+      .findOne({ code: p.parent_set_code }, { projection: { name: 1 } });
+    return set?.name ? [set.name as string] : [];
+  }
+  // collection-kind: union of distinct setNames across the cards.
+  const cards = await db
+    .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
+    .find(
+      { collectionId: new ObjectId(source.appraiser_collection_id), excluded: { $ne: true } },
+      { projection: { setName: 1 } }
+    )
+    .toArray();
+  const names = new Set<string>();
+  for (const c of cards) if (c.setName) names.add(c.setName);
+  return Array.from(names);
+}
+
+/**
+ * Convert an appraiser collection into a fully-populated investment:
+ *   - Generates a code.
+ *   - Creates the investment with `kind: "collection"`.
+ *   - Creates one lot per (cardmarket_id, foil, condition, language) tuple
+ *     with qty_opened summed from the collection's non-excluded cards.
+ *   - Status starts at "listing" — no baseline phase, no opening to do.
+ *
+ * Cards without a cardmarket_id are skipped (can't attribute via tag without
+ * a CM product key) — surfaced in the API response so the user can fix
+ * them with the per-card "set ID" override before re-converting.
+ */
+export async function createInvestmentFromAppraiser(params: {
+  collectionId: string;
+  body: ConvertAppraiserToInvestmentBody;
+  userId: string;
+}): Promise<{
+  investment: Investment;
+  lotCount: number;
+  cardCount: number;
+  skippedNoCmId: number;
+} | null> {
+  await ensureInvestmentIndexes();
+  if (!ObjectId.isValid(params.collectionId)) return null;
+  const db = await getDb();
+  const collectionOid = new ObjectId(params.collectionId);
+  const collection = await db
+    .collection<AppraiserCollectionDoc>(COL_APPRAISER_COLLECTIONS)
+    .findOne({ _id: collectionOid });
+  if (!collection) return null;
+
+  const cards = await db
+    .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
+    .find({ collectionId: collectionOid, excluded: { $ne: true } })
+    .toArray();
+
+  // Group by tuple. Cards lacking a cardmarket_id can't be tagged-and-tracked
+  // (the extension's stock + order-detail scrape match comments back via
+  // productId), so they're skipped and reported.
+  type Tuple = { cardmarket_id: number; foil: boolean; condition: string; language: string };
+  const tupleKey = (t: Tuple) => `${t.cardmarket_id}|${t.foil}|${t.condition}|${t.language}`;
+  const grouped = new Map<string, { tuple: Tuple; qty: number }>();
+  let skippedNoCmId = 0;
+  let cardCount = 0;
+  for (const c of cards) {
+    if (c.cardmarket_id == null) {
+      skippedNoCmId += c.qty;
+      continue;
+    }
+    const t: Tuple = {
+      cardmarket_id: c.cardmarket_id,
+      foil: !!c.foil,
+      condition: c.condition || "NM",
+      language: c.language || "English",
+    };
+    const k = tupleKey(t);
+    const existing = grouped.get(k);
+    if (existing) existing.qty += c.qty;
+    else grouped.set(k, { tuple: t, qty: c.qty });
+    cardCount += c.qty;
+  }
+
+  const now = new Date();
+  const investment: Investment = {
+    _id: new ObjectId(),
+    name: (params.body.name?.trim() || collection.name || `Collection — ${collection._id}`),
+    code: await generateUniqueInvestmentCode(db),
+    created_at: now,
+    created_by: params.userId,
+    status: "listing",
+    cost_total_eur: params.body.cost_total_eur,
+    cost_notes: params.body.cost_notes?.trim() || undefined,
+    source: {
+      kind: "collection",
+      appraiser_collection_id: params.collectionId,
+      card_count: cardCount,
+    },
+    cm_set_names: await defaultCmSetNames(db, {
+      kind: "collection",
+      appraiser_collection_id: params.collectionId,
+      card_count: cardCount,
+    }),
+    sealed_flips: [],
+    expected_open_card_count: cardCount,
+  };
+  await db.collection<Investment>(COL_INVESTMENTS).insertOne(investment);
+
+  // Bulk insert lots — one per tuple. qty_opened reflects the collection's
+  // recorded qty for that tuple at conversion time. Sales of those tuples
+  // matching this investment's tag will decrement qty_remaining.
+  if (grouped.size > 0) {
+    const lotDocs = Array.from(grouped.values()).map((g) => ({
+      _id: new ObjectId(),
+      investment_id: investment._id,
+      cardmarket_id: g.tuple.cardmarket_id,
+      foil: g.tuple.foil,
+      condition: g.tuple.condition,
+      language: g.tuple.language,
+      qty_opened: g.qty,
+      qty_sold: 0,
+      qty_remaining: g.qty,
+      cost_basis_per_unit: null,
+      proceeds_eur: 0,
+      last_grown_at: now,
+    }));
+    await db.collection(COL_INVESTMENT_LOTS).insertMany(lotDocs);
+  }
+
+  return {
+    investment,
+    lotCount: grouped.size,
+    cardCount,
+    skippedNoCmId,
+  };
 }
 
 export async function getInvestment(id: string): Promise<Investment | null> {
@@ -139,25 +274,16 @@ export async function archiveInvestment(id: string): Promise<boolean> {
   return res.matchedCount > 0;
 }
 
-/**
- * Hard-delete the investment and every row that references it across the
- * four investment collections. Returns per-collection deletion counts for
- * the activity log / UI confirmation. Use archiveInvestment for soft-delete
- * — this is the "I really mean it" path and cannot be reversed.
- */
+/** Hard-delete the investment and every row that references it. */
 export async function deleteInvestmentPermanent(id: string): Promise<
-  | {
-      deleted: true;
-      counts: { investment: number; baseline: number; lots: number; sale_log: number };
-    }
+  | { deleted: true; counts: { investment: number; lots: number; sale_log: number } }
   | { deleted: false }
 > {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(id)) return { deleted: false };
   const db = await getDb();
   const invId = new ObjectId(id);
-  const [baseline, lots, saleLog, inv] = await Promise.all([
-    db.collection(COL_INVESTMENT_BASELINE).deleteMany({ investment_id: invId }),
+  const [lots, saleLog, inv] = await Promise.all([
     db.collection(COL_INVESTMENT_LOTS).deleteMany({ investment_id: invId }),
     db.collection(COL_INVESTMENT_SALE_LOG).deleteMany({ investment_id: invId }),
     db.collection(COL_INVESTMENTS).deleteOne({ _id: invId }),
@@ -167,7 +293,6 @@ export async function deleteInvestmentPermanent(id: string): Promise<
     deleted: true,
     counts: {
       investment: inv.deletedCount,
-      baseline: baseline.deletedCount ?? 0,
       lots: lots.deletedCount ?? 0,
       sale_log: saleLog.deletedCount ?? 0,
     },
@@ -195,6 +320,7 @@ export async function listInvestmentSummaries(params: {
     investments.map(async (inv) => ({
       id: String(inv._id),
       name: inv.name,
+      code: inv.code,
       status: inv.status,
       created_at: inv.created_at.toISOString(),
       source: inv.source,
@@ -237,73 +363,28 @@ export async function computeListedValue(investmentId: ObjectId): Promise<number
   return row?.total ?? 0;
 }
 
-export async function computeBaselineProgress(investmentId: ObjectId): Promise<{
-  /** Cards captured — sum of qty_baseline across baseline rows. Matches
-   *  the "cards" unit of expected_total_count (which comes from CM's
-   *  idExpansion dropdown, reporting cards). */
-  captured_count: number;
-  /** Row count — documents in baseline collection. Useful for debugging
-   *  discrepancies between qty-summed cards and listing-count rows. */
-  captured_rows: number;
-  expected_total_count: number | null;
-  complete: boolean;
+/**
+ * Tag-audit: count distinct stock listings whose comment carries this
+ * investment's code, vs the expected lot count. Powers the detail-page
+ * "X tagged of Y" widget so the user can spot listings that need their
+ * comment updated.
+ */
+export async function computeTagAudit(investment: Investment): Promise<{
+  tagged_listings: number;
+  expected_lots: number;
 }> {
   const db = await getDb();
-  const [inv, capturedRows, capturedCardsAgg] = await Promise.all([
-    db.collection<Investment>(COL_INVESTMENTS).findOne(
-      { _id: investmentId },
-      { projection: { baseline_total_expected: 1 } }
-    ),
-    db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: investmentId }),
-    db
-      .collection(COL_INVESTMENT_BASELINE)
-      .aggregate<{ total: number }>([
-        { $match: { investment_id: investmentId } },
-        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
-      ])
-      .next(),
-  ]);
-  const capturedCards = capturedCardsAgg?.total ?? 0;
-  const expected = inv?.baseline_total_expected ?? null;
-  const complete = expected != null && capturedCards >= expected;
-  return {
-    captured_count: capturedCards,
-    captured_rows: capturedRows,
-    expected_total_count: expected,
-    complete,
-  };
-}
-
-/**
- * Sum qty + (qty * price) across all baseline rows for the investment.
- * Rendered on the investment detail page so the user sees "at baseline time
- * I had N cards listed worth €X" — gives context for subsequent lot growth.
- */
-export async function computeBaselineTotals(investmentId: ObjectId): Promise<{
-  total_cards: number;
-  total_value_eur: number;
-} | null> {
-  const db = await getDb();
-  const row = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .aggregate<{ total_cards: number; total_value_eur: number }>([
-      { $match: { investment_id: investmentId } },
-      {
-        $group: {
-          _id: null,
-          total_cards: { $sum: "$qty_baseline" },
-          total_value_eur: {
-            $sum: { $multiply: ["$qty_baseline", { $ifNull: ["$price_eur", 0] }] },
-          },
-        },
-      },
-    ])
-    .next();
-  if (!row) return null;
-  return {
-    total_cards: row.total_cards ?? 0,
-    total_value_eur: row.total_value_eur ?? 0,
-  };
+  const expectedAgg = await db
+    .collection(COL_INVESTMENT_LOTS)
+    .countDocuments({ investment_id: investment._id });
+  const taggedAgg = await db
+    .collection("dashboard_cm_stock")
+    .countDocuments({
+      // Word-boundary regex is `\bMS-XXXX\b`, anchored on this investment's code.
+      // CASE-INSENSITIVE because users may paste in lowercase.
+      comment: { $regex: `\\b${investment.code.replace("-", "\\-")}\\b`, $options: "i" },
+    });
+  return { tagged_listings: taggedAgg, expected_lots: expectedAgg };
 }
 
 /** Expected EV for display. Best-effort; returns null if unavailable. */
@@ -315,20 +396,23 @@ export async function computeExpectedEv(investment: Investment): Promise<number 
     if (perPackEv == null) return null;
     return perPackEv * investment.source.packs_per_box * investment.source.box_count;
   }
-  // product-kind: read latest snapshot from dashboard_ev_snapshots
-  const snap = await db
-    .collection("dashboard_ev_snapshots")
-    .find({ product_slug: investment.source.product_slug })
-    .sort({ date: -1 })
-    .limit(1)
-    .next();
-  const evPerUnit =
-    (snap?.ev_net_opened as number | null) ??
-    (snap?.ev_net_sealed as number | null) ??
-    (snap?.ev_net_cards_only as number | null) ??
-    null;
-  if (evPerUnit == null) return null;
-  return evPerUnit * investment.source.unit_count;
+  if (investment.source.kind === "product") {
+    const snap = await db
+      .collection("dashboard_ev_snapshots")
+      .find({ product_slug: investment.source.product_slug })
+      .sort({ date: -1 })
+      .limit(1)
+      .next();
+    const evPerUnit =
+      (snap?.ev_net_opened as number | null) ??
+      (snap?.ev_net_sealed as number | null) ??
+      (snap?.ev_net_cards_only as number | null) ??
+      null;
+    if (evPerUnit == null) return null;
+    return evPerUnit * investment.source.unit_count;
+  }
+  // collection-kind: no published EV concept — the cost is what it is.
+  return null;
 }
 
 export async function buildInvestmentDetail(
@@ -346,14 +430,11 @@ export async function buildInvestmentDetail(
   const lotProceeds = proceedsAgg?.total ?? 0;
   const sealedProceeds = inv.sealed_flips.reduce((s, f) => s + f.proceeds_eur, 0);
   const realized = lotProceeds + sealedProceeds;
-  const baseline =
-    inv.status === "baseline_captured"
-      ? await computeBaselineProgress(inv._id)
-      : undefined;
-  const baselineTotals = await computeBaselineTotals(inv._id);
+  const tagAudit = await computeTagAudit(inv);
   return {
     id: String(inv._id),
     name: inv.name,
+    code: inv.code,
     status: inv.status,
     created_at: inv.created_at.toISOString(),
     created_by: inv.created_by,
@@ -363,7 +444,6 @@ export async function buildInvestmentDetail(
     cm_set_names: inv.cm_set_names,
     sealed_flips: inv.sealed_flips,
     expected_open_card_count: inv.expected_open_card_count,
-    baseline_completed_at: inv.baseline_completed_at?.toISOString(),
     closed_at: inv.closed_at?.toISOString(),
     kpis: {
       cost_eur: inv.cost_total_eur,
@@ -373,10 +453,7 @@ export async function buildInvestmentDetail(
       net_pl_blended_eur: realized + listed - inv.cost_total_eur,
       break_even_pct: inv.cost_total_eur > 0 ? realized / inv.cost_total_eur : 0,
     },
-    baseline_progress: baseline,
-    baseline_totals: baselineTotals && baselineTotals.total_cards > 0
-      ? baselineTotals
-      : undefined,
+    tag_audit: tagAudit,
   };
 }
 
@@ -391,6 +468,10 @@ export async function recordSealedFlip(params: {
     .collection<Investment>(COL_INVESTMENTS)
     .findOne({ _id: new ObjectId(params.id) });
   if (!inv) return null;
+  if (inv.source.kind === "collection") {
+    // No sealed product to flip on a collection-kind investment.
+    return inv;
+  }
 
   const flip = {
     recorded_at: new Date(),
@@ -399,8 +480,6 @@ export async function recordSealedFlip(params: {
     note: params.body.note?.trim() || undefined,
   };
 
-  // Source-kind-specific constants captured once; MongoDB computes expected
-  // cards atomically from the updated sealed_flips.unit_count sum.
   let expectedExpr: Record<string, unknown>;
   if (inv.source.kind === "box") {
     expectedExpr = {
@@ -460,29 +539,20 @@ export async function closeInvestment(params: { id: string }): Promise<Investmen
   const invId = new ObjectId(params.id);
   const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
   if (!inv) return null;
-  if (inv.status !== "listing" && inv.status !== "baseline_captured") {
-    // Already closed or archived — no-op.
+  if (inv.status !== "listing") {
     return inv;
   }
 
   const now = new Date();
-
-  // Atomically flip status first so attribution (which filters by
-  // status: "listing") can no longer grow lots for this investment.
-  // This is the load-bearing step — all subsequent lot aggregation happens
-  // against a ledger that can no longer change.
   const locked = await db.collection<Investment>(COL_INVESTMENTS).findOneAndUpdate(
-    { _id: invId, status: { $in: ["listing", "baseline_captured"] } },
+    { _id: invId, status: "listing" },
     { $set: { status: "closed", closed_at: now } },
     { returnDocument: "after" }
   );
   if (!locked) {
-    // A concurrent close already transitioned this investment; return the
-    // fresh state.
     return db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
   }
 
-  // Now safely aggregate and freeze lots.
   const totalOpenedAgg = await db
     .collection(COL_INVESTMENT_LOTS)
     .aggregate<{ total: number }>([
@@ -591,8 +661,6 @@ export async function adjustLot(params: {
   const db = await getDb();
   const lotId = new ObjectId(params.lotId);
 
-  // Atomic conditional update: refuse frozen, refuse qty below sold.
-  // The $subtract reads the live $qty_sold at update time — no TOCTOU window.
   const res = await db.collection(COL_INVESTMENT_LOTS).updateOne(
     {
       _id: lotId,
@@ -611,7 +679,6 @@ export async function adjustLot(params: {
   );
   if (res.matchedCount > 0) return "ok";
 
-  // Diagnose the failure for caller-friendly error mapping.
   const lot = await db.collection(COL_INVESTMENT_LOTS).findOne({
     _id: lotId,
     investment_id: new ObjectId(params.id),
@@ -619,703 +686,5 @@ export async function adjustLot(params: {
   if (!lot) return "not_found";
   if (lot.frozen_at) return "frozen";
   if ((lot.qty_sold as number) > params.qtyOpened) return "below_sold";
-  return "not_found"; // fallback
-}
-
-/**
- * Baseline targets for the extension's walker:
- *   - cm_expansion_id: numeric Cardmarket expansion id (from the set doc) or
- *     null if we haven't captured the mapping yet (popup falls back to paste).
- *   - cm_set_names: array of Cardmarket-side set name variants, used by
- *     attribution fallback when stock rows lack productId.
- *   - captured_count: distinct article_ids already baselined.
- *   - expected_total_count: last CM-page `.bracketed` total we saw, or null
- *     until the first batch carries total_expected.
- *   - complete: captured_count >= expected_total_count (when known).
- */
-export async function getBaselineTargets(params: { id: string }): Promise<{
-  cm_expansion_id: number | null;
-  cm_set_names: string[];
-  /** CARDS captured (sum qty_baseline). Matches expected_total_count's unit. */
-  captured_count: number;
-  /** ROW count in the baseline collection — exposed for debugging. */
-  captured_rows: number;
-  expected_total_count: number | null;
-  complete: boolean;
-} | null> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id)) return null;
-  const db = await getDb();
-  const invId = new ObjectId(params.id);
-  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
-  if (!inv) return null;
-
-  // Resolve the Cardmarket expansion id. Box-kind: direct lookup on ev_sets.
-  // Product-kind: use EvProduct.parent_set_code if any, else fall back to the
-  // dominant set_code across the product's cards.
-  let setCode: string | null = null;
-  if (inv.source.kind === "box") {
-    setCode = inv.source.set_code;
-  } else {
-    const p = await db
-      .collection<EvProduct>(COL_EV_PRODUCTS)
-      .findOne(
-        { slug: inv.source.product_slug },
-        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
-      );
-    if (p?.parent_set_code) {
-      setCode = p.parent_set_code;
-    } else if (p?.cards?.length) {
-      const counts = new Map<string, number>();
-      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
-      let best: string | null = null;
-      let bestN = 0;
-      for (const [code, n] of counts) {
-        if (n > bestN) { best = code; bestN = n; }
-      }
-      setCode = best;
-    }
-  }
-  let cmExpansionId: number | null = null;
-  if (setCode) {
-    const set = await db
-      .collection("dashboard_ev_sets")
-      .findOne<{ cm_expansion_id?: number | null }>(
-        { code: setCode },
-        { projection: { cm_expansion_id: 1 } }
-      );
-    cmExpansionId = set?.cm_expansion_id ?? null;
-  }
-
-  const [capturedRows, capturedCardsAgg] = await Promise.all([
-    db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: invId }),
-    db
-      .collection(COL_INVESTMENT_BASELINE)
-      .aggregate<{ total: number }>([
-        { $match: { investment_id: invId } },
-        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
-      ])
-      .next(),
-  ]);
-  const capturedCards = capturedCardsAgg?.total ?? 0;
-  const expected = inv.baseline_total_expected ?? null;
-  // "complete" compares cards-to-cards (expected_total_count is cards
-  // from CM's idExpansion dropdown). Using rows would undercount since
-  // some listings have qty > 1.
-  const complete = expected != null && capturedCards >= expected;
-  return {
-    cm_expansion_id: cmExpansionId,
-    cm_set_names: inv.cm_set_names,
-    captured_count: capturedCards,
-    captured_rows: capturedRows,
-    expected_total_count: expected,
-    complete,
-  };
-}
-
-/**
- * Three-way diagnostic of how much of the investment's expansion the
- * dashboard has already synced, so the walker can short-circuit the walk
- * when there's nothing to do and steer the user otherwise:
- *   - db_stock_count: stock rows in dashboard_cm_stock whose productId
- *     resolves (via ev_cards.cardmarket_id) to a card in the investment's
- *     set. This is "what we think we have on CM for this expansion."
- *   - baseline_captured_count: rows already written to baseline for this
- *     investment. Used to tell "walked once" from "fresh start."
- *   - expected_total_count: stamped on the investment by the last walker
- *     batch. Null for a fresh investment — extension will fill it by
- *     reading the idExpansion dropdown on the CM page.
- * The caller compares db_stock_count to the CM-reported count to decide
- * whether to snapshot-from-stock, walk for missing rows, or walk to prune.
- */
-export async function computeBaselineDiagnosis(params: {
-  id: string;
-}): Promise<
-  | {
-      cm_expansion_id: number | null;
-      set_code: string | null;
-      db_stock_count: number;
-      /** CARDS already baselined (sum qty_baseline). */
-      baseline_captured_count: number;
-      /** ROW count in baseline — exposed for debugging. */
-      baseline_captured_rows: number;
-      expected_total_count: number | null;
-    }
-  | null
-> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id)) return null;
-  const db = await getDb();
-  const invId = new ObjectId(params.id);
-  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
-  if (!inv) return null;
-
-  // Resolve set_code (identical logic to getBaselineTargets — small enough
-  // to duplicate; extracting further would ripple into a 3rd caller).
-  let setCode: string | null = null;
-  if (inv.source.kind === "box") {
-    setCode = inv.source.set_code;
-  } else {
-    const p = await db
-      .collection<EvProduct>(COL_EV_PRODUCTS)
-      .findOne(
-        { slug: inv.source.product_slug },
-        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
-      );
-    if (p?.parent_set_code) {
-      setCode = p.parent_set_code;
-    } else if (p?.cards?.length) {
-      const counts = new Map<string, number>();
-      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
-      let best: string | null = null;
-      let bestN = 0;
-      for (const [code, n] of counts) {
-        if (n > bestN) { best = code; bestN = n; }
-      }
-      setCode = best;
-    }
-  }
-
-  let cmExpansionId: number | null = null;
-  let dbStockCount = 0;
-  if (setCode) {
-    const [set, cardIds] = await Promise.all([
-      db
-        .collection("dashboard_ev_sets")
-        .findOne<{ cm_expansion_id?: number | null }>(
-          { code: setCode },
-          { projection: { cm_expansion_id: 1 } }
-        ),
-      db
-        .collection("dashboard_ev_cards")
-        .find(
-          { set: setCode, cardmarket_id: { $ne: null } },
-          { projection: { cardmarket_id: 1 } }
-        )
-        .toArray(),
-    ]);
-    cmExpansionId = set?.cm_expansion_id ?? null;
-    const productIds = cardIds.map((c) => c.cardmarket_id as number);
-    // Match stock rows two ways, unioned:
-    //   1. productId ∈ ev_cards.cardmarket_id for this set (clean match —
-    //      exists for any row captured by ext ≥ v1.7.1).
-    //   2. set (CM name) ∈ cm_set_names on the investment — catches older
-    //      stock rows synced before productId capture was added, which
-    //      often have productId=null for whole expansions.
-    // Without (2) we were missing 580/589 of this user's Foundations
-    // Jumpstart rows. db_stock_count is a card count (sum qty) so the
-    // unit matches what Cardmarket shows in its idExpansion dropdown.
-    const orClauses = [];
-    if (productIds.length > 0) orClauses.push({ productId: { $in: productIds } });
-    if (inv.cm_set_names && inv.cm_set_names.length > 0) {
-      orClauses.push({ set: { $in: inv.cm_set_names } });
-    }
-    if (orClauses.length > 0) {
-      const agg = await db
-        .collection("dashboard_cm_stock")
-        .aggregate<{ total: number }>([
-          { $match: orClauses.length === 1 ? orClauses[0] : { $or: orClauses } },
-          { $group: { _id: null, total: { $sum: "$qty" } } },
-        ])
-        .next();
-      dbStockCount = agg?.total ?? 0;
-    }
-  }
-
-  const [baselineRows, baselineCardsAgg] = await Promise.all([
-    db.collection(COL_INVESTMENT_BASELINE).countDocuments({ investment_id: invId }),
-    db
-      .collection(COL_INVESTMENT_BASELINE)
-      .aggregate<{ total: number }>([
-        { $match: { investment_id: invId } },
-        { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
-      ])
-      .next(),
-  ]);
-  const baselineCards = baselineCardsAgg?.total ?? 0;
-
-  return {
-    cm_expansion_id: cmExpansionId,
-    set_code: setCode,
-    db_stock_count: dbStockCount,
-    // baseline_captured_count is CARDS for unit-consistency with
-    // expected_total_count (CM dropdown reports cards). Row count
-    // exposed separately for debugging.
-    baseline_captured_count: baselineCards,
-    baseline_captured_rows: baselineRows,
-    expected_total_count: inv.baseline_total_expected ?? null,
-  };
-}
-
-/**
- * Short-circuit the baseline walk when dashboard stock for the expansion
- * already equals the Cardmarket total. Copies every matching stock row
- * into dashboard_investment_baseline using dedupKey as a synthetic
- * article_id (real article_ids come from the walker; dedupKey keys a
- * unique stock row just as reliably for baseline purposes). Stamps
- * total_expected on the investment so the detail-page progress bar
- * reads "complete". Returns the number of baseline rows written.
- *
- * Caller requirements:
- *   - Should have verified via computeBaselineDiagnosis that db_stock_count
- *     is consistent with the CM-reported total before calling, otherwise
- *     the snapshot will be incomplete.
- *   - Pass total_expected = CM-reported count (from the idExpansion
- *     dropdown) so the progress indicator matches what Cardmarket shows.
- */
-export async function snapshotBaselineFromStock(params: {
-  id: string;
-  total_expected: number;
-}): Promise<{ snapshotted: number } | null> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id)) return null;
-  if (!Number.isInteger(params.total_expected) || params.total_expected < 0) {
-    return null;
-  }
-  const db = await getDb();
-  const invId = new ObjectId(params.id);
-  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
-  if (!inv) return null;
-
-  // Same set_code resolution as computeBaselineDiagnosis. Could extract
-  // but the code is short enough to inline here and avoid cross-function
-  // coupling.
-  let setCode: string | null = null;
-  if (inv.source.kind === "box") {
-    setCode = inv.source.set_code;
-  } else {
-    const p = await db
-      .collection<EvProduct>(COL_EV_PRODUCTS)
-      .findOne(
-        { slug: inv.source.product_slug },
-        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
-      );
-    if (p?.parent_set_code) setCode = p.parent_set_code;
-    else if (p?.cards?.length) {
-      const counts = new Map<string, number>();
-      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
-      let best: string | null = null;
-      let bestN = 0;
-      for (const [code, n] of counts) {
-        if (n > bestN) { best = code; bestN = n; }
-      }
-      setCode = best;
-    }
-  }
-  if (!setCode) return { snapshotted: 0 };
-
-  const cards = await db
-    .collection("dashboard_ev_cards")
-    .find<{ cardmarket_id: number | null }>(
-      { set: setCode, cardmarket_id: { $ne: null } },
-      { projection: { cardmarket_id: 1 } }
-    )
-    .toArray();
-  const productIds = cards.map((c) => c.cardmarket_id).filter((x): x is number => x != null);
-  if (productIds.length === 0) return { snapshotted: 0 };
-
-  const stockRows = await db
-    .collection("dashboard_cm_stock")
-    .find<{
-      productId: number;
-      foil?: boolean;
-      condition?: string;
-      language?: string;
-      qty?: number;
-      price?: number;
-      dedupKey?: string;
-      articleId?: string;
-    }>({ productId: { $in: productIds } })
-    .toArray();
-
-  const now = new Date();
-  let snapshotted = 0;
-  for (const r of stockRows) {
-    // Prefer real articleId when present (product_page source rows); fall
-    // back to dedupKey for stock_page rows that never had an article id.
-    // Both are unique per stock row, which is all baseline_v3_unique needs.
-    const articleId = r.articleId || r.dedupKey;
-    if (!articleId) continue;
-    const qty = Number.isInteger(r.qty) ? (r.qty as number) : 0;
-    const price = Number.isFinite(r.price) ? (r.price as number) : 0;
-    const condition = typeof r.condition === "string" ? r.condition : "NM";
-    const language = typeof r.language === "string" ? r.language : "English";
-    const foil = !!r.foil;
-    const res = await db.collection(COL_INVESTMENT_BASELINE).updateOne(
-      { investment_id: invId, article_id: articleId },
-      {
-        $set: {
-          qty_baseline: qty,
-          price_eur: price,
-          cardmarket_id: r.productId,
-          foil,
-          condition,
-          language,
-          captured_at: now,
-        },
-        $setOnInsert: { investment_id: invId, article_id: articleId },
-      },
-      { upsert: true }
-    );
-    if (res.upsertedCount > 0 || res.modifiedCount > 0) snapshotted++;
-  }
-
-  // Stamp the total expected (from CM) so progress reads as complete.
-  await db.collection(COL_INVESTMENTS).updateOne(
-    { _id: invId },
-    { $set: { baseline_total_expected: params.total_expected } }
-  );
-
-  return { snapshotted };
-}
-
-export async function upsertBaselineBatch(params: {
-  id: string;
-  body: import("./types").BaselineBatchBody;
-}): Promise<{ upserted: number; skipped: number; captured_count: number } | null> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id)) return null;
-  const db = await getDb();
-  const invId = new ObjectId(params.id);
-  const inv = await db
-    .collection<Investment>(COL_INVESTMENTS)
-    .findOne({ _id: invId });
-  if (!inv) return null;
-
-  // Resolve the investment's Scryfall set_code for fallback
-  // cardmarket_id lookups — see below.
-  let setCodeForResolve: string | null = null;
-  if (inv.source.kind === "box") {
-    setCodeForResolve = inv.source.set_code;
-  } else {
-    const p = await db
-      .collection<EvProduct>(COL_EV_PRODUCTS)
-      .findOne(
-        { slug: inv.source.product_slug },
-        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
-      );
-    if (p?.parent_set_code) setCodeForResolve = p.parent_set_code;
-    else if (p?.cards?.length) {
-      const counts = new Map<string, number>();
-      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
-      let best: string | null = null;
-      let bestN = 0;
-      for (const [code, n] of counts) {
-        if (n > bestN) { best = code; bestN = n; }
-      }
-      setCodeForResolve = best;
-    }
-  }
-
-  // Pre-fetch the name → cardmarket_id map for this set so we don't hit
-  // ev_cards per missing-cardmarket_id listing (the common case — CM
-  // /Stock/Offers/Singles rows often lack an idProduct anchor). One
-  // query covers the whole batch.
-  const nameToCmId = new Map<string, number>();
-  if (setCodeForResolve) {
-    const cards = await db
-      .collection("dashboard_ev_cards")
-      .find<{ name: string; cardmarket_id: number | null }>(
-        { set: setCodeForResolve, cardmarket_id: { $ne: null } },
-        { projection: { name: 1, cardmarket_id: 1 } }
-      )
-      .toArray();
-    for (const c of cards) {
-      if (c.cardmarket_id != null && c.name) {
-        nameToCmId.set(c.name, c.cardmarket_id);
-      }
-    }
-  }
-
-  const now = new Date();
-  let upserted = 0;
-  let skipped = 0;
-  for (const l of params.body.listings) {
-    // Resolve cardmarket_id: prefer client-supplied, fall back to
-    // ev_cards lookup by name+set. Leaving it null is acceptable for
-    // baseline visibility; attribution simply won't match those rows
-    // later (see maybeGrowLot's tuple filter).
-    let cardmarketId: number | null = null;
-    if (typeof l.cardmarket_id === "number" && Number.isSafeInteger(l.cardmarket_id) && l.cardmarket_id > 0) {
-      cardmarketId = l.cardmarket_id;
-    } else if (typeof l.name === "string" && l.name.length > 0) {
-      cardmarketId = nameToCmId.get(l.name) ?? null;
-    }
-
-    if (
-      typeof l.article_id !== "string" || l.article_id.length === 0 || l.article_id.length > 128 ||
-      typeof l.foil !== "boolean" ||
-      typeof l.condition !== "string" || l.condition.length === 0 || l.condition.length > 8 ||
-      typeof l.language !== "string" || l.language.length === 0 || l.language.length > 16 ||
-      !Number.isFinite(l.qty) || !Number.isInteger(l.qty) || l.qty < 0 ||
-      !Number.isFinite(l.price_eur) || l.price_eur < 0
-    ) {
-      skipped++;
-      continue;
-    }
-    const res = await db.collection(COL_INVESTMENT_BASELINE).updateOne(
-      { investment_id: invId, article_id: l.article_id },
-      {
-        $set: {
-          qty_baseline: l.qty,
-          price_eur: l.price_eur,
-          cardmarket_id: cardmarketId,
-          foil: l.foil,
-          condition: l.condition,
-          language: l.language,
-          captured_at: now,
-        },
-        $setOnInsert: {
-          investment_id: invId,
-          article_id: l.article_id,
-        },
-      },
-      { upsert: true }
-    );
-    if (res.upsertedCount > 0 || res.modifiedCount > 0) upserted++;
-  }
-
-  // Stamp the latest CM page-header total so progress reporting reflects
-  // the newest walk filter. Only overwrite when the batch actually sent
-  // one; partial batches without a header read shouldn't clobber prior.
-  if (typeof params.body.total_expected === "number" && params.body.total_expected >= 0) {
-    await db.collection(COL_INVESTMENTS).updateOne(
-      { _id: invId },
-      { $set: { baseline_total_expected: params.body.total_expected } }
-    );
-  }
-
-  if (skipped > 0) {
-    console.warn("investments-baseline-batch: skipped invalid items", { id: params.id, skipped });
-  }
-
-  const capturedCount = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .countDocuments({ investment_id: invId });
-  return { upserted, skipped, captured_count: capturedCount };
-}
-
-/**
- * Flip a listing-status investment back to baseline_captured AND wipe its
- * baseline rows so the next walk starts from a clean slate. Lots,
- * sealed flips, and sale_log rows are preserved — those represent real
- * activity that happened during the listing window and must survive.
- *
- * Why wipe baseline rows: the v3 unique key is {investment_id, article_id},
- * where article_id falls back to dedupKey when CM doesn't expose one.
- * dedupKey encodes price + qty, so relisting between walks creates a
- * NEW dedupKey → NEW baseline row for the same underlying card. Stacking
- * those on top of previous-walk rows inflates captured_cards and
- * breaks the progress math. Clean slate sidesteps the whole class of
- * duplicate.
- *
- * baseline_total_expected also gets cleared — the prior value reflected
- * the last walk's CM snapshot, which is stale now. The next walker
- * batch will stamp a fresh one.
- *
- * Refuses anything other than "listing" — closed/archived are
- * immutable; baseline_captured is already in the right state.
- */
-export async function reopenBaselineCapture(
-  id: string
-): Promise<{ investment: Investment; wiped_baseline: number } | null> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(id)) return null;
-  const db = await getDb();
-  const invId = new ObjectId(id);
-  const res = await db
-    .collection<Investment>(COL_INVESTMENTS)
-    .findOneAndUpdate(
-      { _id: invId, status: "listing" },
-      {
-        $set: { status: "baseline_captured" },
-        $unset: { baseline_completed_at: "", baseline_total_expected: "" },
-      },
-      { returnDocument: "after" }
-    );
-  if (!res) return null;
-  const wipe = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .deleteMany({ investment_id: invId });
-  return { investment: res, wiped_baseline: wipe.deletedCount ?? 0 };
-}
-
-/**
- * Remove stock rows that match the investment's expansion but have no
- * corresponding baseline tuple. Used by markBaselineComplete when the
- * walker's coverage is sufficient to treat missing rows as genuinely
- * stale (as opposed to "the walker just didn't reach that bucket").
- *
- * Tuple match is on {productId, foil, condition, language} (ignoring
- * article_id + price) so stock rows from stock_page source — which
- * often lack article_id — still get matched against baseline rows that
- * share the same card variant.
- */
-export async function cleanupStaleStockForInvestment(
-  id: string
-): Promise<{ deleted: number } | null> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(id)) return null;
-  const db = await getDb();
-  const invId = new ObjectId(id);
-  const inv = await db.collection<Investment>(COL_INVESTMENTS).findOne({ _id: invId });
-  if (!inv) return null;
-
-  // Resolve set_code (same logic as computeBaselineDiagnosis — kept
-  // inline to avoid tight cross-helper coupling).
-  let setCode: string | null = null;
-  if (inv.source.kind === "box") {
-    setCode = inv.source.set_code;
-  } else {
-    const p = await db
-      .collection<EvProduct>(COL_EV_PRODUCTS)
-      .findOne(
-        { slug: inv.source.product_slug },
-        { projection: { parent_set_code: 1, "cards.set_code": 1 } }
-      );
-    if (p?.parent_set_code) setCode = p.parent_set_code;
-    else if (p?.cards?.length) {
-      const counts = new Map<string, number>();
-      for (const c of p.cards) counts.set(c.set_code, (counts.get(c.set_code) ?? 0) + 1);
-      let best: string | null = null;
-      let bestN = 0;
-      for (const [code, n] of counts) {
-        if (n > bestN) { best = code; bestN = n; }
-      }
-      setCode = best;
-    }
-  }
-  if (!setCode) return { deleted: 0 };
-
-  const cards = await db
-    .collection("dashboard_ev_cards")
-    .find<{ cardmarket_id: number | null }>(
-      { set: setCode, cardmarket_id: { $ne: null } },
-      { projection: { cardmarket_id: 1 } }
-    )
-    .toArray();
-  const productIds = cards.map((c) => c.cardmarket_id).filter((x): x is number => x != null);
-  const cmSetNames = inv.cm_set_names ?? [];
-  if (productIds.length === 0 && cmSetNames.length === 0) return { deleted: 0 };
-
-  // Build the valid-tuple set from baseline. Each baseline row contributes
-  // a single tuple string; multiple article_ids collapsing to one tuple
-  // is fine (Set dedups).
-  const baselineTuples = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .aggregate<{ _id: { productId: number; foil: boolean; condition: string; language: string } }>([
-      { $match: { investment_id: invId } },
-      {
-        $group: {
-          _id: {
-            productId: "$cardmarket_id",
-            foil: "$foil",
-            condition: "$condition",
-            language: "$language",
-          },
-        },
-      },
-    ])
-    .toArray();
-  const valid = new Set<string>();
-  for (const t of baselineTuples) {
-    valid.add(`${t._id.productId}|${t._id.foil}|${t._id.condition}|${t._id.language}`);
-  }
-  if (valid.size === 0) return { deleted: 0 };
-
-  // Pull every stock row for the expansion (same UNION semantics as
-  // computeBaselineDiagnosis — productId join OR CM-name match). The
-  // CM-name branch catches pre-v1.7.1 rows with productId=null that
-  // the join-only branch would miss entirely.
-  const stockOrClauses = [];
-  if (productIds.length > 0) stockOrClauses.push({ productId: { $in: productIds } });
-  if (cmSetNames.length > 0) stockOrClauses.push({ set: { $in: cmSetNames } });
-  const stockRows = await db
-    .collection("dashboard_cm_stock")
-    .find<{
-      _id: ObjectId;
-      productId?: number | null;
-      foil?: boolean;
-      condition?: string;
-      language?: string;
-    }>(stockOrClauses.length === 1 ? stockOrClauses[0] : { $or: stockOrClauses })
-    .project({ _id: 1, productId: 1, foil: 1, condition: 1, language: 1 })
-    .toArray();
-  const staleIds: ObjectId[] = [];
-  for (const r of stockRows) {
-    // Rows with productId=null never appear in the baseline collection
-    // (baseline keys require a real cardmarket_id), so the tuple lookup
-    // will always miss and they'll be pruned as stale. That's the
-    // intended behaviour — those rows are pre-v1.7.1 cruft that can't
-    // be joined to attribution anyway.
-    const pid = r.productId ?? null;
-    const key = `${pid}|${!!r.foil}|${r.condition ?? "NM"}|${r.language ?? "English"}`;
-    if (!valid.has(key)) staleIds.push(r._id);
-  }
-  if (staleIds.length === 0) return { deleted: 0 };
-
-  const res = await db
-    .collection("dashboard_cm_stock")
-    .deleteMany({ _id: { $in: staleIds } });
-  return { deleted: res.deletedCount ?? 0 };
-}
-
-export async function markBaselineComplete(params: {
-  id: string;
-}): Promise<{ investment: Investment; cleaned: number; cleanup_skipped?: string } | null> {
-  await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id)) return null;
-  const db = await getDb();
-  const invId = new ObjectId(params.id);
-
-  // Coverage guard: only run cleanup when baseline cards ≥ expected (from
-  // the CM dropdown via the walker/snapshot). Otherwise a partial walk +
-  // mark-complete would treat legitimate un-walked stock as stale and
-  // delete it. At 0 expected we also skip — can't trust the coverage
-  // signal if we never heard from the walker.
-  const invBefore = await db
-    .collection<Investment>(COL_INVESTMENTS)
-    .findOne(
-      { _id: invId },
-      { projection: { baseline_total_expected: 1, status: 1 } }
-    );
-  if (!invBefore) return null;
-
-  const expected = invBefore.baseline_total_expected ?? null;
-  const capturedAgg = await db
-    .collection(COL_INVESTMENT_BASELINE)
-    .aggregate<{ total: number }>([
-      { $match: { investment_id: invId } },
-      { $group: { _id: null, total: { $sum: "$qty_baseline" } } },
-    ])
-    .next();
-  const capturedCards = capturedAgg?.total ?? 0;
-
-  // Flip status first so attribution/consumeSale stop considering this
-  // investment as a growth target between here and the cleanup write.
-  // Only accepts baseline_captured → listing; re-running on an already-
-  // listing investment is a no-op here. To re-walk a listing investment
-  // the user goes through /baseline/reopen which flips status back to
-  // baseline_captured and lets this path run normally.
-  const res = await db
-    .collection<Investment>(COL_INVESTMENTS)
-    .findOneAndUpdate(
-      { _id: invId, status: "baseline_captured" },
-      { $set: { status: "listing", baseline_completed_at: new Date() } },
-      { returnDocument: "after" }
-    );
-  if (!res) return null;
-
-  let cleaned = 0;
-  let skipped: string | undefined;
-  if (expected == null || expected === 0) {
-    skipped = "no_expected_total";
-  } else if (capturedCards < expected) {
-    skipped = "insufficient_coverage";
-  } else {
-    const cleanup = await cleanupStaleStockForInvestment(params.id);
-    cleaned = cleanup?.deleted ?? 0;
-  }
-
-  return { investment: res, cleaned, cleanup_skipped: skipped };
+  return "not_found";
 }

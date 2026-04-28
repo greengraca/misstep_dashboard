@@ -649,6 +649,11 @@ async function processOrders(
           trustee: trusteeByOrderId.get(orderId) ?? false,
           orderId,
           articleId: item.articleId as string | undefined,
+          // Tag-based attribution: the CM listing's comment (when scraped
+          // by the extension) carries the investment's MS-XXXX code.
+          // Untagged sales no-op in consumeSale; tagged sales attribute
+          // exactly to the investment matching the code.
+          comment: typeof item.comment === "string" ? item.comment : null,
         };
         after(async () => {
           try {
@@ -832,6 +837,9 @@ async function processOrderDetail(
           trustee,
           orderId,
           articleId: item.articleId,
+          // Tag-based attribution — the comment field carries the
+          // investment's MS-XXXX code when the user pasted it.
+          comment: item.comment ?? null,
         };
         after(async () => {
           try {

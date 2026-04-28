@@ -2,7 +2,6 @@ import { getDb } from "@/lib/mongodb";
 import { COLLECTION_PREFIX } from "@/lib/constants";
 
 export const COL_INVESTMENTS = `${COLLECTION_PREFIX}investments`;
-export const COL_INVESTMENT_BASELINE = `${COLLECTION_PREFIX}investment_baseline`;
 export const COL_INVESTMENT_LOTS = `${COLLECTION_PREFIX}investment_lots`;
 export const COL_INVESTMENT_SALE_LOG = `${COLLECTION_PREFIX}investment_sale_log`;
 
@@ -20,31 +19,13 @@ export async function ensureInvestmentIndexes(): Promise<void> {
       { "source.set_code": 1, status: 1 },
       { name: "sourceSetCode_status" }
     );
-    // Baseline v2 → v3 migration: unique key changes from the 5-field
-    // tuple to (investment_id, article_id). A single baseline row can now
-    // exist per Cardmarket article_id, so the same card at different prices
-    // gets one row per price bucket. Drop the old index if present; ignore
-    // errors so fresh DBs and already-migrated DBs both no-op safely.
-    try {
-      await db.collection(COL_INVESTMENT_BASELINE).dropIndex("baseline_unique_v2");
-    } catch {
-      /* index didn't exist — fine */
-    }
-    try {
-      await db.collection(COL_INVESTMENT_BASELINE).dropIndex("baseline_unique");
-    } catch {
-      /* ancient v1 index from before the 5-field rename — fine */
-    }
-    await db.collection(COL_INVESTMENT_BASELINE).createIndex(
-      { investment_id: 1, article_id: 1 },
-      { unique: true, name: "baseline_v3_unique" }
-    );
-    // Attribution joins: maybeGrowLot aggregates baseline rows by the
-    // stock tuple (multiple article_ids can share a tuple when priced in
-    // different buckets). This secondary index covers that lookup.
-    await db.collection(COL_INVESTMENT_BASELINE).createIndex(
-      { investment_id: 1, cardmarket_id: 1, foil: 1, condition: 1, language: 1 },
-      { name: "baseline_attrib_idx" }
+    // `code` is the per-investment provenance tag (`MS-XXXX`). Used by the
+    // tag-based attribution path to look up an investment from the comment
+    // on a stock listing or order item. Unique because two investments
+    // sharing a code would make sales attribute ambiguously.
+    await db.collection(COL_INVESTMENTS).createIndex(
+      { code: 1 },
+      { unique: true, name: "investment_code_unique", sparse: true }
     );
     await db.collection(COL_INVESTMENT_LOTS).createIndex(
       { investment_id: 1, cardmarket_id: 1, foil: 1, condition: 1, language: 1 },

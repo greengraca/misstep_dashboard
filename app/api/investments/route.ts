@@ -8,7 +8,7 @@ import {
 } from "@/lib/investments/service";
 import type { CreateInvestmentBody, Investment } from "@/lib/investments/types";
 
-const ALLOWED_STATUSES = ["baseline_captured", "listing", "closed", "archived"] as const;
+const ALLOWED_STATUSES = ["listing", "closed", "archived"] as const;
 
 function validateSource(src: unknown): string | null {
   if (!src || typeof src !== "object") return "source is required";
@@ -34,7 +34,15 @@ function validateSource(src: unknown): string | null {
       return "source.unit_count must be positive";
     return null;
   }
-  return "source.kind must be 'box' or 'product'";
+  if (kind === "collection") {
+    const s = src as Record<string, unknown>;
+    if (typeof s.appraiser_collection_id !== "string" || !s.appraiser_collection_id)
+      return "source.appraiser_collection_id required";
+    if (typeof s.card_count !== "number" || !Number.isFinite(s.card_count) || s.card_count < 0)
+      return "source.card_count must be a non-negative number";
+    return null;
+  }
+  return "source.kind must be 'box', 'product', or 'collection'";
 }
 
 export const GET = withExtAuthRead(async (req) => {

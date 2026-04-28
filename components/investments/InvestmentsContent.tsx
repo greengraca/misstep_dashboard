@@ -22,11 +22,13 @@ function sourceLabel(src: InvestmentListItem["source"]): string {
   if (src.kind === "box") {
     return `${src.box_count}× ${src.set_code.toUpperCase()} · ${src.booster_type}`;
   }
-  return `${src.unit_count}× ${src.product_slug}`;
+  if (src.kind === "product") {
+    return `${src.unit_count}× ${src.product_slug}`;
+  }
+  return `Collection · ${src.card_count} cards`;
 }
 
 const STATUS_TABS: { key: InvestmentStatus | "all"; label: string }[] = [
-  { key: "baseline_captured", label: "Pending baseline" },
   { key: "listing", label: "Listing" },
   { key: "closed", label: "Closed" },
   { key: "archived", label: "Archived" },
@@ -35,7 +37,6 @@ const STATUS_TABS: { key: InvestmentStatus | "all"; label: string }[] = [
 
 function statusBadge(status: InvestmentStatus) {
   const map: Record<InvestmentStatus, { bg: string; color: string; label: string }> = {
-    baseline_captured: { bg: "rgba(251, 191, 36, 0.12)", color: "var(--warning)", label: "pending baseline" },
     listing: { bg: "rgba(63,206,229,0.15)", color: "var(--accent)", label: "listing" },
     closed: { bg: "rgba(52, 211, 153, 0.12)", color: "var(--success)", label: "closed" },
     archived: { bg: "rgba(255,255,255,0.06)", color: "var(--text-muted)", label: "archived" },
@@ -65,7 +66,6 @@ export default function InvestmentsContent() {
 
   const countsByStatus = useMemo(() => {
     const counts: Record<InvestmentStatus, number> = {
-      baseline_captured: 0,
       listing: 0,
       closed: 0,
       archived: 0,
@@ -115,7 +115,7 @@ export default function InvestmentsContent() {
           title="Deployed"
           value={formatEur(deployed)}
           subtitle={(() => {
-            const active = countsByStatus.listing + countsByStatus.baseline_captured + countsByStatus.closed;
+            const active = countsByStatus.listing + countsByStatus.closed;
             return active ? `${active} investment${active === 1 ? "" : "s"}` : undefined;
           })()}
           icon={<Boxes size={18} style={{ color: "var(--accent)" }} />}
@@ -296,7 +296,7 @@ export default function InvestmentsContent() {
         onClose={() => setShowCreate(false)}
         onCreated={() => {
           setShowCreate(false);
-          setTab("baseline_captured");
+          setTab("listing");
           mutate();
         }}
       />

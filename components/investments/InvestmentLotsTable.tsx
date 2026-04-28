@@ -157,8 +157,9 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
         </p>
       ) : lots.length === 0 ? (
         <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
-          No lots yet. They grow automatically as cards appear in stock after baseline is
-          marked complete.
+          No lots yet. For collection investments these are created at conversion;
+          for box / product investments they grow as you list cards on Cardmarket
+          tagged with this investment&apos;s code.
         </p>
       ) : (
         <div className="px-4 pb-4 overflow-x-auto">
