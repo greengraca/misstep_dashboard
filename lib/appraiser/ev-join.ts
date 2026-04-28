@@ -13,6 +13,7 @@
 
 import type { Db } from "mongodb";
 import { getEffectivePrice, type EffectivePriceInput } from "@/lib/ev-prices";
+import { buildCardmarketUrl, isCardmarketSearchUrl } from "@/lib/cardmarket-url";
 import type {
   AppraiserCard,
   AppraiserCardDoc,
@@ -155,6 +156,23 @@ export function isHeavilyPlayedCondition(condition: string | undefined | null): 
 }
 
 function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
+  // If the stored cardmarketUrl is Scryfall's search-page fallback (Scryfall
+  // didn't know an idProduct at resolve time), try to upgrade it to a slug
+  // URL we can build ourselves. Lets older docs benefit from the URL builder
+  // without forcing a re-resolve. Falls through to the stored value when
+  // we can't do better.
+  let cardmarketUrl = d.cardmarketUrl;
+  if (isCardmarketSearchUrl(cardmarketUrl)) {
+    const built = buildCardmarketUrl(
+      d.setName,
+      d.name,
+      d.foil,
+      d.cardmarket_id,
+      d.set,
+      d.collectorNumber,
+    );
+    if (built) cardmarketUrl = built;
+  }
   return {
     _id: String(d._id),
     collectionId: String(d.collectionId),
@@ -168,7 +186,7 @@ function cardDocToPayload(d: AppraiserCardDoc): AppraiserCard {
     qty: d.qty,
     scryfallId: d.scryfallId,
     cardmarket_id: d.cardmarket_id,
-    cardmarketUrl: d.cardmarketUrl,
+    cardmarketUrl,
     imageUrl: d.imageUrl,
     trendPrice: d.trendPrice,
     fromPrice: d.fromPrice,

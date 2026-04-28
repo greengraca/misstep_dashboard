@@ -18,9 +18,62 @@ function normalizeSetNameForCardmarket(setName: string): string {
   return setName;
 }
 
-/** Cardmarket's slug rule: collapse runs of non-alphanumerics to a single dash. */
+/**
+ * Cardmarket's slug rule: collapse runs of non-alphanumerics to a single dash.
+ * Apostrophes are an exception — CM drops them entirely rather than replacing
+ * with a dash, so `Proft's` becomes `Profts` not `Proft-s`. Strip those before
+ * the dash-collapse pass.
+ */
 function cardmarketSlug(input: string): string {
-  return input.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return input
+    .replace(/['’]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Promo-set collector numbers carry a trailing letter that tells you which
+ * variant: `s` = stamped/prerelease (CM `-V1`), `p` = promo-pack (CM `-V2`).
+ * This holds across PONE/PMKM/PXLN/etc. promo supplements.
+ *
+ * Returns the suffix to append to a CM slug URL ("-V1", "-V2", or "" when
+ * the CN doesn't match a known suffix).
+ */
+function inferCardmarketVariantSuffix(collectorNumber?: string): string {
+  if (!collectorNumber) return "";
+  const m = collectorNumber.match(/(\d+)([a-zA-Z])$/);
+  if (!m) return "";
+  switch (m[2].toLowerCase()) {
+    case "s": return "-V1";
+    case "p": return "-V2";
+    default: return "";
+  }
+}
+
+/**
+ * Sets where a slug-built URL can never be right because the cards route to
+ * heterogeneous parent CM products (e.g. PLST cards may go to Mystery
+ * Booster, Multiverse Legends, or various reprint sets — there's no single
+ * `/Singles/<plst-slug>/` page on CM). For these, only an `idProduct` URL
+ * is trustworthy; without one, fall back to leaving Scryfall's search URL.
+ */
+const KNOWN_CM_BAD_SET_CODES = new Set<string>([
+  "plst", // The List
+]);
+
+/**
+ * True when Scryfall's `purchase_uris.cardmarket` is the search-page fallback
+ * (Scryfall doesn't know the CM product, so it hands off to a search). We
+ * treat these as "no useful URL" and try to build a slug ourselves.
+ */
+export function isCardmarketSearchUrl(raw: string | undefined | null): boolean {
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return /\/Products\/Search/i.test(u.pathname);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -90,7 +143,13 @@ export function buildCardmarketUrl(
     return isFoil ? `${base}&isFoil=Y` : base;
   }
   if (!setName) return null;
+  // Sets in KNOWN_CM_BAD_SET_CODES have no reliable slug — without an
+  // idProduct (handled above) we can't build a working URL. Return null so
+  // the caller keeps Scryfall's search-URL fallback rather than producing a
+  // broken `/Singles/The-List/...` link that 404s.
+  if (setCode && KNOWN_CM_BAD_SET_CODES.has(setCode.toLowerCase())) return null;
   const normalizedSet = normalizeSetNameForCardmarket(setName);
-  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(normalizedSet)}/${cardmarketSlug(cardName)}`;
+  const variantSuffix = inferCardmarketVariantSuffix(collectorNumber);
+  const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(normalizedSet)}/${cardmarketSlug(cardName)}${variantSuffix}`;
   return isFoil ? `${base}?isFoil=Y` : base;
 }

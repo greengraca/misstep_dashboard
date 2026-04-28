@@ -1,3 +1,4 @@
+import { buildCardmarketUrl, isCardmarketSearchUrl } from "@/lib/cardmarket-url";
 import type { ScryfallPrinting, ScryfallResolveResult } from "./types";
 
 const SCRYFALL_DELAY_MS = 150;
@@ -90,6 +91,27 @@ export function isCardmarketProductUrl(raw: string | undefined): boolean {
   }
 }
 
+/**
+ * When Scryfall hands back a `Search?searchString=` URL (no idProduct
+ * known), try to build a slug-based URL ourselves — covers PONE/PMKM/etc.
+ * promo variants where Scryfall lacks the cardmarket_id but CM has a
+ * predictable `/Singles/<set>/<card>-V<N>` URL we can construct from the
+ * card's setName + collector number suffix.
+ */
+function resolveCardmarketUrl(card: ScryfallCard, foil: boolean): string {
+  const cleaned = cleanCardmarketUrl(card.purchase_uris?.cardmarket);
+  if (!isCardmarketSearchUrl(cleaned)) return cleaned;
+  const built = buildCardmarketUrl(
+    card.set_name,
+    card.name,
+    foil,
+    card.cardmarket_id ?? null,
+    card.set,
+    card.collector_number,
+  );
+  return built ?? cleaned;
+}
+
 function buildResult(
   selected: ScryfallCard,
   foil: boolean,
@@ -104,7 +126,7 @@ function buildResult(
     scryfallId: p.id,
     collectorNumber: p.collector_number ?? "",
     cardmarketId: p.cardmarket_id ?? null,
-    cardmarketUrl: cleanCardmarketUrl(p.purchase_uris?.cardmarket),
+    cardmarketUrl: resolveCardmarketUrl(p, foil),
     imageUrl: getImage(p),
     trendPrice: parsePrice(p.prices?.[priceKey]) ?? parsePrice(p.prices?.[fallbackKey]),
   }));
@@ -121,7 +143,7 @@ function buildResult(
     collectorNumber: selected.collector_number ?? "",
     scryfallId: selected.id,
     cardmarketId: selected.cardmarket_id ?? null,
-    cardmarketUrl: cleanCardmarketUrl(selected.purchase_uris?.cardmarket),
+    cardmarketUrl: resolveCardmarketUrl(selected, foil),
     imageUrl: getImage(selected),
     trendPrice,
     foilOnly,
