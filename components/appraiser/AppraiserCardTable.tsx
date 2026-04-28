@@ -670,15 +670,12 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                     {c.imageUrl && <img src={c.imageUrl} alt="" style={{ width: 22, height: 30, objectFit: "cover", borderRadius: 3 }} />}
                     {c.cardmarketUrl ? (
                       <a
-                        href={(() => {
-                          const clean = cleanCardmarketUrl(c.cardmarketUrl);
-                          // Only product URLs have a foil mode to toggle. Appending
-                          // ?isFoil=Y to a search URL breaks it (the search page ignores it).
-                          if (c.foil && isCardmarketProductUrl(clean)) {
-                            return `${clean}${clean.includes("?") ? "&" : "?"}isFoil=Y`;
-                          }
-                          return clean;
-                        })()}
+                        // cardDocToPayload rebuilds the URL via buildCardmarketUrl,
+                        // which already appends `?isFoil=Y` for foil rows on
+                        // product / slug URLs. Don't double up here — wrapping
+                        // would produce `?isFoil=Y&isFoil=Y` which CM redirects
+                        // to "invalid expansion".
+                        href={cleanCardmarketUrl(c.cardmarketUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:underline"
@@ -874,10 +871,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                         </>
                       );
                       if (c.cardmarketUrl) {
-                        const clean = cleanCardmarketUrl(c.cardmarketUrl);
-                        const href = c.foil && isCardmarketProductUrl(clean)
-                          ? `${clean}${clean.includes("?") ? "&" : "?"}isFoil=Y`
-                          : clean;
+                        // The stored URL is already foil-aware (cardDocToPayload
+                        // rebuilds via buildCardmarketUrl with the row's foil flag).
+                        // Don't re-append isFoil here — would produce ?isFoil=Y twice.
+                        const href = cleanCardmarketUrl(c.cardmarketUrl);
                         return (
                           <a
                             href={href}

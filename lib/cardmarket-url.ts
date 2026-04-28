@@ -8,11 +8,29 @@
 // 404s for commander-set cards.
 
 /**
+ * Per-set-code overrides for CM's set-name slug. Used when Scryfall's
+ * `set_name` doesn't match what CM uses on its product URLs at all
+ * (i.e. a name remap, not just a slug-rule difference).
+ *
+ * Add an entry here when a slug-built URL 404s with "invalid expansion"
+ * on Cardmarket — open the card's CM page, copy the slug from the URL,
+ * map the Scryfall set code to that slug.
+ */
+const CM_SET_NAME_OVERRIDES: Record<string, string> = {
+  p30a: "30th Anniversary Celebration", // Scryfall: "30th Anniversary Play Promos"
+};
+
+/**
  * Apply Cardmarket-specific naming quirks before slugification:
+ *   - Per-set-code override (CM_SET_NAME_OVERRIDES) takes precedence.
  *   - "<X> Commander" → "Commander <X>" (commander supplemental sets)
  * Add new rules here as they're discovered; one source of truth.
  */
-function normalizeSetNameForCardmarket(setName: string): string {
+function normalizeSetNameForCardmarket(setName: string, setCode?: string): string {
+  if (setCode) {
+    const remapped = CM_SET_NAME_OVERRIDES[setCode.toLowerCase()];
+    if (remapped) return remapped;
+  }
   const m = setName.match(/^(.+) Commander$/);
   if (m) return `Commander ${m[1]}`;
   return setName;
@@ -148,7 +166,7 @@ export function buildCardmarketUrl(
   // the caller keeps Scryfall's search-URL fallback rather than producing a
   // broken `/Singles/The-List/...` link that 404s.
   if (setCode && KNOWN_CM_BAD_SET_CODES.has(setCode.toLowerCase())) return null;
-  const normalizedSet = normalizeSetNameForCardmarket(setName);
+  const normalizedSet = normalizeSetNameForCardmarket(setName, setCode);
   const variantSuffix = inferCardmarketVariantSuffix(collectorNumber);
   const base = `https://www.cardmarket.com/en/Magic/Products/Singles/${cardmarketSlug(normalizedSet)}/${cardmarketSlug(cardName)}${variantSuffix}`;
   return isFoil ? `${base}?isFoil=Y` : base;
