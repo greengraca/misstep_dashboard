@@ -108,6 +108,34 @@ function computeVelocity(
 }
 
 /**
+ * Sets where Scryfall reports both `price_eur` and `price_eur_foil` but
+ * Cardmarket has only ONE product page (the parent reprint, e.g. PLST cards
+ * route to their Mystery Booster / Multiverse Legends / etc. CM entry).
+ *
+ * Consequences:
+ *   - The CM page has no foil mode, so the extension never writes
+ *     `cm_prices.foil` — foil scrapes always land on `nonfoil`.
+ *   - Scryfall's `price_eur_foil` for these is a TCGplayer-derived estimate,
+ *     not a real CM price — using it gives a fictitious value that no scrape
+ *     can ever correct.
+ *
+ * For these sets, the appraiser collapses both finish flags to nonfoil so
+ * a foil row tracks the actual CM scrape (single-variant) instead of a
+ * stuck Scryfall estimate.
+ *
+ * Add new sets here when their foil rows show prices that never refresh
+ * after a CM scrape — that's the diagnostic.
+ */
+const CM_LIST_STYLE_SETS = new Set<string>([
+  "plst", // The List
+]);
+
+function isCmListStyleSet(setCode: string | undefined | null): boolean {
+  if (!setCode) return false;
+  return CM_LIST_STYLE_SETS.has(setCode.toLowerCase());
+}
+
+/**
  * Returns true when a Cardmarket-style condition string indicates the card is
  * "heavily played" enough that trend price won't apply — buyers price these to
  * the floor (the `from` ask), not the trend midpoint.
@@ -260,10 +288,21 @@ export async function hydrateAppraiserCards(
     // promos (PLG21, G11, V13, FTV, etc.) whose product page has no foil
     // toggle, so the extension reads foilMode:false and writes to
     // cm_prices.nonfoil even though the listings ARE foil.
-    const requestedVariant = c.foil ? ev.cm_prices?.foil : ev.cm_prices?.nonfoil;
-    const fallbackVariant = c.foil ? ev.cm_prices?.nonfoil : ev.cm_prices?.foil;
-    const oppositeScryfall = c.foil ? ev.price_eur : ev.price_eur_foil;
-    const isSingleVariantOnCm = oppositeScryfall == null;
+    //
+    // Special case for "list-style" sets (PLST and similar): Scryfall reports
+    // BOTH price_eur and price_eur_foil as non-null, but Cardmarket has only
+    // ONE product page (the parent reprint, e.g. Mystery Booster) — that
+    // page has no foil mode, so foil scrapes never land. price_eur_foil for
+    // these is a TCGplayer-derived estimate, not a real CM price. Treat
+    // these as nonfoil-only on CM regardless of c.foil so the displayed
+    // value tracks the actual CM scrape.
+    const cmCollapsedToNonfoil = isCmListStyleSet(c.set);
+    const effectiveFoil = cmCollapsedToNonfoil ? false : c.foil;
+
+    const requestedVariant = effectiveFoil ? ev.cm_prices?.foil : ev.cm_prices?.nonfoil;
+    const fallbackVariant = effectiveFoil ? ev.cm_prices?.nonfoil : ev.cm_prices?.foil;
+    const oppositeScryfall = effectiveFoil ? ev.price_eur : ev.price_eur_foil;
+    const isSingleVariantOnCm = cmCollapsedToNonfoil || oppositeScryfall == null;
     const requestedHasData =
       !!requestedVariant && (requestedVariant.from != null || requestedVariant.trend != null);
     const variant = requestedHasData
@@ -276,7 +315,7 @@ export async function hydrateAppraiserCards(
     // Scryfall bulk fallback follows the same rule: only substitute the
     // opposite finish's price when Scryfall confirms the requested one
     // doesn't exist (the null one IS the signal that the finish isn't on CM).
-    const requestedScryfall = c.foil ? ev.price_eur_foil : ev.price_eur;
+    const requestedScryfall = effectiveFoil ? ev.price_eur_foil : ev.price_eur;
     const scryfallPrice = requestedScryfall ?? (isSingleVariantOnCm ? oppositeScryfall : null);
 
     const eff = getEffectivePrice(
@@ -335,13 +374,16 @@ export async function hydrateAppraiserCards(
         : { from_source: null, from_updated_at: null };
 
     // Velocity: derived from the same `variant` we used for prices, so the
-    // chart matches the displayed numbers (foil/nonfoil consistency).
+    // chart matches the displayed numbers (foil/nonfoil consistency). Use
+    // `effectiveFoil` (after the list-style collapse) rather than raw c.foil
+    // so PLST foil rows correctly read as "nonfoil" in the tooltip — that's
+    // the chart they actually use.
     const variantUsedKind: "foil" | "nonfoil" =
       variant === requestedVariant
-        ? c.foil
+        ? effectiveFoil
           ? "foil"
           : "nonfoil"
-        : c.foil
+        : effectiveFoil
           ? "nonfoil"
           : "foil";
     const velocity = computeVelocity(variant, variantUsedKind);
