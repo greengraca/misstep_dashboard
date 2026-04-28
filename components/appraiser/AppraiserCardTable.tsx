@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useTransition } from "react";
 import Select from "@/components/dashboard/select";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
@@ -81,6 +81,11 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [undercutEnabled, setUndercutEnabled] = useState<boolean>(false);
   const [undercutPercent, setUndercutPercent] = useState<number>(20);
   const [velocityCollapsed, setVelocityCollapsed] = useState<boolean>(true);
+  // useTransition lets React schedule the table re-render as a non-urgent
+  // update — the chevron flips instantly, the (expensive) per-row reconciliation
+  // happens during idle frames instead of blocking the click. Without this,
+  // a large collection makes the toggle freeze the UI for seconds.
+  const [, startVelocityTransition] = useTransition();
 
   // Hydrate Velocity-column collapsed state from localStorage on mount.
   // Default is collapsed because the column is opt-in detail, not core data.
@@ -90,10 +95,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   }, []);
   const toggleVelocityCollapsed = () => {
     const next = !velocityCollapsed;
-    setVelocityCollapsed(next);
     if (typeof window !== "undefined") {
       localStorage.setItem("appraiser_velocityCollapsed", next ? "1" : "0");
     }
+    startVelocityTransition(() => setVelocityCollapsed(next));
   };
 
   // Hydrate bulk settings on collection ID change ONLY — not on every collection
