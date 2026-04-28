@@ -220,9 +220,22 @@ export async function getInvestment(id: string): Promise<Investment | null> {
   await ensureInvestmentIndexes();
   if (!ObjectId.isValid(id)) return null;
   const db = await getDb();
-  return db
+  const inv = await db
     .collection<Investment>(COL_INVESTMENTS)
     .findOne({ _id: new ObjectId(id) });
+  if (!inv) return null;
+  // Lazy backfill: investments created before the tag system landed have
+  // no `code`. Generate one on first read so downstream consumers
+  // (computeTagAudit, the detail-page CodeStrip, the extension flow)
+  // can rely on the field being set without a migration script.
+  if (!inv.code) {
+    const code = await generateUniqueInvestmentCode(db);
+    await db
+      .collection<Investment>(COL_INVESTMENTS)
+      .updateOne({ _id: inv._id, code: { $exists: false } }, { $set: { code } });
+    inv.code = code;
+  }
+  return inv;
 }
 
 export async function listInvestments(params: {
@@ -232,11 +245,23 @@ export async function listInvestments(params: {
   const db = await getDb();
   const filter: Record<string, unknown> = {};
   if (params.status) filter.status = params.status;
-  return db
+  const docs = await db
     .collection<Investment>(COL_INVESTMENTS)
     .find(filter)
     .sort({ created_at: -1 })
     .toArray();
+  // Lazy backfill same as getInvestment — pre-tag-system docs lack `code`.
+  // Cheap loop in practice (tens of investments at most).
+  for (const inv of docs) {
+    if (!inv.code) {
+      const code = await generateUniqueInvestmentCode(db);
+      await db
+        .collection<Investment>(COL_INVESTMENTS)
+        .updateOne({ _id: inv._id, code: { $exists: false } }, { $set: { code } });
+      inv.code = code;
+    }
+  }
+  return docs;
 }
 
 export async function updateInvestment(params: {
@@ -377,6 +402,12 @@ export async function computeTagAudit(investment: Investment): Promise<{
   const expectedAgg = await db
     .collection(COL_INVESTMENT_LOTS)
     .countDocuments({ investment_id: investment._id });
+  // Defensive: an investment without a code can't be audited. getInvestment
+  // / listInvestments lazily backfill, so this branch is only hit if a
+  // caller fabricates an Investment object directly.
+  if (!investment.code) {
+    return { tagged_listings: 0, expected_lots: expectedAgg };
+  }
   const taggedAgg = await db
     .collection("dashboard_cm_stock")
     .countDocuments({
