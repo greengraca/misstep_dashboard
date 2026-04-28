@@ -39,6 +39,18 @@ function timeAgo(iso: string | null | undefined): string {
   return `${Math.round(ms / 86400000)}d ago`;
 }
 
+interface OverrideListEntry {
+  set: string;
+  collectorNumber: string;
+  cardmarket_id: number;
+  updatedAt: string;
+  sampleName: string | null;
+  sampleSetName: string | null;
+  sampleImageUrl: string | null;
+  sampleFoil: boolean | null;
+  usageCount: number;
+}
+
 const VELOCITY_TIER_COLOR: Record<"fast" | "medium" | "slow" | "unknown", string> = {
   fast: "var(--success)",
   medium: "var(--warning)",
@@ -86,6 +98,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   const [idOverrideInput, setIdOverrideInput] = useState("");
   const [idOverrideError, setIdOverrideError] = useState("");
   const [idOverrideSubmitting, setIdOverrideSubmitting] = useState(false);
+  const [overrideManagerOpen, setOverrideManagerOpen] = useState(false);
+  const [overrideManagerList, setOverrideManagerList] = useState<OverrideListEntry[] | null>(null);
+  const [overrideManagerLoading, setOverrideManagerLoading] = useState(false);
+  const [deletingOverrideKey, setDeletingOverrideKey] = useState<string | null>(null);
   // useTransition lets React schedule the table re-render as a non-urgent
   // update — the chevron flips instantly, the (expensive) per-row reconciliation
   // happens during idle frames instead of blocking the click. Without this,
@@ -184,6 +200,43 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     setIdOverrideInput("");
     setIdOverrideError("");
   };
+  const openOverrideManager = async () => {
+    setOverrideManagerOpen(true);
+    setOverrideManagerLoading(true);
+    try {
+      const res = await fetch("/api/appraiser/cm-overrides");
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      setOverrideManagerList(Array.isArray(data?.overrides) ? data.overrides : []);
+    } catch {
+      setOverrideManagerList([]);
+    } finally {
+      setOverrideManagerLoading(false);
+    }
+  };
+  const closeOverrideManager = () => {
+    setOverrideManagerOpen(false);
+    setOverrideManagerList(null);
+  };
+  const deleteOverride = async (set: string, collectorNumber: string) => {
+    const key = `${set}:${collectorNumber}`;
+    if (deletingOverrideKey) return;
+    if (!confirm(`Remove the manual Cardmarket-ID override for ${set.toUpperCase()} #${collectorNumber}?\n\nExisting cards keep the ID they were assigned. Future imports of this printing won't auto-apply it.`)) return;
+    setDeletingOverrideKey(key);
+    try {
+      const res = await fetch("/api/appraiser/cm-overrides", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ set, collectorNumber }),
+      });
+      if (res.ok) {
+        setOverrideManagerList((prev) => prev?.filter((o) => `${o.set}:${o.collectorNumber}` !== key) ?? null);
+      }
+    } finally {
+      setDeletingOverrideKey(null);
+    }
+  };
+
   const submitIdOverride = async () => {
     if (!idOverrideTarget || idOverrideSubmitting) return;
     setIdOverrideSubmitting(true);
@@ -205,6 +258,9 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
       }
       closeIdOverride();
       onCardChanged();
+      // If the manager modal happens to be open, refresh it so the new
+      // override appears at the top.
+      if (overrideManagerOpen) await openOverrideManager();
     } catch (err) {
       setIdOverrideError(err instanceof Error ? err.message : "Network error");
     } finally {
@@ -448,6 +504,14 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               size="sm"
             />
           </span>
+          <button
+            onClick={openOverrideManager}
+            className={btnSecondaryClass}
+            style={btnSecondary}
+            title="Browse and remove manual Cardmarket-ID overrides"
+          >
+            Manage IDs
+          </button>
           <button
             onClick={copyAll}
             className={btnSecondaryClass}
@@ -900,6 +964,91 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               >
                 {idOverrideSubmitting ? "Saving…" : "Save override"}
               </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={overrideManagerOpen}
+        onClose={closeOverrideManager}
+        title="Cardmarket-ID overrides"
+        maxWidth="max-w-2xl"
+      >
+        {overrideManagerLoading ? (
+          <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+            Loading…
+          </div>
+        ) : !overrideManagerList || overrideManagerList.length === 0 ? (
+          <div style={{ padding: 16, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+            No overrides yet. Click <strong>set ID</strong> on any card whose Cardmarket link is broken to add one.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+              Each override is keyed by <code style={{ fontFamily: "var(--font-mono)" }}>set:collectorNumber</code> and applies across every collection. Removing one stops auto-applying to future imports — existing cards keep the ID they were given.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: "55vh", overflowY: "auto" }}>
+              {overrideManagerList.map((o) => {
+                const key = `${o.set}:${o.collectorNumber}`;
+                const cmHref = `https://www.cardmarket.com/en/Magic/Products?idProduct=${o.cardmarket_id}`;
+                const isDeleting = deletingOverrideKey === key;
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg-card)",
+                      fontSize: 12,
+                      opacity: isDeleting ? 0.5 : 1,
+                    }}
+                  >
+                    {o.sampleImageUrl ? (
+                      <img src={o.sampleImageUrl} alt="" style={{ width: 22, height: 30, objectFit: "cover", borderRadius: 3, flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 22, height: 30, borderRadius: 3, background: "var(--bg-hover)", flexShrink: 0 }} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <strong style={{ color: "var(--text-primary)" }}>
+                          {o.sampleName ?? <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>(no card uses this override)</span>}
+                        </strong>
+                        {o.sampleFoil && <FoilStar />}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 10, marginTop: 2 }}>
+                        <span>{o.set.toUpperCase()} #{o.collectorNumber}</span>
+                        <span>·</span>
+                        <a
+                          href={cmHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: "var(--accent)", textDecoration: "none" }}
+                          className="hover:underline"
+                          title="Open this Cardmarket product in a new tab"
+                        >
+                          idProduct={o.cardmarket_id} ↗
+                        </a>
+                        <span>·</span>
+                        <span>{o.usageCount} card{o.usageCount === 1 ? "" : "s"}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deleteOverride(o.set, o.collectorNumber)}
+                      disabled={isDeleting}
+                      title="Remove this override"
+                      className="hover:text-[var(--error)] transition-colors"
+                      style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "4px 6px", flexShrink: 0 }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
