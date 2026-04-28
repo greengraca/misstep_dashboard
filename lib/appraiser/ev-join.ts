@@ -32,8 +32,12 @@ import type {
  *   - medium  : everything between
  *   - unknown : variant has no chart at all (likely never scraped)
  *
- * Window is `min(30, daysSpannedByChart)` so a 12-day-old printing reads as
- * `12/12` instead of being penalized for not having 30 days of history.
+ * Window is fixed at 30 days. CM's chart always represents the last 30
+ * days regardless of how sparse the entries are — gaps mean "no sales that
+ * day", not "outside the observable window". So a card with 2 sale-days
+ * out of CM's 30-day window reads as `2/30`, communicating "very slow"
+ * accurately rather than the misleading `2/6` you'd get from spanning only
+ * the entries' date range.
  */
 function computeVelocity(
   variant: { chart?: Array<{ date: string; avg_sell: number }>; updatedAt?: string } | undefined,
@@ -79,10 +83,9 @@ function computeVelocity(
   }
 
   inWindow.sort((a, b) => a - b);
-  const earliest = inWindow[0];
   const latest = inWindow[inWindow.length - 1];
   const activeDays = inWindow.length;
-  const windowDays = Math.min(30, Math.max(1, Math.round((todayMs - earliest) / dayMs) + 1));
+  const windowDays = 30;
   const daysSinceLastSale = Math.max(0, Math.round((todayMs - latest) / dayMs));
 
   let tier: "fast" | "medium" | "slow";
