@@ -160,6 +160,27 @@ export interface CmStockSnapshot {
   submittedBy: string;
 }
 
+// Snapshot of the sales pipeline at a moment in time. The four additive
+// components mirror the Balance stat-card subtitle on the cardmarket page:
+//   balance — current CM wallet
+//   unpaid  — sum of all unpaid order totals
+//   paid    — sum of all paid order totals
+//   sent    — sum of TRUSTEE-sent order totals only (non-trustee sent has
+//             already paid into balance, so it would double-count)
+//   total   — balance + unpaid + paid + sent (matches the stat-card "T")
+// Captured passively on every ext sync with the same 3-equal-tuple
+// compression as cm_balance.
+export interface CmPipelineSnapshot {
+  _id?: string;
+  balance: number;
+  unpaid: number;
+  paid: number;
+  sent: number;
+  total: number;
+  extractedAt: string;
+  submittedBy: string;
+}
+
 export interface CmTransactionSummary {
   _id?: string;
   periodStart: string;

@@ -28,6 +28,7 @@ const COL = {
   orderItems: `${COLLECTION_PREFIX}cm_order_items`,
   stock: `${COLLECTION_PREFIX}cm_stock`,
   stockSnapshots: `${COLLECTION_PREFIX}cm_stock_snapshots`,
+  pipelineSnapshots: `${COLLECTION_PREFIX}cm_pipeline_snapshots`,
   transactions: `${COLLECTION_PREFIX}cm_transactions`,
   syncLog: `${COLLECTION_PREFIX}sync_log`,
 } as const;
@@ -67,6 +68,7 @@ async function ensureIndexes() {
     { col: COL.stock, key: { articleId: 1 }, options: { unique: true, sparse: true } },
     { col: COL.stock, key: { productId: 1, foil: 1, condition: 1 }, options: { name: "productId_foil_condition" } },
     { col: COL.stockSnapshots, key: { extractedAt: -1 } },
+    { col: COL.pipelineSnapshots, key: { extractedAt: -1 } },
     { col: COL.transactions, key: { dedupKey: 1 }, options: { unique: true } },
     { col: COL.syncLog, key: { receivedAt: -1 } },
   ];
@@ -226,6 +228,24 @@ export async function processSync(
     }
   }
 
+  // Pipeline snapshot: passively capture U/P/S/T totals whenever orders or
+  // order_detail or balance moved through this batch. Order_detail changes
+  // can flip an order between status buckets without a corresponding orders
+  // entry, so it counts. Failure here is non-fatal — pipeline snapshots are
+  // additive observability, not part of the order-processing contract.
+  if (results.orders || results.order_detail || results.balance) {
+    try {
+      await processPipelineSnapshot(submittedBy);
+    } catch (err) {
+      logError(
+        "warn",
+        "ext-sync-pipeline-snapshot",
+        err instanceof Error ? err.message : "unknown error",
+        {}
+      );
+    }
+  }
+
   // Log sync with descriptive details
   const db = await getDb();
   for (const [dataType, stats] of Object.entries(results)) {
@@ -275,6 +295,57 @@ async function processBalance(
   });
 
   return { added: 1, updated: 0, skipped: 0 };
+}
+
+// ── Pipeline snapshot (U + P + S totals, time-series compressed) ────
+
+/**
+ * Capture a snapshot of the current sales pipeline. Components match the
+ * Balance stat-card on the cardmarket page (Balance + U + P + S where
+ * S is trustee-sent ONLY — non-trustee sent has already paid into the
+ * wallet balance and would double-count). Called passively on every ext
+ * sync that processes orders or balance.
+ *
+ * Compression mirrors processBalance: when the latest 3 snapshots match
+ * on the full tuple, drop the middle one so we only keep the boundaries
+ * of unchanged stretches.
+ */
+async function processPipelineSnapshot(submittedBy: string): Promise<void> {
+  const db = await getDb();
+  const col = db.collection(COL.pipelineSnapshots);
+
+  const [orderValues, trusteeSent, latestBalance] = await Promise.all([
+    getOrderValuesByStatus(),
+    getTrusteeSentValue(),
+    getLatestBalance(),
+  ]);
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const balance = round2(latestBalance?.balance || 0);
+  const u = round2(orderValues.unpaid || 0);
+  const p = round2(orderValues.paid || 0);
+  const s = round2(trusteeSent || 0);
+  const total = round2(balance + u + p + s);
+
+  const recent = await col.find().sort({ extractedAt: -1 }).limit(2).toArray();
+  const sameTuple = (snap: Record<string, unknown>) =>
+    round2((snap.balance as number) || 0) === balance &&
+    round2((snap.unpaid as number) || 0) === u &&
+    round2((snap.paid as number) || 0) === p &&
+    round2((snap.sent as number) || 0) === s;
+
+  if (recent.length === 2 && sameTuple(recent[0]) && sameTuple(recent[1])) {
+    await col.deleteOne({ _id: recent[0]._id });
+  }
+
+  await col.insertOne({
+    balance,
+    unpaid: u,
+    paid: p,
+    sent: s,
+    total,
+    extractedAt: new Date().toISOString(),
+    submittedBy,
+  });
 }
 
 // ── Orders (upsert by orderId) ──────────────────────────────────────
@@ -1519,6 +1590,302 @@ export async function getBalanceHistory(days: number = 30): Promise<CmBalanceSna
     .sort({ extractedAt: 1 })
     .toArray();
   return docs as unknown as CmBalanceSnapshot[];
+}
+
+// ── Pipeline history (snapshot + reconstruction) ────────────────────
+
+export interface CmPipelineDayPoint {
+  date: string;       // YYYY-MM-DD (UTC day key)
+  balance: number;    // CM wallet balance at end of day
+  unpaid: number;
+  paid: number;
+  sent: number;       // trustee-sent only (non-trustee sent already in balance)
+  total: number;      // balance + unpaid + paid + sent
+  source: "snapshot" | "reconstructed";
+}
+
+/**
+ * Parse a Cardmarket-formatted timestamp into epoch ms (UTC midnight of
+ * the local-day component). Accepts:
+ *   - "DD.MM.YYYY"
+ *   - "DD.MM.YYYY HH:MM"
+ * Returns null if the input is missing or malformed.
+ *
+ * NOTE: time-of-day is intentionally ignored. We bucket by local day to
+ * keep the chart aligned with the user's intuition ("orders that were
+ * paid today"). Using HH:MM would cause a sale paid at 23:50 and a sale
+ * paid at 00:10 the next day to land in the wrong calendar buckets
+ * relative to a UTC-of-now comparison.
+ */
+function parseCmDateToDayMs(s: string | undefined | null): number | null {
+  if (!s) return null;
+  const datePart = String(s).trim().split(" ")[0] || "";
+  const m = datePart.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  const year = Number(m[3]);
+  if (!day || !month || !year) return null;
+  return Date.UTC(year, month - 1, day);
+}
+
+function ymdFromMs(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Reconstruct historical U/P/S/T values per day for the last `days` days
+ * (inclusive of today) from the existing order timeline data.
+ *
+ * For each sale order we infer state-interval boundaries:
+ *   t_start  = timeline.unpaid (or earliest of paid/sent/arrived) or orderDate
+ *   t_paid   = timeline.paid
+ *   t_sent   = timeline.sent
+ *   t_done   = timeline.arrived (drops the order out of the pipeline)
+ *
+ * On each day D the order contributes to:
+ *   U  if t_start  <= D  AND (t_paid is null OR t_paid > D)
+ *   P  if t_paid   <= D  AND (t_sent is null OR t_sent > D)
+ *   S  if t_sent   <= D  AND (t_done is null OR t_done > D)
+ *
+ * Orders WITHOUT timeline (never had order_detail synced) only appear in
+ * their CURRENT bucket on TODAY — we have no historical signal for them,
+ * and projecting them backward from orderDate would be misleading because
+ * orderDate is overwritten to the current-status timestamp. Pipeline
+ * snapshots will eventually take over for those days going forward.
+ *
+ * shopping_cart orders are excluded entirely — they aren't committed.
+ */
+export async function reconstructPipelineHistory(days: number): Promise<CmPipelineDayPoint[]> {
+  const db = await getDb();
+  const todayMs = (() => {
+    const n = new Date();
+    return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate());
+  })();
+  const requestedStartMs = todayMs - (days - 1) * ONE_DAY_MS;
+
+  // Clamp the window start to the day of our earliest balance snapshot.
+  // Before that timestamp the ext wasn't running, so reconstruction would
+  // fabricate history by projecting current orders backward into days we
+  // never observed. Falling back to requestedStartMs when we have no
+  // balance data preserves the old behavior for fresh installs.
+  const balanceDocs = await db
+    .collection(COL.balance)
+    .find({})
+    .sort({ extractedAt: 1 })
+    .toArray();
+  const balanceSamples = balanceDocs
+    .map((d) => ({
+      ms: Date.parse(d.extractedAt as string),
+      value: Number(d.balance) || 0,
+    }))
+    .filter((s) => Number.isFinite(s.ms));
+
+  let startMs = requestedStartMs;
+  if (balanceSamples.length > 0) {
+    const firstMs = balanceSamples[0].ms;
+    const firstDayMs = Date.UTC(
+      new Date(firstMs).getUTCFullYear(),
+      new Date(firstMs).getUTCMonth(),
+      new Date(firstMs).getUTCDate()
+    );
+    if (firstDayMs > startMs) startMs = firstDayMs;
+  }
+
+  // Pull all sale orders that could possibly contribute. Cheap enough — the
+  // collection is bounded by CM's own order history (low thousands at most).
+  const orders = await db.collection(COL.orders).find({
+    direction: { $in: ["sale", null] },
+    status: { $ne: "shopping_cart" },
+  }).toArray();
+
+  // Initialize the day grid.
+  const points: CmPipelineDayPoint[] = [];
+  for (let ms = startMs; ms <= todayMs; ms += ONE_DAY_MS) {
+    points.push({
+      date: ymdFromMs(ms),
+      balance: 0,
+      unpaid: 0,
+      paid: 0,
+      sent: 0,
+      total: 0,
+      source: "reconstructed",
+    });
+  }
+
+  // Balance series: for each day in the (clamped) window, project the
+  // most recent balance snapshot whose extractedAt is on or before the
+  // END of that day.
+  if (balanceSamples.length > 0) {
+    let cursor = 0;
+    for (let i = 0; i < points.length; i++) {
+      const dayEndMs = startMs + i * ONE_DAY_MS + ONE_DAY_MS - 1;
+      while (
+        cursor + 1 < balanceSamples.length &&
+        balanceSamples[cursor + 1].ms <= dayEndMs
+      ) {
+        cursor++;
+      }
+      const sample = balanceSamples[cursor];
+      if (sample.ms <= dayEndMs) points[i].balance = sample.value;
+    }
+  }
+
+  // Status → numeric index. Lets us tell whether the current status of an
+  // order implies it has reached a state that the timeline doesn't yet
+  // reflect (i.e. detail page wasn't re-synced after the order advanced).
+  const STATUS_IDX: Record<string, number> = {
+    shopping_cart: 0,
+    unpaid: 1,
+    paid: 2,
+    sent: 3,
+    arrived: 4,
+  };
+
+  for (const order of orders) {
+    const totalPrice = Number(order.totalPrice) || 0;
+    if (!totalPrice) continue;
+    const trustee = !!order.trustee;
+    const timeline = (order.timeline || {}) as Record<string, string>;
+
+    let tUnpaid = parseCmDateToDayMs(timeline.unpaid);
+    let tPaid = parseCmDateToDayMs(timeline.paid);
+    let tSent = parseCmDateToDayMs(timeline.sent);
+    let tArrived = parseCmDateToDayMs(timeline.arrived);
+    const tCancelled = parseCmDateToDayMs(timeline.cancelled);
+
+    // orderDate is overwritten to the current-status timestamp on every
+    // orders-list sync (see processOrders), so it's our best estimate for
+    // when the order entered its current state. We use it to backfill any
+    // missing transition the timeline didn't capture — without this,
+    // arrived orders whose detail wasn't re-synced after they shipped
+    // stay forever in P, which inflates the bucket by orders of magnitude.
+    const fallback = parseCmDateToDayMs(order.orderDate as string);
+    const currentIdx = STATUS_IDX[order.status as string] ?? 0;
+    if (fallback != null) {
+      if (currentIdx >= 4 && tArrived == null) tArrived = fallback;
+      if (currentIdx >= 3 && tSent == null) tSent = fallback;
+      if (currentIdx >= 2 && tPaid == null) tPaid = fallback;
+      if (currentIdx >= 1 && tUnpaid == null) tUnpaid = fallback;
+    }
+
+    // Effective start of the U-phase for this order.
+    const tStart = tUnpaid ?? tPaid ?? tSent ?? tArrived ?? fallback ?? null;
+
+    if (tStart == null) continue; // no usable timestamp at all
+
+    // Walk the day grid. Cancellations terminate the order's contribution.
+    const tEnd = tCancelled ?? null;
+    for (let i = 0; i < points.length; i++) {
+      const dayMs = startMs + i * ONE_DAY_MS;
+      if (tEnd != null && dayMs >= tEnd) break;
+
+      const inU =
+        tStart != null && dayMs >= tStart && (tPaid == null || dayMs < tPaid);
+      const inP =
+        tPaid != null && dayMs >= tPaid && (tSent == null || dayMs < tSent);
+      const inS =
+        tSent != null && dayMs >= tSent && (tArrived == null || dayMs < tArrived);
+
+      if (inU) points[i].unpaid += totalPrice;
+      else if (inP) points[i].paid += totalPrice;
+      else if (inS && trustee) points[i].sent += totalPrice;
+      // non-trustee sent: skip — already in balance
+    }
+  }
+
+  for (const p of points) {
+    p.total = p.balance + p.unpaid + p.paid + p.sent;
+  }
+  return points;
+}
+
+/**
+ * Combined pipeline series: reconstruction across the requested window,
+ * with snapshot data overriding any day on which we have at least one
+ * snapshot (the latest snapshot of that day wins). Snapshots are more
+ * accurate for orders without timeline data, so they take priority.
+ */
+export async function getPipelineHistory(days: number = 30): Promise<{
+  history: CmPipelineDayPoint[];
+}> {
+  const reconstructed = await reconstructPipelineHistory(days);
+
+  const db = await getDb();
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const snapshots = await db
+    .collection(COL.pipelineSnapshots)
+    .find({ extractedAt: { $gte: since.toISOString() } })
+    .sort({ extractedAt: 1 })
+    .toArray();
+
+  if (snapshots.length === 0) {
+    return { history: reconstructed };
+  }
+
+  // For each YYYY-MM-DD in the window, take the LATEST snapshot of that day.
+  const byDay = new Map<string, Record<string, unknown>>();
+  for (const s of snapshots) {
+    const ms = Date.parse(s.extractedAt as string);
+    if (!Number.isFinite(ms)) continue;
+    const d = new Date(ms);
+    const key = ymdFromMs(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    byDay.set(key, s);
+  }
+
+  const merged: CmPipelineDayPoint[] = reconstructed.map((p) => {
+    const snap = byDay.get(p.date);
+    if (!snap) return p;
+    const balance = Number(snap.balance) || p.balance;
+    const u = Number(snap.unpaid) || 0;
+    const pd = Number(snap.paid) || 0;
+    const s = Number(snap.sent) || 0;
+    return {
+      date: p.date,
+      balance,
+      unpaid: u,
+      paid: pd,
+      sent: s,
+      total: balance + u + pd + s,
+      source: "snapshot" as const,
+    };
+  });
+
+  // Always derive TODAY's bar from current-status totals — same source
+  // the Balance stat-card uses (getOrderValuesByStatus / getTrusteeSentValue
+  // / getLatestBalance). This guarantees the rightmost bar matches the
+  // stat-card numbers exactly even before the next ext sync writes a
+  // snapshot, and immunizes today against any reconstruction edge case.
+  if (merged.length > 0) {
+    const [orderValues, trusteeSent, latestBalance] = await Promise.all([
+      getOrderValuesByStatus(),
+      getTrusteeSentValue(),
+      getLatestBalance(),
+    ]);
+    const last = merged[merged.length - 1];
+    const balance = Number(latestBalance?.balance) || 0;
+    const u = orderValues.unpaid || 0;
+    const pd = orderValues.paid || 0;
+    const s = trusteeSent || 0;
+    merged[merged.length - 1] = {
+      date: last.date,
+      balance,
+      unpaid: u,
+      paid: pd,
+      sent: s,
+      total: balance + u + pd + s,
+      source: last.source,
+    };
+  }
+
+  return { history: merged };
 }
 
 export async function getOrders(filters: {

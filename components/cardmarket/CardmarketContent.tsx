@@ -122,6 +122,7 @@ export default function CardmarketContent() {
 
   const { data: statusData, mutate: mutateStatus } = useSWR("/api/ext/status", fetcher, { refreshInterval: 15000 });
   const { data: balanceData, mutate: mutateBalance } = useSWR("/api/ext/balance?days=30", fetcher, { refreshInterval: 60000 });
+  const { data: pipelineData, mutate: mutatePipeline } = useSWR("/api/ext/pipeline?days=30", fetcher, { refreshInterval: 60000 });
 
   const orderParams = new URLSearchParams({
     status: activeTab,
@@ -290,7 +291,7 @@ export default function CardmarketContent() {
         <button
           onClick={async () => {
             setRefreshing(true);
-            await Promise.all([mutateStatus(), mutateOrders(), mutateBalance()]);
+            await Promise.all([mutateStatus(), mutateOrders(), mutateBalance(), mutatePipeline()]);
             setRefreshing(false);
           }}
           disabled={refreshing}
@@ -378,6 +379,11 @@ export default function CardmarketContent() {
             })}
           </div>
         </div>
+      )}
+
+      {/* Sales Pipeline (U + P + S) */}
+      {pipelineData?.data?.history?.length > 0 && (
+        <PipelineChart history={pipelineData.data.history} formatEur={formatEur} />
       )}
 
       {/* Orders */}
@@ -604,6 +610,134 @@ export default function CardmarketContent() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Sales pipeline (Balance + U + P + S) stacked-bar chart ─────────
+
+interface PipelinePoint {
+  date: string;
+  balance: number;
+  unpaid: number;
+  paid: number;
+  sent: number;       // trustee-sent only
+  total: number;      // balance + unpaid + paid + sent
+  source: "snapshot" | "reconstructed";
+}
+
+// Color order from BOTTOM to TOP of each bar — concrete money first,
+// least-certain on top.
+const PIPELINE_COLORS = {
+  balance: "var(--info)",     // blue — money already in the wallet
+  sent: "var(--success)",     // green — trustee holds, almost in
+  paid: "var(--accent)",      // cyan — buyer paid, we owe shipping
+  unpaid: "var(--warning)",   // amber — buyer hasn't paid yet
+} as const;
+
+function PipelineChart({
+  history,
+  formatEur,
+}: {
+  history: PipelinePoint[];
+  formatEur: (n: number | null | undefined) => string;
+}) {
+  const max = Math.max(1, ...history.map((p) => p.total));
+  const latest = history[history.length - 1];
+
+  function formatDay(ymd: string) {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+  }
+
+  function legendDot(color: string) {
+    return (
+      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: color }} />
+    );
+  }
+
+  return (
+    <div className="p-4 rounded-xl overflow-hidden" style={surfaceStyle}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          Sales Pipeline
+          <span className="ml-2 text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
+            Balance + U + P + S over the last 30 days
+          </span>
+        </h2>
+        <div className="flex flex-wrap items-center gap-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
+          <span className="inline-flex items-center gap-1" title="CM wallet balance">
+            {legendDot(PIPELINE_COLORS.balance)} Bal {formatEur(latest?.balance)}
+          </span>
+          <span className="inline-flex items-center gap-1" title="Unpaid orders">
+            {legendDot(PIPELINE_COLORS.unpaid)} U {formatEur(latest?.unpaid)}
+          </span>
+          <span className="inline-flex items-center gap-1" title="Paid, awaiting shipment">
+            {legendDot(PIPELINE_COLORS.paid)} P {formatEur(latest?.paid)}
+          </span>
+          <span className="inline-flex items-center gap-1" title="Trustee-Sent (money still held by CM trustee)">
+            {legendDot(PIPELINE_COLORS.sent)} S {formatEur(latest?.sent)}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
+        {history.map((p, i) => {
+          const totalPct = (p.total / max) * 100;
+          const balPct = (p.balance / max) * 100;
+          const uPct = (p.unpaid / max) * 100;
+          const pPct = (p.paid / max) * 100;
+          const sPct = (p.sent / max) * 100;
+          const tooltip = [
+            formatDay(p.date),
+            `Bal: ${formatEur(p.balance)}`,
+            `U: ${formatEur(p.unpaid)}`,
+            `P: ${formatEur(p.paid)}`,
+            `S: ${formatEur(p.sent)}`,
+            `Total: ${formatEur(p.total)}`,
+            p.source === "snapshot" ? "(snapshot)" : "(reconstructed)",
+          ].join(" · ");
+          return (
+            <div
+              key={`${p.date}-${i}`}
+              title={tooltip}
+              className="flex-1 min-w-0 flex flex-col justify-end"
+              style={{ height: "100%", opacity: p.total > 0 ? 0.6 + (i / history.length) * 0.4 : 0.25 }}
+            >
+              {/* Stack from BOTTOM: balance → sent → paid → unpaid. */}
+              <div
+                style={{
+                  height: `${totalPct}%`,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "flex-end",
+                  borderTopLeftRadius: 2,
+                  borderTopRightRadius: 2,
+                  overflow: "hidden",
+                }}
+              >
+                {uPct > 0 && (
+                  <div style={{ flex: uPct, background: PIPELINE_COLORS.unpaid }} />
+                )}
+                {pPct > 0 && (
+                  <div style={{ flex: pPct, background: PIPELINE_COLORS.paid }} />
+                )}
+                {sPct > 0 && (
+                  <div style={{ flex: sPct, background: PIPELINE_COLORS.sent }} />
+                )}
+                {balPct > 0 && (
+                  <div style={{ flex: balPct, background: PIPELINE_COLORS.balance }} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex justify-between mt-1 text-[9px]" style={{ color: "var(--text-muted)" }}>
+        <span>{formatDay(history[0].date)}</span>
+        <span>{formatDay(history[history.length - 1].date)}</span>
+      </div>
     </div>
   );
 }
