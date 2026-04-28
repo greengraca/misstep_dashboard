@@ -77,6 +77,19 @@ export function SetSymbol({
     };
   }, [trimmed]);
 
+  // Resolution priority: dynamic DB map → hardcoded fallback → set code itself.
+  const iconBasename =
+    dynamicIconMap[trimmed] ?? SCRYFALL_ICON_REMAP[trimmed] ?? trimmed;
+
+  // Reset the `errored` flag whenever the resolved basename changes. The
+  // initial render uses `${code}.svg` which often 404s (e.g. pf19.svg), then
+  // the dynamic map arrives and resolves to a working basename (pf19 → star).
+  // Without this reset the img stays in error state and the text fallback
+  // sticks even after the working URL is available.
+  useEffect(() => {
+    setErrored(false);
+  }, [iconBasename]);
+
   if (!trimmed || errored) {
     return (
       <span
@@ -87,9 +100,6 @@ export function SetSymbol({
       </span>
     );
   }
-  // Resolution priority: dynamic DB map → hardcoded fallback → set code itself.
-  const iconBasename =
-    dynamicIconMap[trimmed] ?? SCRYFALL_ICON_REMAP[trimmed] ?? trimmed;
   return (
     <img
       src={`https://svgs.scryfall.io/sets/${iconBasename}.svg`}
