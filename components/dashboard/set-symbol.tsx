@@ -1,27 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
- * Some Scryfall sets share an icon basename rather than having their own
- * SVG file at `<setcode>.svg`. When Scryfall serves the symbol from a
- * different basename, mirror the redirect here so we don't 404 and fall
- * back to text.
+ * Hardcoded fallback for sets whose Scryfall icon lives at a basename
+ * different from the set code (e.g. The List → planeswalker.svg, promo
+ * sets that share their parent's icon, etc.). Used when the dynamic map
+ * (fetched from /api/sets/icon-map) hasn't loaded yet, or when the API
+ * is unreachable.
  *
- * The authoritative source is `dashboard_ev_sets.icon_svg_uri` (synced
- * from Scryfall) — when a new set falls through to the text fallback,
- * read that field for the actual basename and add an entry here.
+ * Most entries here are also discoverable from `dashboard_ev_sets`
+ * — they're duplicated as a synchronous fast-path so the very first
+ * render after a cold load doesn't flicker between text and icon.
  */
 const SCRYFALL_ICON_REMAP: Record<string, string> = {
-  plst: "planeswalker", // The List shares the planeswalker symbol
-  p30a: "star",         // 30th Anniversary Play Promos uses the star symbol
-  // Promo sets typically share their parent set's symbol on Scryfall.
-  // When a "p<setcode>" set falls through to the text fallback, check
-  // dashboard_ev_sets.icon_svg_uri for the basename and add it here.
-  pemn: "emn", // Eldritch Moon Promos → Eldritch Moon icon
-  paer: "aer", // Aether Revolt Promos → Aether Revolt icon
-  plg21: "star", // Love Your LGS 2021 → star icon
+  plst: "planeswalker",
+  p30a: "star",
+  pemn: "emn",
+  paer: "aer",
+  plg21: "star",
 };
+
+// Module-level dynamic map populated from /api/sets/icon-map. One fetch
+// per page session, deduped across every SetSymbol instance.
+let dynamicIconMap: Record<string, string> = {};
+let dynamicIconPromise: Promise<Record<string, string>> | null = null;
+const subscribers = new Set<() => void>();
+
+function ensureDynamicIconMap(): Promise<Record<string, string>> {
+  if (!dynamicIconPromise) {
+    dynamicIconPromise = fetch("/api/sets/icon-map")
+      .then((r) => (r.ok ? r.json() : { basenames: {} }))
+      .then((d: { basenames?: Record<string, string> }) => {
+        dynamicIconMap = d.basenames ?? {};
+        for (const cb of subscribers) cb();
+        return dynamicIconMap;
+      })
+      .catch(() => {
+        // Allow retry on next mount (network blip / dev-only fetch errors).
+        dynamicIconPromise = null;
+        return {};
+      });
+  }
+  return dynamicIconPromise;
+}
 
 /**
  * Renders a Scryfall set symbol (SVG from svgs.scryfall.io) with the same
@@ -40,6 +62,21 @@ export function SetSymbol({
 }) {
   const [errored, setErrored] = useState(false);
   const trimmed = (code || "").trim().toLowerCase();
+
+  // Subscribe to the module-level dynamic map. Re-renders this instance
+  // when the fetch completes so the icon switches from the hardcoded
+  // fallback (or the default `${code}.svg`) to the DB-resolved basename.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!trimmed) return;
+    const cb = () => setTick((n) => n + 1);
+    subscribers.add(cb);
+    if (Object.keys(dynamicIconMap).length === 0) ensureDynamicIconMap();
+    return () => {
+      subscribers.delete(cb);
+    };
+  }, [trimmed]);
+
   if (!trimmed || errored) {
     return (
       <span
@@ -50,7 +87,9 @@ export function SetSymbol({
       </span>
     );
   }
-  const iconBasename = SCRYFALL_ICON_REMAP[trimmed] ?? trimmed;
+  // Resolution priority: dynamic DB map → hardcoded fallback → set code itself.
+  const iconBasename =
+    dynamicIconMap[trimmed] ?? SCRYFALL_ICON_REMAP[trimmed] ?? trimmed;
   return (
     <img
       src={`https://svgs.scryfall.io/sets/${iconBasename}.svg`}
