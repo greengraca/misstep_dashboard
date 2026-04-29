@@ -90,7 +90,14 @@ export interface Variant {
 export interface SortFields {
   effectiveSet: string;
   colorGroup: ColorGroup;
-  landTier: 0 | 1 | 2;
+  /**
+   * Sub-bucket within colorGroup="L":
+   *  - 0: non-basic land (or any non-L card; landTier is meaningless then)
+   *  - 1: basic land
+   *  - 2: token (`set_type === "token"` OR layout/type Token)
+   *  - 3: art-series memorabilia (`set_type === "memorabilia"`) — sorts AFTER tokens
+   */
+  landTier: 0 | 1 | 2 | 3;
   rarityOrder: number;
   cmcBucket: number;
   rarity: Rarity;
@@ -112,7 +119,7 @@ export interface Slot {
   setReleaseDate: string;
   collectorNumber?: string;
   colorGroup: ColorGroup;
-  landTier: 0 | 1 | 2;
+  landTier: 0 | 1 | 2 | 3;
   cmc: number;
   cmcBucket: number;
   rarity: Rarity;
@@ -135,6 +142,8 @@ export interface PlacedSlot extends Slot {
   spansShelfRow?: true;
   unplaced?: true;
 }
+
+// `landTier` field on Slot also widens to match SortFields.
 
 export interface EmptyReservedCell {
   kind: "empty-reserved";
@@ -186,7 +195,14 @@ function normalizeRarity(raw: string): Rarity {
   return "common";
 }
 
-function colorGroupFor(card: CardMeta): ColorGroup {
+function isMemorabiliaSet(setCode: string, setsByCode: Map<string, SetMeta>): boolean {
+  return setsByCode.get(setCode)?.set_type === "memorabilia";
+}
+
+function colorGroupFor(card: CardMeta, setsByCode: Map<string, SetMeta>): ColorGroup {
+  // Art-series ("memorabilia") sets go to L so they shelf alongside lands+tokens
+  // — and within L, get pushed to landTier=3 (after tokens).
+  if (isMemorabiliaSet(card.set, setsByCode)) return "L";
   // Tokens go to L regardless of color.
   if (card.layout === "token") return "L";
   if (card.type_line.includes("Token")) return "L";
@@ -204,34 +220,43 @@ function colorGroupFor(card: CardMeta): ColorGroup {
   return "M";
 }
 
-function landTierFor(card: CardMeta, colorGroup: ColorGroup): 0 | 1 | 2 {
+function landTierFor(
+  card: CardMeta,
+  colorGroup: ColorGroup,
+  setsByCode: Map<string, SetMeta>
+): 0 | 1 | 2 | 3 {
   if (colorGroup !== "L") return 0;
+  // Art-series memorabilia comes AFTER tokens (user rule: "art series go after
+  // tokens on every set, last cards in front").
+  if (isMemorabiliaSet(card.set, setsByCode)) return 3;
   if (card.layout === "token" || card.type_line.includes("Token")) return 2;
   if (card.type_line.includes("Basic")) return 1;
   return 0;
 }
 
-function effectiveSetFor(card: CardMeta, parentSetMap: Map<string, string>): string {
-  // Token re-homing: rewrite set to parent_set_code if this is a token card
-  // AND the set is mapped. Non-token cards are left alone even if the map has
-  // an entry for their set (defensive against map pollution).
+function effectiveSetFor(card: CardMeta, setsByCode: Map<string, SetMeta>): string {
+  // Re-home tokens AND art-series memorabilia to parent_set_code when present,
+  // so they shelf with their parent set's section. Non-token / non-memorabilia
+  // cards are left alone even if the parent map has an entry for their set
+  // (defensive against map pollution).
+  const meta = setsByCode.get(card.set);
   const isToken = card.layout === "token" || card.type_line.includes("Token");
-  if (!isToken) return card.set;
-  const parent = parentSetMap.get(card.set);
-  return parent ?? card.set;
+  const isMemorabilia = meta?.set_type === "memorabilia";
+  if (!isToken && !isMemorabilia) return card.set;
+  return meta?.parent_set_code ?? card.set;
 }
 
 export function deriveSortFields(
   card: CardMeta,
-  parentSetMap: Map<string, string>
+  setsByCode: Map<string, SetMeta>
 ): SortFields {
-  const colorGroup = colorGroupFor(card);
-  const landTier = landTierFor(card, colorGroup);
+  const colorGroup = colorGroupFor(card, setsByCode);
+  const landTier = landTierFor(card, colorGroup, setsByCode);
   const rarity = normalizeRarity(card.rarity);
   const rarityOrder = RARITY_ORDER[rarity] ?? 3;
   const cmc = typeof card.cmc === "number" ? card.cmc : 0;
   const cmcBucket = Math.min(Math.floor(cmc), 7);
-  const effectiveSet = effectiveSetFor(card, parentSetMap);
+  const effectiveSet = effectiveSetFor(card, setsByCode);
 
   return {
     effectiveSet,
@@ -275,13 +300,9 @@ export function computeCanonicalSort(
   cardMetaByKey: Map<string, CardMeta>,
   sets: SetMeta[]
 ): CanonicalSortResult {
-  // 1. Build parent-set lookup map for token re-homing.
-  const parentSetMap = new Map<string, string>();
-  for (const s of sets) {
-    if (s.parent_set_code) parentSetMap.set(s.code, s.parent_set_code);
-  }
-
-  // 2. Build set metadata lookup + chronological rank.
+  // 1. Build set metadata lookup + chronological rank. `setsByCode` is used
+  //    by deriveSortFields to determine token / memorabilia re-homing AND
+  //    landTier (art-series goes to landTier=3, after tokens).
   const setsByCode = new Map<string, SetMeta>();
   for (const s of sets) setsByCode.set(s.code, s);
   const sortedSets = [...sets].sort((a, b) => {
@@ -313,7 +334,7 @@ export function computeCanonicalSort(
       unmatched.push({ name: v.name, set: v.set, qty: v.qty });
       continue;
     }
-    const fields = deriveSortFields(card, parentSetMap);
+    const fields = deriveSortFields(card, setsByCode);
     v.effectiveSet = fields.effectiveSet;
     const effSet = setsByCode.get(fields.effectiveSet);
     withFields.push({

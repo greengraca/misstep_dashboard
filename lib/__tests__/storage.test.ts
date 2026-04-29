@@ -61,6 +61,21 @@ function set(code: string, released_at: string, opts: Partial<SetMeta> = {}): Se
   };
 }
 
+/**
+ * Compact builder for a `Map<string, SetMeta>` — pass `[code, parent_set_code, set_type?]`
+ * triples. Used in deriveSortFields tests so the helper can read set_type
+ * (token / memorabilia / expansion) when deciding tier and re-homing.
+ */
+function setsMap(
+  entries: Array<[string, string | null, string?]>
+): Map<string, SetMeta> {
+  const m = new Map<string, SetMeta>();
+  for (const [code, parent, type] of entries) {
+    m.set(code, set(code, "2022-01-01", { parent_set_code: parent, set_type: type ?? "expansion" }));
+  }
+  return m;
+}
+
 describe("deriveSortFields — color group", () => {
   it("mono-white creature → W", () => {
     const f = deriveSortFields(card({ name: "Angel", set: "dmu", color_identity: ["W"] }), new Map());
@@ -128,7 +143,7 @@ describe("deriveSortFields — land bucket", () => {
   it("token card → L, landTier 2", () => {
     const f = deriveSortFields(
       card({ name: "Soldier", set: "tdmu", layout: "token", type_line: "Token Creature — Soldier" }),
-      new Map([["tdmu", "dmu"]])
+      setsMap([["tdmu", "dmu", "token"]])
     );
     expect(f.colorGroup).toBe("L");
     expect(f.landTier).toBe(2);
@@ -137,26 +152,43 @@ describe("deriveSortFields — land bucket", () => {
   it("type_line containing 'Token' without layout=token still classifies as L/2", () => {
     const f = deriveSortFields(
       card({ name: "Treasure Token", set: "tdmu", type_line: "Token Artifact — Treasure" }),
-      new Map([["tdmu", "dmu"]])
+      setsMap([["tdmu", "dmu", "token"]])
     );
     expect(f.colorGroup).toBe("L");
     expect(f.landTier).toBe(2);
   });
+
+  it("art-series memorabilia card → L, landTier 3 (after tokens)", () => {
+    const f = deriveSortFields(
+      card({ name: "Cloud, Ex-SOLDIER // Cloud, Ex-SOLDIER", set: "afin", type_line: "Card", color_identity: ["W"] }),
+      setsMap([["afin", "fin", "memorabilia"]])
+    );
+    expect(f.colorGroup).toBe("L");
+    expect(f.landTier).toBe(3);
+  });
 });
 
-describe("deriveSortFields — token re-homing", () => {
+describe("deriveSortFields — token + memorabilia re-homing", () => {
   it("rewrites token set to parent set via map", () => {
     const f = deriveSortFields(
       card({ name: "Soldier", set: "tdmu", layout: "token", type_line: "Token Creature — Soldier" }),
-      new Map([["tdmu", "dmu"]])
+      setsMap([["tdmu", "dmu", "token"]])
     );
     expect(f.effectiveSet).toBe("dmu");
   });
 
-  it("leaves non-token set unchanged even if parent_set_code exists in map (defensive)", () => {
+  it("rewrites memorabilia (art series) set to parent set via map", () => {
+    const f = deriveSortFields(
+      card({ name: "Cloud // Cloud", set: "afin", type_line: "Card", color_identity: ["W"] }),
+      setsMap([["afin", "fin", "memorabilia"]])
+    );
+    expect(f.effectiveSet).toBe("fin");
+  });
+
+  it("leaves non-token, non-memorabilia set unchanged even if parent_set_code exists (defensive)", () => {
     const f = deriveSortFields(
       card({ name: "Sol Ring", set: "cmr", type_line: "Artifact" }),
-      new Map([["cmr", "foo"]])
+      setsMap([["cmr", "foo"]])
     );
     expect(f.effectiveSet).toBe("cmr");
   });
@@ -374,27 +406,32 @@ describe("computeCanonicalSort — basic sort order", () => {
 });
 
 describe("computeCanonicalSort — L bucket sub-order", () => {
-  it("orders L as nonbasic → basic → token, each sub-bucket alphabetical", () => {
+  it("orders L as nonbasic → basic → token → art-series, each sub-bucket alphabetical", () => {
     const stock: StockRow[] = [
       { name: "Soldier Token", set: "tdmu", qty: 1 },
       { name: "Forest", set: "dmu", qty: 1 },
       { name: "Command Tower", set: "dmu", qty: 1 },
+      { name: "Some Art // Some Art", set: "admu", qty: 1 },
     ];
     const cards = new Map<string, CardMeta>([
       ["Command Tower|dmu", card({ name: "Command Tower", set: "dmu", type_line: "Land" })],
       ["Forest|dmu", card({ name: "Forest", set: "dmu", type_line: "Basic Land — Forest", color_identity: ["G"] })],
       ["Soldier Token|tdmu", card({ name: "Soldier Token", set: "tdmu", layout: "token", type_line: "Token Creature — Soldier" })],
+      ["Some Art // Some Art|admu", card({ name: "Some Art // Some Art", set: "admu", type_line: "Card", color_identity: ["W"] })],
     ]);
     const sets = [
       set("dmu", "2022-09-09"),
       set("tdmu", "2022-09-09", { set_type: "token", parent_set_code: "dmu" }),
+      set("admu", "2022-09-09", { set_type: "memorabilia", parent_set_code: "dmu" }),
     ];
     const result = computeCanonicalSort(stock, cards, sets);
-    // After token re-homing, Soldier Token lives in the dmu L bucket at tail.
+    // After re-homing, both tokens and art-series live in the dmu L bucket;
+    // art-series sorts at the very end (landTier 3, after tokens at landTier 2).
     expect(result.slots.map((s) => s.name)).toEqual([
-      "Command Tower",   // nonbasic
-      "Forest",          // basic
-      "Soldier Token",   // token
+      "Command Tower",          // nonbasic
+      "Forest",                 // basic
+      "Soldier Token",          // token (landTier 2)
+      "Some Art // Some Art",   // art-series (landTier 3)
     ]);
   });
 });

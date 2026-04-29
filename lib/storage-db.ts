@@ -64,7 +64,10 @@ export function projectSetMeta(ev: EvSet): SetMeta {
 
 /**
  * Normalize Cardmarket card names for matching against Scryfall:
- *   - Strip trailing parenthetical suffixes: "(V.1)", "(Black 1/1)", etc.
+ *   - Strip parenthetical suffixes anywhere in the name: "(V.1)",
+ *     "(Black 1/1)", embedded "(B 0/0)" between DFC halves, etc.
+ *     Cardmarket bakes color/PT/variant info into parens; Scryfall stores
+ *     names without these.
  *   - Convert single-slash DFC separators to Scryfall's double-slash:
  *       "Thaumatic Compass / Spires of Orazca"
  *       → "Thaumatic Compass // Spires of Orazca"
@@ -73,7 +76,10 @@ export function projectSetMeta(ev: EvSet): SetMeta {
  *     separators alone.)
  */
 export function cleanCardName(name: string): string {
-  let clean = name.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  // Strip ALL parenthetical groups (not just trailing). Replace each with a
+  // single space, then collapse runs of whitespace. Handles "(V.1)" at the
+  // end and embedded "(B 0/0)" in dual-faced token names alike.
+  let clean = name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
   // " / " (not followed by another /) → " // "
   clean = clean.replace(/ \/ (?!\/)/g, " // ");
   return clean;
@@ -109,14 +115,18 @@ export function resolveSetCode(
   const alias = SET_NAME_ALIASES[lower];
   if (alias) return alias;
 
-  // 3. Strip ": Extras" or ": Promos" suffix — Cardmarket tags for collector
-  //    booster / showcase / borderless subsets and promo variants that Scryfall
-  //    keeps inside the base set.
-  for (const suffix of [": extras", ": promos"]) {
+  // 3. Strip ": Extras", ": Promos", or ": Tokens" suffix — Cardmarket tags
+  //    for collector booster / showcase / borderless / promo / token-pack
+  //    subsets that Scryfall keeps inside the base set (or in a parented
+  //    `t<set>` token set, which our token re-homing collapses anyway).
+  for (const suffix of [": extras", ": promos", ": tokens"]) {
     if (lower.endsWith(suffix)) {
       const stripped = lower.slice(0, -suffix.length);
       const match = lookup.get(stripped);
       if (match) return match;
+      // Recurse: handle nested suffixes like "Commander: X: Extras".
+      const recursed = resolveSetCode(stripped, lookup);
+      if (recursed) return recursed;
     }
   }
 
@@ -229,48 +239,106 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
       };
     });
 
-  // Build two metadata lookups: the primary (name|set) and a fallback keyed
-  // on name alone. The fallback is used when Cardmarket's stock references a
-  // printing that Scryfall's default-cards bulk dump doesn't include (e.g.
-  // Mystery Booster reprints, Commander product reprints, tokens stored in
-  // separate Scryfall token sets). Oracle-level fields (colors, rarity, cmc,
-  // type_line, layout) are printing-invariant, so using any printing's
-  // metadata gives the correct sort fields.
+  // Build several metadata lookups for the matching fallback chain:
+  //   - cardMetaByKey: primary (name|set), exact join.
+  //   - cardMetaByName: name-only fallback, used when Cardmarket's stock
+  //     references a printing the default-cards bulk dump doesn't include
+  //     (Mystery Booster reprints, Commander product reprints, tokens in
+  //     separate Scryfall token sets). Oracle-level sort fields are
+  //     printing-invariant.
+  //   - cardMetaByFrontFace: keyed on the FRONT half of `front // back` names
+  //     in ev_cards. Used to match Cardmarket's flip-card listings (Kamigawa)
+  //     where CM lists "Akki Lavarunner" but Scryfall stores
+  //     "Akki Lavarunner // Tok-Tok, Volcano Born".
   const cardMetaByKey = new Map<string, CardMeta>();
   const cardMetaByName = new Map<string, CardMeta>();
+  const cardMetaByFrontFace = new Map<string, CardMeta>();
   for (const c of cardDocs) {
     const meta = projectCardMeta(c);
     cardMetaByKey.set(`${c.name}|${c.set}`, meta);
     if (!cardMetaByName.has(c.name)) cardMetaByName.set(c.name, meta);
+    if (c.name.includes(" // ")) {
+      const front = c.name.split(" // ", 1)[0];
+      if (!cardMetaByFrontFace.has(front)) cardMetaByFrontFace.set(front, meta);
+    }
   }
 
-  // For every stock row that doesn't have a direct (name|set) match, try a
-  // name-only lookup. If found:
+  // Run a stock row through the fallback chain; returns matching CardMeta or
+  // null. Order matters — earlier strategies are more specific and shouldn't
+  // be shadowed by looser later ones.
+  function findFallback(rowName: string): CardMeta | null {
+    // (a) Exact name (covers most "Extras"/promo reprint cases).
+    const direct = cardMetaByName.get(rowName);
+    if (direct) return direct;
+
+    // (b) Strip trailing " Token" — some tokens stored without that suffix.
+    if (rowName.endsWith(" Token")) {
+      const noSuffix = cardMetaByName.get(rowName.slice(0, -" Token".length));
+      if (noSuffix) return noSuffix;
+    }
+
+    // (c) DFC-shaped name: try the front face, then the back face, each
+    //     with and without a trailing " Token" suffix. Catches:
+    //       - melds (Hanweir Battlements // ..., Phyrexian Dragon Engine // ...)
+    //       - dungeons (Dungeon of the Mad Mage // ...)
+    //       - emblem // token packagings (Teferi, Temporal Archmage Emblem // ...)
+    //       - dual-faced tokens (Germ Token // Stoneforged Blade Token), where
+    //         Scryfall stores each half as a separate token without the
+    //         " Token" suffix in `tc14`, `tcmm`, etc.
+    if (rowName.includes(" // ")) {
+      const [front, back] = rowName.split(" // ", 2);
+      const candidates = [
+        front,
+        front.endsWith(" Token") ? front.slice(0, -" Token".length) : null,
+        back,
+        back && back.endsWith(" Token") ? back.slice(0, -" Token".length) : null,
+      ].filter((s): s is string => !!s);
+      for (const cand of candidates) {
+        const hit = cardMetaByName.get(cand);
+        if (hit) return hit;
+      }
+    }
+
+    // (d) Inverse DFC: rowName is just the front face, but Scryfall stores
+    //     it as `<front> // <back>` (Kamigawa flip cards).
+    if (!rowName.includes(" // ")) {
+      const flipHit = cardMetaByFrontFace.get(rowName);
+      if (flipHit) return flipHit;
+    }
+
+    // (e) Art Series. CM stores "Art Series: <inner>" under the parent set
+    //     code (e.g. `fin`); Scryfall stores it as "<inner> // <inner>" in
+    //     the memorabilia set (e.g. `afin`). Strip the prefix and look up
+    //     the doubled name.
+    if (rowName.startsWith("Art Series: ")) {
+      const inner = rowName.slice("Art Series: ".length);
+      const doubled = `${inner} // ${inner}`;
+      const artHit = cardMetaByName.get(doubled);
+      if (artHit) return artHit;
+    }
+
+    return null;
+  }
+
+  // For every stock row that doesn't have a direct (name|set) match, run the
+  // fallback chain. If a match is found:
   //   - If the user's set was a valid Scryfall code, inject a pseudo-entry
   //     at the user's set so the card shelves there (preserving their
-  //     physical intent, e.g. "Extras" cards shelved with the base set).
+  //     physical intent, e.g. "Extras" cards shelved with the base set,
+  //     Art Series shelved with the parent set).
   //   - If the user's set was an unresolvable Cardmarket label ("Buy a Box
   //     Promos", "Commander: Ikoria"), rewrite the row's set to the found
   //     printing's set code so it shelves with its native Scryfall set.
-  // For tokens, also try stripping a trailing " Token" from the name since
-  // Scryfall sometimes names tokens without the suffix.
   for (const row of stock) {
     const primaryKey = `${row.name}|${row.set}`;
     if (cardMetaByKey.has(primaryKey)) continue;
 
-    let fallback = cardMetaByName.get(row.name);
-    if (!fallback && row.name.endsWith(" Token")) {
-      fallback = cardMetaByName.get(row.name.slice(0, -" Token".length));
-    }
+    const fallback = findFallback(row.name);
     if (!fallback) continue;
 
     if (row.setWasResolved) {
-      // User's set is a valid Scryfall code; respect it by injecting a
-      // pseudo-entry at the user's set key.
       cardMetaByKey.set(primaryKey, fallback);
     } else {
-      // User's set is a Cardmarket-only label; rewrite the row to the
-      // found card's set code.
       row.set = fallback.set;
       const rewrittenKey = `${row.name}|${row.set}`;
       if (!cardMetaByKey.has(rewrittenKey)) {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { projectStockRow, projectCardMeta, projectSetMeta } from "../storage-db";
+import {
+  projectStockRow,
+  projectCardMeta,
+  projectSetMeta,
+  cleanCardName,
+  resolveSetCode,
+} from "../storage-db";
 
 describe("projectStockRow", () => {
   it("reduces a CmStockListing to (name, set, qty)", () => {
@@ -133,5 +139,104 @@ describe("projectSetMeta", () => {
       synced_at: "2026-04-11T00:00:00Z",
     };
     expect(projectSetMeta(ev).parent_set_code).toBe("dmu");
+  });
+});
+
+describe("cleanCardName", () => {
+  it("strips trailing parenthetical variant suffix", () => {
+    expect(cleanCardName("Ornithopter of Paradise (V.1)")).toBe("Ornithopter of Paradise");
+  });
+
+  it("strips embedded parens between DFC halves (token color/PT info)", () => {
+    expect(cleanCardName("Germ Token (B 0/0) // Stoneforged Blade Token"))
+      .toBe("Germ Token // Stoneforged Blade Token");
+    expect(cleanCardName("Demon Token (B */*) // Zombie Token"))
+      .toBe("Demon Token // Zombie Token");
+    expect(cleanCardName("Construct Token (A */*) // Treasure Token"))
+      .toBe("Construct Token // Treasure Token");
+  });
+
+  it("strips a trailing parenthetical even when there's no DFC half", () => {
+    expect(cleanCardName("Eldrazi Spawn Token (Colorless 0/1)")).toBe("Eldrazi Spawn Token");
+  });
+
+  it("converts single-slash DFC to double-slash", () => {
+    expect(cleanCardName("Thaumatic Compass / Spires of Orazca"))
+      .toBe("Thaumatic Compass // Spires of Orazca");
+  });
+
+  it("leaves an already-doubled separator alone", () => {
+    expect(cleanCardName("Hanweir Battlements // Hanweir, the Writhing Township"))
+      .toBe("Hanweir Battlements // Hanweir, the Writhing Township");
+  });
+
+  it("collapses multiple parens + extra whitespace to a single space", () => {
+    expect(cleanCardName("Foo (a) (b) Bar")).toBe("Foo Bar");
+  });
+
+  it("preserves Art Series: prefix (handled later in fallback chain, not here)", () => {
+    expect(cleanCardName("Art Series: Cloud, Ex-SOLDIER")).toBe("Art Series: Cloud, Ex-SOLDIER");
+  });
+});
+
+describe("resolveSetCode", () => {
+  // Build a realistic lookup map (lowercased name → set code, plus code → code).
+  const lookup = new Map<string, string>();
+  function add(code: string, name: string) {
+    lookup.set(code.toLowerCase(), code);
+    lookup.set(name.toLowerCase(), code);
+  }
+  add("dmu", "Dominaria United");
+  add("c14", "Commander 2014");
+  add("clb", "Commander Legends: Battle for Baldur's Gate");
+  add("stx", "Strixhaven: School of Mages");
+  add("cstx", "Strixhaven Commander");
+  add("3ed", "Revised Edition");
+  add("m19", "Core Set 2019");
+  add("ikorianc", "Ikoria: Lair of Behemoths Commander");
+  add("fdn", "Magic: The Gathering Foundations");
+
+  it("direct code lookup passes through", () => {
+    expect(resolveSetCode("dmu", lookup)).toBe("dmu");
+  });
+
+  it("direct name lookup", () => {
+    expect(resolveSetCode("Dominaria United", lookup)).toBe("dmu");
+  });
+
+  it("alias map: 'Revised' → 3ed", () => {
+    expect(resolveSetCode("Revised", lookup)).toBe("3ed");
+  });
+
+  it("alias map: 'Magic: The Gathering Foundations' → fdn", () => {
+    expect(resolveSetCode("Magic: The Gathering Foundations", lookup)).toBe("fdn");
+  });
+
+  it("strips ': Extras' suffix", () => {
+    expect(resolveSetCode("Dominaria United: Extras", lookup)).toBe("dmu");
+  });
+
+  it("strips ': Promos' suffix", () => {
+    expect(resolveSetCode("Dominaria United: Promos", lookup)).toBe("dmu");
+  });
+
+  it("strips ': Tokens' suffix (NEW — was previously unmatched)", () => {
+    expect(resolveSetCode("Dominaria United: Tokens", lookup)).toBe("dmu");
+  });
+
+  it("recurses through nested suffixes: 'Commander: X: Extras' (NEW)", () => {
+    expect(resolveSetCode("Commander: Strixhaven: Extras", lookup)).toBe("cstx");
+  });
+
+  it("'Core N' → 'Core Set N'", () => {
+    expect(resolveSetCode("Core 2019", lookup)).toBe("m19");
+  });
+
+  it("'Commander: X' → 'X Commander'", () => {
+    expect(resolveSetCode("Commander: Ikoria: Lair of Behemoths", lookup)).toBe("ikorianc");
+  });
+
+  it("returns null when nothing matches", () => {
+    expect(resolveSetCode("Made-Up Set That Does Not Exist", lookup)).toBeNull();
   });
 });
