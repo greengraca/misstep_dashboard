@@ -178,9 +178,144 @@ async function buildPools(): Promise<AllPools> {
   return pools;
 }
 
+function buildPlayBooster(pools: AllPools): EvBoosterConfig {
+  const m = pools.mainline;
+  const b = pools.borderless;
+
+  // Reusable filters
+  const mainlineCommonFilter = { set_codes: [SET_CODE], custom_pool: m.commons };
+  const mainlineUncommonFilter = { set_codes: [SET_CODE], custom_pool: m.uncommons };
+  const mainlineRareFilter = { set_codes: [SET_CODE], custom_pool: m.rares };
+  const mainlineMythicFilter = { set_codes: [SET_CODE], custom_pool: m.mythics };
+
+  // Slot 12 wildcard probabilities (per WOTC, sum to 1.000)
+  const WC = { C: 0.167, U: 0.583, R: 0.163, M: 0.026, BDR: 0.016, BDM: 0.003, BDC: 0.018, BDU: 0.024 };
+
+  // Slot 11 R/M (per WOTC, sum to 1.000)
+  const RM = { rareMain: 0.780, mythMain: 0.128, bdrR: 0.077, bdrM: 0.015 };
+
+  // Slot 13 foil rates — Model B: standard MTG rarity-bucketed pool-union.
+  // FOIL_CU=11/12 split into C (2/3) and U (1/3); FOIL_RM=1/12 split into R (6/7)
+  // and M (1/7). Sum = 22/36 + 11/36 + 6/84 + 1/84 = 11/12 + 1/12 = 1.000.
+  const FOIL_C = (11 / 12) * (2 / 3);
+  const FOIL_U = (11 / 12) * (1 / 3);
+  const FOIL_R = (1 / 12) * (6 / 7);
+  const FOIL_M = (1 / 12) * (1 / 7);
+
+  return {
+    packs_per_box: 36,
+    cards_per_pack: 14,
+    slots: [
+      // 1-6: always common (mainline 80-card pool)
+      ...[1, 2, 3, 4, 5, 6].map((n) => ({
+        slot_number: n,
+        label: `Common ${n}`,
+        is_foil: false,
+        outcomes: [{ probability: 1, filter: mainlineCommonFilter }],
+      })),
+
+      // 7: common (98.5%) or SPG (1.5%, set:spg cn 74–83, non-foil)
+      {
+        slot_number: 7,
+        label: "Common / SPG",
+        is_foil: false,
+        outcomes: [
+          { probability: 0.985, filter: mainlineCommonFilter },
+          { probability: 0.015, filter: { set_codes: ["spg"], collector_number_min: SPG_FDN_CN_MIN, collector_number_max: SPG_FDN_CN_MAX } },
+        ],
+      },
+
+      // 8-10: always uncommon (mainline 101-card pool incl. utility lands)
+      ...[8, 9, 10].map((n) => ({
+        slot_number: n,
+        label: `Uncommon ${n - 7}`,
+        is_foil: false,
+        outcomes: [{ probability: 1, filter: mainlineUncommonFilter }],
+      })),
+
+      // 11: Rare / Mythic (78% R / 12.8% M / 7.7% BDL R / 1.5% BDL M)
+      {
+        slot_number: 11,
+        label: "Rare / Mythic",
+        is_foil: false,
+        outcomes: [
+          { probability: RM.rareMain, filter: mainlineRareFilter },
+          { probability: RM.mythMain, filter: mainlineMythicFilter },
+          { probability: RM.bdrR, filter: { set_codes: [SET_CODE], custom_pool: b.rares } },
+          { probability: RM.bdrM, filter: { set_codes: [SET_CODE], custom_pool: b.mythics } },
+        ],
+      },
+
+      // 12: Non-foil wildcard — 8 outcomes per WOTC
+      {
+        slot_number: 12,
+        label: "Non-foil Wildcard",
+        is_foil: false,
+        outcomes: [
+          { probability: WC.C, filter: mainlineCommonFilter },
+          { probability: WC.U, filter: mainlineUncommonFilter },
+          { probability: WC.R, filter: mainlineRareFilter },
+          { probability: WC.M, filter: mainlineMythicFilter },
+          { probability: WC.BDC, filter: { set_codes: [SET_CODE], custom_pool: b.commons } },
+          { probability: WC.BDU, filter: { set_codes: [SET_CODE], custom_pool: b.uncommons } },
+          { probability: WC.BDR, filter: { set_codes: [SET_CODE], custom_pool: b.rares } },
+          { probability: WC.BDM, filter: { set_codes: [SET_CODE], custom_pool: b.mythics } },
+        ],
+      },
+
+      // 13: Traditional Foil — Model B (standard MTG rarity-bucketed pool-union).
+      // is_foil=true at slot level; outcomes union mainline + borderless per rarity.
+      // SPG NOT included (per WOTC: "SPG cards aren't found in the wildcard nor
+      // traditional foil slot in Play Boosters").
+      {
+        slot_number: 13,
+        label: "Traditional Foil",
+        is_foil: true,
+        outcomes: [
+          { probability: FOIL_C, filter: { set_codes: [SET_CODE], custom_pool: [...m.commons, ...b.commons] } },
+          { probability: FOIL_U, filter: { set_codes: [SET_CODE], custom_pool: [...m.uncommons, ...b.uncommons] } },
+          { probability: FOIL_R, filter: { set_codes: [SET_CODE], custom_pool: [...m.rares, ...b.rares] } },
+          { probability: FOIL_M, filter: { set_codes: [SET_CODE], custom_pool: [...m.mythics, ...b.mythics] } },
+        ],
+      },
+
+      // 14: Land — 3 sub-pools × {non-foil 80%, foil 20%} = 6 outcomes.
+      // Slot is_foil=false so per-outcome is_foil=true overrides for foil rows.
+      {
+        slot_number: 14,
+        label: "Land",
+        is_foil: false,
+        outcomes: [
+          { probability: 0.20, filter: { set_codes: [SET_CODE], custom_pool: pools.altArtBasicCns } },
+          { probability: 0.05, is_foil: true, filter: { set_codes: [SET_CODE], custom_pool: pools.altArtBasicCns } },
+          { probability: 0.40, filter: { set_codes: [SET_CODE], custom_pool: pools.dualLandCns } },
+          { probability: 0.10, is_foil: true, filter: { set_codes: [SET_CODE], custom_pool: pools.dualLandCns } },
+          { probability: 0.20, filter: { set_codes: [SET_CODE], custom_pool: pools.regBasicCns } },
+          { probability: 0.05, is_foil: true, filter: { set_codes: [SET_CODE], custom_pool: pools.regBasicCns } },
+        ],
+      },
+    ],
+  };
+}
+
 async function main() {
   const pools = await buildPools();
-  console.log(`\nPools built. Mainline=${pools.mainline.commons.length}C/${pools.mainline.uncommons.length}U/${pools.mainline.rares.length}R/${pools.mainline.mythics.length}M, Borderless=${pools.borderless.commons.length}C/${pools.borderless.uncommons.length}U/${pools.borderless.rares.length}R/${pools.borderless.mythics.length}M, SPG=${pools.spgCns.length}.`);
+  const playBooster = buildPlayBooster(pools);
+
+  // Validate every slot's outcomes sum to ~1.0
+  const checkSlots = (cfg: EvBoosterConfig, name: string) => {
+    let allOk = true;
+    for (const slot of cfg.slots) {
+      const sum = slot.outcomes.reduce((s, o) => s + o.probability, 0);
+      if (slot.outcomes.length > 0 && Math.abs(sum - 1) > 0.003) {
+        console.warn(`  ⚠️  ${name} slot ${slot.slot_number} (${slot.label}): probabilities sum to ${sum.toFixed(4)} (expected 1.0)`);
+        allOk = false;
+      }
+    }
+    if (allOk) console.log(`\n✅ All ${cfg.slots.length} ${name} slots have probabilities summing to 1.0 ± 0.003.`);
+  };
+  checkSlots(playBooster, "Play");
+
   await (await getClient()).close();
 }
 
