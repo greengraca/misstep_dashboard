@@ -349,7 +349,9 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
 
   // 3. Run pure core.
   const sortResult = computeCanonicalSort(stock, cardMetaByKey, sets);
-  const layout: ShelfLayout = layoutDoc ? { shelfRows: layoutDoc.shelfRows } : { shelfRows: [] };
+  const layout: ShelfLayout = layoutDoc
+    ? { shelfRows: layoutDoc.shelfRows, floorZones: layoutDoc.floorZones }
+    : { shelfRows: [] };
   const placedResult = applyOverrides(sortResult.slots, layout, overrideDocs);
 
   // 4. Count stats.
@@ -608,15 +610,15 @@ export async function getLayout(): Promise<ShelfLayout> {
     .collection<ShelfLayout & { _id: string }>(COL_STORAGE_LAYOUT)
     .findOne({ _id: "current" });
   if (!doc) return { shelfRows: [] };
-  return { shelfRows: doc.shelfRows };
+  return { shelfRows: doc.shelfRows, floorZones: doc.floorZones };
 }
 
 export async function setLayout(layout: ShelfLayout): Promise<ShelfLayout> {
   const db = await getDb();
 
-  // Ensure every shelfRow and box has a stable UUID. New rows/boxes from the
-  // client may come in without IDs; we fill them here so the client doesn't
-  // need to. Existing IDs are preserved.
+  // Ensure every shelfRow, box, and floor zone has a stable UUID. New entries
+  // from the client may come in without IDs; we fill them here so the client
+  // doesn't need to. Existing IDs are preserved.
   const normalized: ShelfLayout = {
     shelfRows: layout.shelfRows.map((row) => ({
       id: row.id || randomUUID(),
@@ -627,12 +629,24 @@ export async function setLayout(layout: ShelfLayout): Promise<ShelfLayout> {
         label: box.label,
       })),
     })),
+    floorZones: layout.floorZones?.map((z) => ({
+      id: z.id || randomUUID(),
+      label: z.label,
+      setCodes: z.setCodes,
+      capacity: z.capacity,
+    })),
   };
 
   type LayoutDoc = ShelfLayout & { _id: string; updatedAt?: Date };
   await db.collection<LayoutDoc>(COL_STORAGE_LAYOUT).updateOne(
     { _id: "current" },
-    { $set: { shelfRows: normalized.shelfRows, updatedAt: new Date() } },
+    {
+      $set: {
+        shelfRows: normalized.shelfRows,
+        floorZones: normalized.floorZones,
+        updatedAt: new Date(),
+      },
+    },
     { upsert: true }
   );
   return normalized;

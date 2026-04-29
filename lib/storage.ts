@@ -65,8 +65,26 @@ export interface ShelfRowConfig {
   boxes: BoxConfig[];
 }
 
+/**
+ * Off-shelf storage: a logical zone that holds the cards from a list of sets
+ * which physically live in boxes on the floor (or anywhere outside the shelf).
+ * Auto-grows: as variants overflow one physical box, another is spawned
+ * implicitly. The user never edits the box count — they just add set codes.
+ *
+ * The shelf grid is hand-crafted and never grows; floor zones are the *only*
+ * place capacity expands automatically, scoped to whatever sets the user has
+ * tagged as off-shelf.
+ */
+export interface FloorZoneConfig {
+  id: string;
+  label: string;
+  setCodes: string[];   // matched against each slot's `effectiveSet`
+  capacity: BoxType;    // physical box type to spawn (typically "4k")
+}
+
 export interface ShelfLayout {
   shelfRows: ShelfRowConfig[];
+  floorZones?: FloorZoneConfig[];
 }
 
 export interface CutOverride {
@@ -141,6 +159,14 @@ export interface PlacedSlot extends Slot {
   positionInBoxRow: number;
   spansShelfRow?: true;
   unplaced?: true;
+  /**
+   * If present, this slot lives in a floor (off-shelf) zone instead of on the
+   * shelf grid. `shelfRowId` will be empty / `shelfRowIndex` -1, and `boxId`
+   * is a synthetic `<zoneId>:<floorBoxIndex>` string that uniquely identifies
+   * the auto-spawned physical box within that zone.
+   */
+  floorZoneId?: string;
+  floorBoxIndex?: number;   // 0-based within the zone's spawned boxes
 }
 
 // `landTier` field on Slot also widens to match SortFields.
@@ -503,24 +529,111 @@ export function flowIntoLayout(
   return applyOverrides(slots, layout, []);
 }
 
+/**
+ * Partition slots into shelf-bound vs floor-zone-bound and route the floor-
+ * zone-bound ones through their auto-growing physical-box walker. Returns the
+ * floor-placed cells plus the set of slot keys consumed (so the shelf walker
+ * can skip them). Pure: no I/O, no mutation of inputs.
+ */
+function placeFloorZones(
+  slots: Slot[],
+  zones: readonly FloorZoneConfig[]
+): { cells: PlacedSlot[]; consumedSlotKeys: Set<string> } {
+  const consumedSlotKeys = new Set<string>();
+  if (zones.length === 0) return { cells: [], consumedSlotKeys };
+
+  // Map setCode → zone for O(1) routing.
+  const setToZone = new Map<string, FloorZoneConfig>();
+  for (const z of zones) {
+    for (const code of z.setCodes) setToZone.set(code, z);
+  }
+
+  // Group slots by zone id, preserving canonical-sort order within each zone.
+  const slotsByZone = new Map<string, Slot[]>();
+  for (const s of slots) {
+    const zone = setToZone.get(s.set);
+    if (!zone) continue;
+    consumedSlotKeys.add(s.slotKey);
+    let list = slotsByZone.get(zone.id);
+    if (!list) {
+      list = [];
+      slotsByZone.set(zone.id, list);
+    }
+    list.push(s);
+  }
+
+  const placed: PlacedSlot[] = [];
+  for (const z of zones) {
+    const zoneSlots = slotsByZone.get(z.id) ?? [];
+    if (zoneSlots.length === 0) continue;
+    const slotsPerBox = BOX_ROWS[z.capacity] * ROW_CAPACITY_SLOTS;
+    const internalRows = BOX_ROWS[z.capacity];
+
+    // Auto-grow walker. floorBoxIndex starts at 0; spawn a new physical box
+    // every `slotsPerBox` slots. Within a box, fill row-by-row left-to-right.
+    let floorBoxIndex = 0;
+    let posInBox = 0;
+    for (const s of zoneSlots) {
+      if (posInBox >= slotsPerBox) {
+        floorBoxIndex++;
+        posInBox = 0;
+      }
+      const boxRowIndex = Math.floor(posInBox / ROW_CAPACITY_SLOTS);
+      const positionInBoxRow = (posInBox % ROW_CAPACITY_SLOTS) + 1;
+      const readingDirection: ReadingDirection =
+        boxRowIndex % 2 === 0 ? "far-to-near" : "near-to-far";
+      placed.push({
+        ...s,
+        shelfRowId: "",
+        shelfRowIndex: -1,
+        boxId: `${z.id}:${floorBoxIndex}`,
+        boxIndexInRow: floorBoxIndex,
+        boxRowIndex,
+        readingDirection,
+        positionInBoxRow,
+        floorZoneId: z.id,
+        floorBoxIndex,
+      });
+      posInBox++;
+      // Defensive: if we somehow overflow internal rows, bump to next box.
+      if (boxRowIndex >= internalRows) {
+        floorBoxIndex++;
+        posInBox = 0;
+      }
+    }
+  }
+
+  return { cells: placed, consumedSlotKeys };
+}
+
 export function applyOverrides(
   slots: Slot[],
   layout: ShelfLayout,
   overrides: CutOverride[]
 ): ApplyOverridesResult {
-  // Empty layout shortcut.
+  // Route off-shelf sets to floor zones first. The shelf walker only sees the
+  // remaining slots and never competes for capacity with floor-zone cards.
+  const floorPlacement = placeFloorZones(slots, layout.floorZones ?? []);
+  const shelfBoundSlots = floorPlacement.consumedSlotKeys.size === 0
+    ? slots
+    : slots.filter((s) => !floorPlacement.consumedSlotKeys.has(s.slotKey));
+
+  // Empty shelf layout shortcut. Floor-routed cells still pass through.
   if (layout.shelfRows.length === 0) {
-    const cells: PlacedCell[] = slots.map((s) => ({
-      ...s,
-      shelfRowId: "",
-      shelfRowIndex: -1,
-      boxId: "",
-      boxIndexInRow: -1,
-      boxRowIndex: -1,
-      readingDirection: "far-to-near" as ReadingDirection,
-      positionInBoxRow: 0,
-      unplaced: true,
-    }));
+    const cells: PlacedCell[] = [
+      ...floorPlacement.cells,
+      ...shelfBoundSlots.map((s): PlacedSlot => ({
+        ...s,
+        shelfRowId: "",
+        shelfRowIndex: -1,
+        boxId: "",
+        boxIndexInRow: -1,
+        boxRowIndex: -1,
+        readingDirection: "far-to-near" as ReadingDirection,
+        positionInBoxRow: 0,
+        unplaced: true,
+      })),
+    ];
     return { cells, staleOverrides: [] };
   }
 
@@ -557,8 +670,10 @@ export function applyOverrides(
     }
   }
 
-  const blocks = partitionSetBlocks(slots);
-  const cells: PlacedCell[] = [];
+  const blocks = partitionSetBlocks(shelfBoundSlots);
+  // Seed the output with the floor-placed cells so they appear in the result
+  // alongside the shelf-placed cells.
+  const cells: PlacedCell[] = [...floorPlacement.cells];
   const cursor: WalkerCursor = { shelfRowIdx: 0, boxIdx: 0, boxRowIdx: 0, posInBoxRow: 1 };
   let overflowed = false;
 

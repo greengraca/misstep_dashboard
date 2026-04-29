@@ -6,6 +6,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import ShelfFrame from "./ShelfFrame";
 import Box3D, { type BoxData } from "./Box3D";
+import FloorBoxes from "./FloorBoxes";
 import {
   SHELF_BOARD_Y,
   SHELF_FRAME,
@@ -45,7 +46,17 @@ export default function Shelf3D({
 
         <ShelfFrame />
 
-        {/* Boxes */}
+        {/* Off-shelf floor zones, rendered at y = 0 in front of the shelf. */}
+        {layout.floorZones && layout.floorZones.length > 0 && (
+          <FloorBoxes
+            floorZones={layout.floorZones}
+            selectedBoxId={selectedBoxId}
+            onBoxClick={onBoxClick}
+            boxData={boxData}
+          />
+        )}
+
+        {/* Shelf boxes */}
         {layout.shelfRows.map((row, shelfIdx) => {
           const shelfY = SHELF_BOARD_Y[shelfIdx];
           if (shelfY === undefined) {

@@ -820,3 +820,103 @@ describe("applyOverrides — multiple overrides", () => {
     expect(placed[6].positionInBoxRow).toBe(1);
   });
 });
+
+// ── Floor zones (off-shelf storage) ────────────────────────────────
+
+describe("applyOverrides — floor zones", () => {
+  it("routes slots whose set is in a floor zone's setCodes off the shelf", () => {
+    const slots: Slot[] = [
+      slot({ position: 1, set: "dmu", name: "Shelf Card" }),
+      slot({ position: 2, set: "plst", name: "List Card" }),
+    ];
+    const lay: ShelfLayout = {
+      shelfRows: [{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] }],
+      floorZones: [{ id: "off1", label: "Off-shelf", setCodes: ["plst"], capacity: "4k" }],
+    };
+    const result = applyOverrides(slots, lay, []);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    const shelfCard = placed.find((p) => p.name === "Shelf Card")!;
+    const listCard = placed.find((p) => p.name === "List Card")!;
+    expect(shelfCard.shelfRowId).toBe("sr1");
+    expect(shelfCard.floorZoneId).toBeUndefined();
+    expect(listCard.shelfRowId).toBe("");
+    expect(listCard.shelfRowIndex).toBe(-1);
+    expect(listCard.floorZoneId).toBe("off1");
+    expect(listCard.boxId).toBe("off1:0");
+    expect(listCard.floorBoxIndex).toBe(0);
+    expect(listCard.boxRowIndex).toBe(0);
+    expect(listCard.positionInBoxRow).toBe(1);
+  });
+
+  it("auto-grows: spawns a second floor box once the first fills its 4k capacity", () => {
+    // 4k box = 4 rows × 125 = 500 slots. 501 slots forces a second box.
+    const slots: Slot[] = [];
+    for (let i = 0; i < 501; i++) slots.push(slot({ position: i + 1, set: "plst", name: `c${i}` }));
+    const lay: ShelfLayout = {
+      shelfRows: [],
+      floorZones: [{ id: "off1", label: "Off-shelf", setCodes: ["plst"], capacity: "4k" }],
+    };
+    const result = applyOverrides(slots, lay, []);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    expect(placed.every((p) => !p.unplaced)).toBe(true);
+    expect(placed[0].boxId).toBe("off1:0");
+    expect(placed[499].boxId).toBe("off1:0");
+    expect(placed[500].boxId).toBe("off1:1");
+    expect(placed[500].floorBoxIndex).toBe(1);
+    expect(placed[500].boxRowIndex).toBe(0);
+    expect(placed[500].positionInBoxRow).toBe(1);
+  });
+
+  it("floor-zoned slots don't compete with shelf capacity", () => {
+    // Tiny shelf (1 box × 1k = 125 slots). 200 floor-zoned slots + 5 shelf slots
+    // → all 5 shelf slots fit, all 200 floor slots fit (across 1 floor box).
+    const slots: Slot[] = [];
+    for (let i = 0; i < 200; i++) slots.push(slot({ position: i + 1, set: "plst", name: `p${i}` }));
+    for (let i = 0; i < 5; i++) slots.push(slot({ position: 200 + i + 1, set: "dmu", name: `s${i}` }));
+    const lay: ShelfLayout = {
+      shelfRows: [{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] }],
+      floorZones: [{ id: "off1", label: "Off-shelf", setCodes: ["plst"], capacity: "4k" }],
+    };
+    const result = applyOverrides(slots, lay, []);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    const unplaced = placed.filter((p) => p.unplaced === true);
+    expect(unplaced).toHaveLength(0);
+    const shelfPlaced = placed.filter((p) => p.shelfRowId === "sr1");
+    expect(shelfPlaced).toHaveLength(5);
+    const floorPlaced = placed.filter((p) => p.floorZoneId === "off1");
+    expect(floorPlaced).toHaveLength(200);
+  });
+
+  it("multiple set codes can share one floor zone", () => {
+    const slots: Slot[] = [
+      slot({ position: 1, set: "plst", name: "L" }),
+      slot({ position: 2, set: "cmr", name: "C" }),
+      slot({ position: 3, set: "clb", name: "B" }),
+      slot({ position: 4, set: "mh1", name: "M" }),
+    ];
+    const lay: ShelfLayout = {
+      shelfRows: [],
+      floorZones: [{
+        id: "off1",
+        label: "Off-shelf",
+        setCodes: ["plst", "cmr", "clb", "mh1"],
+        capacity: "4k",
+      }],
+    };
+    const result = applyOverrides(slots, lay, []);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    expect(placed.every((p) => p.floorZoneId === "off1")).toBe(true);
+    expect(placed.every((p) => p.boxId === "off1:0")).toBe(true);
+  });
+
+  it("a layout with no floorZones behaves identically to before", () => {
+    const slots: Slot[] = [slot({ position: 1, set: "dmu", name: "x" })];
+    const lay: ShelfLayout = {
+      shelfRows: [{ id: "sr1", label: "top", boxes: [{ id: "b1", type: "1k" }] }],
+    };
+    const result = applyOverrides(slots, lay, []);
+    const placed = result.cells.filter((c): c is PlacedSlot => c.kind !== "empty-reserved");
+    expect(placed[0].floorZoneId).toBeUndefined();
+    expect(placed[0].shelfRowId).toBe("sr1");
+  });
+});
