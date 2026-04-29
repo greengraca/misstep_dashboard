@@ -316,6 +316,39 @@ async function main() {
   };
   checkSlots(playBooster, "Play");
 
+  const db = await getDb();
+  const col = db.collection("dashboard_ev_config");
+  const now = new Date().toISOString();
+
+  await col.updateOne(
+    { set_code: SET_CODE },
+    {
+      $set: {
+        set_code: SET_CODE,
+        sift_floor: 0.25,
+        fee_rate: 0.05,
+        play_booster: playBooster,
+        updated_at: now,
+        updated_by: "seed-script",
+      },
+    },
+    { upsert: true },
+  );
+  console.log(`\nSaved Play Booster config for ${SET_CODE} (sift_floor=0.25, fee_rate=0.05).`);
+
+  console.log(`\nGenerating snapshot…`);
+  const snap = await generateSnapshot(SET_CODE);
+  if (!snap) {
+    console.error(`  Failed to generate snapshot for ${SET_CODE}.`);
+  } else {
+    console.log(`  date=${snap.date}`);
+    console.log(`  play_ev_gross=€${snap.play_ev_gross}`);
+    console.log(`  play_ev_net=€${snap.play_ev_net}`);
+    console.log(`  play_pack_ev_net=€${snap.play_pack_ev_net}`);
+    console.log(`  card_count_total=${snap.card_count_total}`);
+    console.log(`  card_count_priced=${snap.card_count_priced}`);
+  }
+
   await (await getClient()).close();
 }
 
