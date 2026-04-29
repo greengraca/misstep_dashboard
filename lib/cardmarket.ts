@@ -395,8 +395,15 @@ async function removeSoldItemsFromStock(
     if (item.articleId) {
       stockRow = await col.findOne({ articleId: item.articleId });
     }
-    // Fall back to tuple match — stock_page entries don't have articleId
-    // until a product_page sync claims them.
+    // Fall back to tuple match — stock_page entries pre-v1.22.0 don't have
+    // articleId until a product_page or v1.22.0+ stock_page sync claims
+    // them. When multiple rows match the tuple, pick deterministically
+    // instead of relying on Mongo's insertion-order findOne — CM tends to
+    // fulfil from the cheapest matching listing, so we rank:
+    //   1. articleId-bearing rows last (preserve them for future syncs)
+    //   2. price ascending (cheapest first — matches CM fulfilment order)
+    //   3. qty closest to the order item's qty
+    //   4. oldest firstSeenAt (FIFO under all-else-equal)
     if (!stockRow) {
       const tupleFilter: Record<string, unknown> = {
         name: item.name,
@@ -405,7 +412,25 @@ async function removeSoldItemsFromStock(
         foil: item.foil,
       };
       if (item.language) tupleFilter.language = item.language;
-      stockRow = await col.findOne(tupleFilter);
+      const candidates = await col.find(tupleFilter).toArray();
+      if (candidates.length === 1) {
+        stockRow = candidates[0];
+      } else if (candidates.length > 1) {
+        const soldQty = Math.max(1, item.qty ?? 1);
+        candidates.sort((a, b) => {
+          const aHasArticle = a.articleId ? 1 : 0;
+          const bHasArticle = b.articleId ? 1 : 0;
+          if (aHasArticle !== bHasArticle) return aHasArticle - bHasArticle;
+          const ap = Number(a.price) || 0;
+          const bp = Number(b.price) || 0;
+          if (ap !== bp) return ap - bp;
+          const aDist = Math.abs((Number(a.qty) || 0) - soldQty);
+          const bDist = Math.abs((Number(b.qty) || 0) - soldQty);
+          if (aDist !== bDist) return aDist - bDist;
+          return (a.firstSeenAt as string || "").localeCompare(b.firstSeenAt as string || "");
+        });
+        stockRow = candidates[0];
+      }
     }
     if (!stockRow) {
       unmatched.push(item);
@@ -452,14 +477,38 @@ async function restockCancelledItems(
     if (item.articleId) {
       stockRow = await col.findOne({ articleId: item.articleId });
     }
+    // Mirror the deterministic tuple-pick used in removeSoldItemsFromStock
+    // — when multiple rows match, prefer the one most likely to be the
+    // listing the buyer was originally fulfilled from, so the restock
+    // bumps the same row that got decremented.
     if (!stockRow) {
-      stockRow = await col.findOne({
-        name: item.name,
-        set: item.set,
-        condition: item.condition,
-        foil: !!item.foil,
-        language: item.language,
-      });
+      const candidates = await col
+        .find({
+          name: item.name,
+          set: item.set,
+          condition: item.condition,
+          foil: !!item.foil,
+          language: item.language,
+        })
+        .toArray();
+      if (candidates.length === 1) {
+        stockRow = candidates[0];
+      } else if (candidates.length > 1) {
+        const restoreQty = Math.max(1, item.qty || 1);
+        candidates.sort((a, b) => {
+          const aHasArticle = a.articleId ? 1 : 0;
+          const bHasArticle = b.articleId ? 1 : 0;
+          if (aHasArticle !== bHasArticle) return aHasArticle - bHasArticle;
+          const ap = Number(a.price) || 0;
+          const bp = Number(b.price) || 0;
+          if (ap !== bp) return ap - bp;
+          const aDist = Math.abs((Number(a.qty) || 0) - restoreQty);
+          const bDist = Math.abs((Number(b.qty) || 0) - restoreQty);
+          if (aDist !== bDist) return aDist - bDist;
+          return (a.firstSeenAt as string || "").localeCompare(b.firstSeenAt as string || "");
+        });
+        stockRow = candidates[0];
+      }
     }
     const addQty = Math.max(1, item.qty || 1);
     if (stockRow) {
@@ -470,9 +519,10 @@ async function restockCancelledItems(
       );
       incremented++;
     } else {
+      // Mirror the formula in processStock — see note there about `language`.
       const dedupKey = item.articleId
         ? `article:${item.articleId}`
-        : `${item.name}|${addQty}|${item.price || 0}|${item.condition}|${!!item.foil}|${item.set}`;
+        : `${item.name}|${addQty}|${item.price || 0}|${item.condition}|${!!item.foil}|${item.set}|${item.language || "English"}`;
       await col.insertOne({
         articleId: item.articleId || undefined,
         name: item.name,
@@ -615,6 +665,18 @@ async function processOrders(
           { unmatched: removal.unmatched.slice(0, 20), orderIds: newlyPaidIds }
         );
       }
+      // Mark these orders as stock-processed so the catch-up branch in
+      // processOrderDetail (and the cancellation handler) can tell that a
+      // decrement DID run for them. Without this flag, an order could end
+      // up double-decremented or — for orders cancelled later — restocked
+      // when there was nothing to give back.
+      const decrementedOrderIds = Array.from(
+        new Set(items.map((i) => i.orderId as string))
+      );
+      await col.updateMany(
+        { orderId: { $in: decrementedOrderIds } },
+        { $set: { stockProcessed: true } }
+      );
 
       // Fire consumeSale AFTER stock removal so lots aren't consumed while
       // the stock row is still present (would double-count). Only fires on
@@ -692,15 +754,25 @@ async function processOrderDetail(
 
   // Check status change — allow both advance and correction (regression)
   const PAID_INDEX = STATUS_ORDER.indexOf("paid");
-  const existing = await db.collection(COL.orders).findOne({ orderId }, { projection: { status: 1, direction: 1 } });
+  const existing = await db.collection(COL.orders).findOne(
+    { orderId },
+    { projection: { status: 1, direction: 1, stockProcessed: 1 } }
+  );
   const existingIdx = existing ? STATUS_ORDER.indexOf(existing.status as string) : -1;
 
   // Cancelled orders: delete from DB entirely (they shouldn't count toward anything).
-  // If the order had already been advanced past paid, its items were removed from
-  // stock — restock them on cancellation to keep inventory honest.
+  // If the order had already been advanced past paid AND stock was actually
+  // decremented, restock the items to keep inventory honest. The
+  // stockProcessed gate is critical: an order can be `wasPastPaid` without
+  // ever having been decremented (orders-list sync flipped status before
+  // items were synced — see processOrders' items.length guard). Restocking
+  // such an order would silently inflate stock by qty without any prior
+  // matching decrement.
   if (detail.status === "cancelled") {
     const wasPastPaid = existingIdx >= PAID_INDEX;
-    if (wasPastPaid) {
+    const wasStockProcessed = existing?.stockProcessed === true;
+    const shouldRestock = wasPastPaid && wasStockProcessed;
+    if (shouldRestock) {
       const prevItems = (await db
         .collection(COL.orderItems)
         .find({ orderId })
@@ -716,16 +788,24 @@ async function processOrderDetail(
           { orderId, ...restock }
         );
       }
+    } else if (wasPastPaid && !wasStockProcessed) {
+      logError(
+        "info",
+        "ext-sync-cancel-no-restock",
+        `Cancelled order ${orderId} was past paid but stock was never decremented (stockProcessed missing); skipping restock to avoid spurious inventory bump`,
+        { orderId }
+      );
     }
     const deleted = await db.collection(COL.orders).deleteOne({ orderId });
     await db.collection(COL.orderItems).deleteMany({ orderId });
     // Fire reverseSale AFTER restock completes. Only fires when the order
-    // was previously past paid (otherwise there's nothing to reverse — no
-    // consumeSale ever ran). Exact-once per cancellation: after this
-    // handler, the order doc is deleted, so a subsequent cancellation
-    // detail sync for the same orderId would `return { skipped: 1 }` via
-    // `deleted.deletedCount === 0` without re-entering this branch.
-    if (wasPastPaid) {
+    // was previously past paid AND stockProcessed=true (otherwise there's
+    // nothing to reverse — no consumeSale ever ran). Exact-once per
+    // cancellation: after this handler, the order doc is deleted, so a
+    // subsequent cancellation detail sync for the same orderId would
+    // `return { skipped: 1 }` via `deleted.deletedCount === 0` without
+    // re-entering this branch.
+    if (shouldRestock) {
       const snapshotOrderId = orderId;
       after(async () => {
         try {
@@ -790,9 +870,17 @@ async function processOrderDetail(
     }));
     await db.collection(COL.orderItems).bulkWrite(itemOps, { ordered: false });
 
-    // Remove sold items from stock only on FIRST transition to paid/sent/arrived.
-    // This prevents re-deleting restocked items on subsequent re-syncs.
-    if (statusAdvanced && existingIdx < PAID_INDEX && newIdx >= PAID_INDEX) {
+    // Remove sold items from stock once per order. The decrement is gated
+    // by the persisted `stockProcessed` flag so it runs exactly once across
+    // BOTH the first-crossing case (statusAdvanced past paid) AND the
+    // catch-up case (orders-list flipped status to paid earlier without
+    // items in DB; this is the first detail sync, so items are present
+    // now). Without the flag, the catch-up path used to be silent because
+    // existing.status was already paid by then and statusAdvanced=false.
+    const stockProcessed = existing?.stockProcessed === true;
+    const shouldDecrement =
+      newIdx >= PAID_INDEX && !stockProcessed && detail.items.length > 0;
+    if (shouldDecrement) {
       const soldItems: SoldItemLike[] = detail.items.map((i) => ({
         articleId: i.articleId,
         name: i.name,
@@ -811,10 +899,17 @@ async function processOrderDetail(
           { unmatched: removal.unmatched.slice(0, 20), orderId }
         );
       }
+      // Mark stock as processed so future syncs (orders-list or detail)
+      // don't re-decrement. The cancellation handler above also keys off
+      // this flag so it only restocks orders that were actually decremented.
+      await db.collection(COL.orders).updateOne(
+        { orderId },
+        { $set: { stockProcessed: true } }
+      );
 
       // Fire consumeSale for each item AFTER stock removal completes.
-      // The statusAdvanced + index guard ensures this runs exactly once
-      // per order's transition past paid.
+      // Same single-fire gate as the decrement: stockProcessed flips to
+      // true above, so subsequent syncs of the same order skip this path.
       // Trustee flag comes from the parent order; detail.direction is the
       // best proxy but not equivalent — fetch the trustee flag from the
       // orders doc we just updated.
@@ -882,6 +977,25 @@ async function processStock(
   const now = new Date().toISOString();
 
   if (!listings.length) return { added: 0, updated: 0, skipped: 0 };
+
+  // Pre-fetch by articleId (ext v1.22.0+ reads it from the row's `id`
+  // attribute on /Stock/Offers/Singles). Authoritative match: when the row
+  // exists with the same articleId we can update qty/price in place even
+  // when those have changed since last sync — without articleId, a qty or
+  // price change misses the tuple match below and creates an orphan row.
+  const articleIds = listings
+    .map((l) => l.articleId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const existingByArticleId = new Map<string, { _id: unknown }>();
+  if (articleIds.length > 0) {
+    const rows = await col
+      .find({ articleId: { $in: articleIds } })
+      .toArray();
+    for (const r of rows) {
+      const id = r.articleId as string | undefined;
+      if (id) existingByArticleId.set(id, { _id: r._id });
+    }
+  }
 
   // Pre-fetch every row that matches any listing tuple so we can decide
   // insert vs. refresh without per-listing roundtrips.
@@ -981,6 +1095,41 @@ async function processStock(
   }
 
   for (const listing of listings) {
+    // articleId-first: when the ext sent an articleId for this listing AND
+    // we already have a row with that articleId, update qty/price/etc. on
+    // the existing row regardless of whether the tuple still matches. Fixes
+    // the "orphan rows on qty/price change" bug — without this, a qty bump
+    // (e.g. 4→6) misses the qty-bearing tuple match and the dedupKey upsert
+    // inserts a new row, leaving the old qty=4 row to double-count until
+    // sweep-stale runs.
+    if (typeof listing.articleId === "string" && listing.articleId.length > 0) {
+      const articleHit = existingByArticleId.get(listing.articleId);
+      if (articleHit) {
+        const updateSet: Record<string, unknown> = {
+          name: listing.name,
+          qty: listing.qty,
+          price: listing.price,
+          condition: listing.condition,
+          language: listing.language || "English",
+          foil: listing.foil || false,
+          set: listing.set,
+          lastSeenAt: now,
+          submittedBy,
+        };
+        if (typeof listing.signed === "boolean") updateSet.signed = listing.signed;
+        if (listing.comment !== undefined) updateSet.comment = listing.comment;
+        if (typeof listing.productId === "number") updateSet.productId = listing.productId;
+        updateOps.push({
+          updateOne: {
+            filter: { _id: articleHit._id as never },
+            update: { $set: updateSet },
+          },
+        });
+        updated++;
+        continue;
+      }
+    }
+
     const t = {
       name: listing.name,
       set: listing.set,
@@ -999,6 +1148,14 @@ async function processStock(
       if (typeof listing.signed === "boolean") refreshSet.signed = listing.signed;
       if (listing.comment !== undefined) refreshSet.comment = listing.comment;
       if (typeof listing.productId === "number") refreshSet.productId = listing.productId;
+      // Stamp articleId on tuple-matched rows that don't have one yet (legacy
+      // stock_page rows synced before ext v1.22.0). This converts an
+      // unclaimed row into an articleId-keyed one in place; the next time
+      // qty/price changes, the articleId-first branch above catches it
+      // instead of inserting an orphan.
+      if (typeof listing.articleId === "string" && listing.articleId.length > 0) {
+        refreshSet.articleId = listing.articleId;
+      }
       updateOps.push({
         updateOne: {
           filter: { _id: hit._id as never },
@@ -1008,9 +1165,15 @@ async function processStock(
       updated++;
       continue;
     }
+    // dedupKey formula MUST match misstep-ext/content/seed/dedup-key.js.
+    // Includes `language` since v1.22.0 — without it, two listings of the
+    // same card differing only in language collided on the unique
+    // `dedupKey` index and the second was silently dropped.
     const dedupKey =
       listing.dedupKey ||
-      `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}`;
+      (listing.articleId
+        ? `article:${listing.articleId}`
+        : `${listing.name}|${listing.qty}|${listing.price}|${listing.condition}|${listing.foil}|${listing.set}|${listing.language || "English"}`);
     const setOnInsert: Record<string, unknown> = {
       name: listing.name,
       qty: listing.qty,
@@ -1026,6 +1189,9 @@ async function processStock(
     if (typeof listing.signed === "boolean") setOnInsert.signed = listing.signed;
     if (listing.comment !== undefined) setOnInsert.comment = listing.comment;
     if (typeof listing.productId === "number") setOnInsert.productId = listing.productId;
+    if (typeof listing.articleId === "string" && listing.articleId.length > 0) {
+      setOnInsert.articleId = listing.articleId;
+    }
     updateOps.push({
       updateOne: {
         filter: { dedupKey },
@@ -1359,16 +1525,27 @@ async function processProductStock(
   }
 
   // Ghost cleanup: the product page shows ALL of the user's listings for this
-  // specific product. Any DB entry for the same name+set with a product_page
-  // articleId that's NOT in the current batch was delisted on CM — remove it.
-  // Scoped to product_page source only, so stock_page-only entries for the
-  // same card (never visited on product page) are preserved.
+  // specific product. Any DB entry for the same name+set with an articleId
+  // that's NOT in the current batch was delisted on CM — remove it.
+  //
+  // DFC/split-card asymmetry: the page H1 for a double-faced or split card
+  // renders the canonical `Front // Back` form, but legacy stock rows may
+  // carry only the front face (inserted before the DFC name fix). Run the
+  // cleanup against BOTH forms so legacy rows get caught:
+  //   - exact match on the H1 cardName (handles canonical rows)
+  //   - if cardName contains ` // `, also match on the front face alone
+  //     (handles legacy rows from before DFC names propagated)
   if (cardName && setName) {
     const incomingArticleIds = listings
       .map(l => l.articleId)
       .filter((id): id is string => !!id);
+    const nameVariants = new Set<string>([cardName]);
+    const dfcSep = cardName.indexOf(" // ");
+    if (dfcSep > 0) {
+      nameVariants.add(cardName.slice(0, dfcSep));
+    }
     const cleanupResult = await col.deleteMany({
-      name: cardName,
+      name: { $in: Array.from(nameVariants) },
       set: setName,
       articleId: { $exists: true, $nin: incomingArticleIds },
     });
@@ -2149,8 +2326,9 @@ export async function migrateFromHuntinggrounds(
   const now = new Date().toISOString();
 
   const ops = sourceDocs.map(doc => {
+    // Mirror the canonical processStock formula (includes language).
     const dedupKey = doc.dedupKey ||
-      `${doc.name}|${doc.qty}|${doc.price}|${doc.condition}|${doc.foil}|${doc.set}`;
+      `${doc.name}|${doc.qty}|${doc.price}|${doc.condition}|${doc.foil}|${doc.set}|${doc.language || "English"}`;
     return {
       updateOne: {
         filter: { dedupKey },
