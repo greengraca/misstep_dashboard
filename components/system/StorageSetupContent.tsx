@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   CheckCircle2,
   Circle,
@@ -8,14 +8,39 @@ import {
   Zap,
   Wifi,
   Flame,
-  Cable,
   Cpu,
   Lightbulb,
-  HardHat,
+  Maximize2,
+  X,
+  ChevronRight,
+  Wrench,
+  Boxes,
+  BookOpen,
+  BatteryCharging,
+  Sparkles,
+  Rocket,
+  Info,
+  ShieldAlert,
+  Plug,
+  Radio,
+  Thermometer,
+  Code as CodeIcon,
+  ExternalLink,
 } from "lucide-react";
 
-// Tiny helper for a section surface — matches the rest of the dashboard.
-function Panel({ children }: { children: React.ReactNode }) {
+/* -------------------------------------------------------------------------- */
+/*  Primitives                                                                */
+/* -------------------------------------------------------------------------- */
+
+function Panel({
+  children,
+  accent,
+  inset,
+}: {
+  children: React.ReactNode;
+  accent?: string;
+  inset?: boolean;
+}) {
   return (
     <div
       className="p-4 sm:p-6"
@@ -25,6 +50,8 @@ function Panel({ children }: { children: React.ReactNode }) {
         border: "var(--surface-border)",
         boxShadow: "var(--surface-shadow)",
         borderRadius: "var(--radius)",
+        borderLeft: accent ? `3px solid ${accent}` : undefined,
+        padding: inset ? "16px 18px" : undefined,
       }}
     >
       {children}
@@ -32,18 +59,40 @@ function Panel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function H2({ children, id }: { children: React.ReactNode; id?: string }) {
+function H1({ children }: { children: React.ReactNode }) {
+  return (
+    <h1
+      style={{
+        fontSize: 32,
+        fontWeight: 700,
+        color: "var(--text-primary)",
+        margin: 0,
+        letterSpacing: "-0.02em",
+        lineHeight: 1.1,
+      }}
+    >
+      {children}
+    </h1>
+  );
+}
+
+function H2({ children, id, icon }: { children: React.ReactNode; id?: string; icon?: React.ReactNode }) {
   return (
     <h2
       id={id}
       style={{
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 600,
         color: "var(--text-primary)",
-        margin: "0 0 12px",
+        margin: "0 0 14px",
         letterSpacing: "-0.01em",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        scrollMarginTop: 80,
       }}
     >
+      {icon && <span style={{ color: "var(--accent)", display: "inline-flex" }}>{icon}</span>}
       {children}
     </h2>
   );
@@ -53,12 +102,12 @@ function H3({ children }: { children: React.ReactNode }) {
   return (
     <h3
       style={{
-        fontSize: 13,
+        fontSize: 12,
         fontWeight: 600,
         color: "var(--text-secondary)",
         textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        margin: "16px 0 8px",
+        letterSpacing: "0.08em",
+        margin: "20px 0 10px",
         fontFamily: "var(--font-mono)",
       }}
     >
@@ -71,7 +120,7 @@ function Code({ children }: { children: React.ReactNode }) {
   return (
     <code
       style={{
-        background: "rgba(0,0,0,0.3)",
+        background: "rgba(0,0,0,0.35)",
         border: "1px solid rgba(255,255,255,0.06)",
         borderRadius: 4,
         padding: "1px 6px",
@@ -85,43 +134,96 @@ function Code({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Pre({ children }: { children: React.ReactNode }) {
+function Pre({ children, lang }: { children: React.ReactNode; lang?: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    if (!ref.current) return;
+    navigator.clipboard.writeText(ref.current.innerText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }
   return (
-    <pre
-      style={{
-        background: "rgba(0,0,0,0.3)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 8,
-        padding: "12px 14px",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12,
-        color: "var(--text-primary)",
-        overflowX: "auto",
-        margin: "8px 0",
-        lineHeight: 1.5,
-      }}
-    >
-      {children}
-    </pre>
+    <div style={{ position: "relative" }}>
+      {lang && (
+        <span
+          style={{
+            position: "absolute",
+            top: 8,
+            left: 12,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--text-muted)",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+        >
+          {lang}
+        </span>
+      )}
+      <button
+        onClick={copy}
+        style={{
+          position: "absolute",
+          top: 6,
+          right: 6,
+          fontSize: 11,
+          color: copied ? "var(--success)" : "var(--text-muted)",
+          background: "rgba(0,0,0,0.4)",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: "3px 8px",
+          fontFamily: "var(--font-mono)",
+          cursor: "pointer",
+          transition: "color 120ms",
+        }}
+      >
+        {copied ? "copied" : "copy"}
+      </button>
+      <pre
+        ref={ref}
+        style={{
+          background: "rgba(0,0,0,0.35)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: 8,
+          padding: lang ? "30px 14px 14px" : "32px 14px 14px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          color: "var(--text-primary)",
+          overflowX: "auto",
+          margin: "8px 0",
+          lineHeight: 1.6,
+        }}
+      >
+        {children}
+      </pre>
+    </div>
   );
 }
 
 function Note({
   tone = "info",
   icon,
+  title,
   children,
 }: {
-  tone?: "info" | "warn" | "danger";
+  tone?: "info" | "warn" | "danger" | "success";
   icon?: React.ReactNode;
+  title?: string;
   children: React.ReactNode;
 }) {
   const palette = {
-    info: { bg: "rgba(63,206,229,0.06)", border: "rgba(63,206,229,0.25)", color: "var(--accent)" },
-    warn: { bg: "rgba(251,191,36,0.06)", border: "rgba(251,191,36,0.25)", color: "#fbbf24" },
+    info: { bg: "var(--accent-light)", border: "var(--accent-border)", color: "var(--accent)" },
+    warn: { bg: "var(--warning-light)", border: "rgba(251,191,36,0.3)", color: "var(--warning)" },
     danger: {
-      bg: "rgba(252,165,165,0.06)",
-      border: "rgba(252,165,165,0.25)",
-      color: "var(--error, #fca5a5)",
+      bg: "var(--error-light)",
+      border: "var(--error-border)",
+      color: "var(--error)",
+    },
+    success: {
+      bg: "var(--success-light)",
+      border: "rgba(52,211,153,0.3)",
+      color: "var(--success)",
     },
   }[tone];
   return (
@@ -130,32 +232,42 @@ function Note({
         background: palette.bg,
         border: `1px solid ${palette.border}`,
         borderRadius: 8,
-        padding: "10px 14px",
+        padding: "12px 14px",
         display: "flex",
-        gap: 10,
+        gap: 12,
         alignItems: "flex-start",
         fontSize: 13,
-        lineHeight: 1.55,
+        lineHeight: 1.6,
         color: "var(--text-secondary)",
-        margin: "8px 0",
+        margin: "10px 0",
       }}
     >
       <span style={{ color: palette.color, flexShrink: 0, marginTop: 2 }}>
-        {icon ?? <AlertTriangle size={14} />}
+        {icon ?? <AlertTriangle size={16} />}
       </span>
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {title && (
+          <div style={{ fontWeight: 600, color: palette.color, marginBottom: 4, fontSize: 13 }}>
+            {title}
+          </div>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
 
-// Persistent checklist — stores progress in localStorage so refreshing
-// the page doesn't wipe what you've already done.
+/* -------------------------------------------------------------------------- */
+/*  Persistent checkbox                                                       */
+/* -------------------------------------------------------------------------- */
+
 function CheckItem({ id, children }: { id: string; children: React.ReactNode }) {
   const storageKey = `misstep:storage-setup:${id}`;
-  const [done, setDone] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(storageKey) === "1";
-  });
+  const [done, setDone] = useState<boolean>(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setDone(window.localStorage.getItem(storageKey) === "1");
+  }, [storageKey]);
   function toggle() {
     const next = !done;
     setDone(next);
@@ -171,19 +283,20 @@ function CheckItem({ id, children }: { id: string; children: React.ReactNode }) 
         display: "flex",
         alignItems: "flex-start",
         gap: 10,
-        padding: "6px 0",
+        padding: "7px 0",
         cursor: "pointer",
         color: done ? "var(--text-muted)" : "var(--text-primary)",
         textDecoration: done ? "line-through" : "none",
         fontSize: 13,
-        lineHeight: 1.55,
+        lineHeight: 1.6,
+        transition: "color 120ms",
       }}
     >
       <span style={{ flexShrink: 0, marginTop: 2 }}>
         {done ? (
-          <CheckCircle2 size={14} style={{ color: "var(--success)" }} />
+          <CheckCircle2 size={15} style={{ color: "var(--success)" }} />
         ) : (
-          <Circle size={14} style={{ color: "var(--text-muted)" }} />
+          <Circle size={15} style={{ color: "var(--text-muted)" }} />
         )}
       </span>
       <span style={{ flex: 1, minWidth: 0 }}>{children}</span>
@@ -191,379 +304,1429 @@ function CheckItem({ id, children }: { id: string; children: React.ReactNode }) 
   );
 }
 
-/**
- * Inline SVG wiring diagram for the single-box test build. Kept simple
- * enough to read on a phone screen; each node is labeled, each wire color
- * corresponds to common convention (red=5V, black=GND, green=data).
- */
+/* -------------------------------------------------------------------------- */
+/*  Image lightbox                                                            */
+/* -------------------------------------------------------------------------- */
+
+function Lightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.85)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 32,
+        animation: "fadeIn 180ms ease",
+      }}
+    >
+      <button
+        onClick={onClose}
+        style={{
+          position: "absolute",
+          top: 24,
+          right: 24,
+          background: "rgba(255,255,255,0.05)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          color: "var(--text-primary)",
+          width: 36,
+          height: 36,
+          borderRadius: 8,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+        }}
+      >
+        <X size={18} />
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        style={{
+          maxWidth: "90vw",
+          maxHeight: "90vh",
+          objectFit: "contain",
+          borderRadius: 8,
+          boxShadow: "0 20px 80px rgba(0,0,0,0.5)",
+        }}
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Part image (in gallery card)                                              */
+/* -------------------------------------------------------------------------- */
+
+function PartImage({
+  src,
+  alt,
+  height = 200,
+}: {
+  src: string;
+  alt: string;
+  height?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          position: "relative",
+          width: "100%",
+          height,
+          background: "rgba(0,0,0,0.25)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          overflow: "hidden",
+          padding: 0,
+          cursor: "zoom-in",
+          transition: "border-color 160ms",
+          borderColor: hover ? "var(--accent-border)" : "var(--border)",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+            transition: "transform 240ms ease, filter 240ms ease",
+            transform: hover ? "scale(1.04)" : "scale(1)",
+            filter: hover ? "brightness(1.08)" : "brightness(1)",
+          }}
+        />
+        <span
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 6,
+            padding: 5,
+            color: "var(--text-primary)",
+            opacity: hover ? 1 : 0,
+            transition: "opacity 160ms",
+            display: "flex",
+          }}
+        >
+          <Maximize2 size={12} />
+        </span>
+      </button>
+      {open && <Lightbox src={src} alt={alt} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Inline "part chip" — shown next to a part name in instructions            */
+/* -------------------------------------------------------------------------- */
+
+function PartChip({
+  src,
+  label,
+}: {
+  src: string;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  return (
+    <>
+      <span
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onClick={() => setOpen(true)}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "1px 8px 1px 3px",
+          borderRadius: 999,
+          background: hover ? "var(--accent-light)" : "rgba(255,255,255,0.04)",
+          border: `1px solid ${hover ? "var(--accent-border)" : "var(--border)"}`,
+          fontWeight: 500,
+          color: hover ? "var(--accent)" : "var(--text-primary)",
+          cursor: "zoom-in",
+          transition: "background 140ms, border-color 140ms, color 140ms",
+          fontSize: "0.95em",
+          verticalAlign: "baseline",
+          position: "relative",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt=""
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            objectFit: "cover",
+            border: "1px solid rgba(0,0,0,0.4)",
+            flexShrink: 0,
+          }}
+        />
+        {label}
+        {/* hover preview */}
+        {hover && (
+          <span
+            style={{
+              position: "absolute",
+              bottom: "calc(100% + 8px)",
+              left: "50%",
+              transform: "translateX(-50%)",
+              padding: 4,
+              background: "var(--bg-page)",
+              border: "1.5px solid var(--accent-border)",
+              borderRadius: 8,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.6)",
+              zIndex: 50,
+              pointerEvents: "none",
+              animation: "fadeIn 140ms ease",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={src}
+              alt={label}
+              style={{
+                width: 220,
+                height: 160,
+                objectFit: "cover",
+                borderRadius: 6,
+                display: "block",
+              }}
+            />
+          </span>
+        )}
+      </span>
+      {open && <Lightbox src={src} alt={label} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Step header                                                               */
+/* -------------------------------------------------------------------------- */
+
+function StepHeader({
+  num,
+  title,
+  goal,
+  icon,
+}: {
+  num: number;
+  title: string;
+  goal: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 8 }}>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 10,
+            background: "var(--accent-light)",
+            border: "1.5px solid var(--accent-border)",
+            color: "var(--accent)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "var(--font-mono)",
+            fontSize: 16,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          {String(num).padStart(2, "0")}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2
+            style={{
+              fontSize: 20,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              margin: 0,
+              letterSpacing: "-0.01em",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            {icon && <span style={{ color: "var(--accent)" }}>{icon}</span>}
+            {title}
+          </h2>
+        </div>
+      </div>
+      <div
+        style={{
+          marginLeft: 58,
+          fontSize: 13,
+          color: "var(--text-secondary)",
+          lineHeight: 1.55,
+          paddingLeft: 12,
+          borderLeft: "2px solid var(--accent-border)",
+        }}
+      >
+        <span style={{ color: "var(--text-muted)", textTransform: "uppercase", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em" }}>Goal</span>
+        <br />
+        {goal}
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Parts gallery card                                                        */
+/* -------------------------------------------------------------------------- */
+
+function PartCard({
+  src,
+  name,
+  role,
+  filename,
+  caution,
+}: {
+  src: string;
+  name: string;
+  role: string;
+  filename: string;
+  caution?: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <PartImage src={src} alt={name} height={180} />
+      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {name}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>{role}</div>
+        {caution && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--warning)",
+              marginTop: 4,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 5,
+              lineHeight: 1.45,
+            }}
+          >
+            <AlertTriangle size={11} style={{ marginTop: 2, flexShrink: 0 }} />
+            <span>{caution}</span>
+          </div>
+        )}
+        <div
+          style={{
+            fontSize: 10,
+            color: "var(--text-muted)",
+            fontFamily: "var(--font-mono)",
+            marginTop: 4,
+          }}
+        >
+          {filename}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Wiring diagram                                                            */
+/* -------------------------------------------------------------------------- */
+
 function WiringDiagram() {
   return (
     <svg
-      viewBox="0 0 640 420"
+      viewBox="0 0 700 460"
       style={{
         width: "100%",
-        maxWidth: 640,
+        maxWidth: 700,
         height: "auto",
-        background: "rgba(0,0,0,0.2)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 8,
-        padding: 8,
+        background: "rgba(0,0,0,0.25)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: 12,
       }}
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <style>{`
-          .box { fill: rgba(255,255,255,0.04); stroke: rgba(255,255,255,0.2); stroke-width: 1.5; rx: 6; }
-          .label { fill: #f1f5f9; font-family: monospace; font-size: 11px; font-weight: 600; }
-          .pin { fill: #94a3b8; font-family: monospace; font-size: 10px; }
-          .wire-r { stroke: #ef4444; stroke-width: 2; fill: none; }
-          .wire-k { stroke: #94a3b8; stroke-width: 2; fill: none; }
-          .wire-g { stroke: #34d399; stroke-width: 2; fill: none; }
-          .wire-dash { stroke-dasharray: 3 3; }
-          .cap { fill: rgba(251,191,36,0.25); stroke: #fbbf24; stroke-width: 1.2; }
-          .res { fill: rgba(63,206,229,0.2); stroke: #3fcee5; stroke-width: 1.2; }
-          .note { fill: #64748b; font-family: monospace; font-size: 10px; }
-        `}</style>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8" />
+        </marker>
       </defs>
+      <style>{`
+        .box { fill: rgba(255,255,255,0.04); stroke: rgba(255,255,255,0.2); stroke-width: 1.5; rx: 6; }
+        .label { fill: #f1f5f9; font-family: var(--font-mono), monospace; font-size: 12px; font-weight: 600; }
+        .pin { fill: #94a3b8; font-family: var(--font-mono), monospace; font-size: 10px; }
+        .small { fill: #64748b; font-family: var(--font-mono), monospace; font-size: 9px; }
+        .wire-r { stroke: #ef4444; stroke-width: 2.2; fill: none; }
+        .wire-k { stroke: #94a3b8; stroke-width: 2.2; fill: none; }
+        .wire-g { stroke: #34d399; stroke-width: 2.2; fill: none; }
+        .wire-y { stroke: #fbbf24; stroke-width: 2.2; fill: none; }
+        .cap { fill: rgba(251,191,36,0.25); stroke: #fbbf24; stroke-width: 1.2; }
+        .res { fill: rgba(63,206,229,0.18); stroke: #3fcee5; stroke-width: 1.2; }
+      `}</style>
 
-      {/* PSU */}
-      <rect x="20" y="30" width="140" height="80" className="box" />
-      <text x="90" y="60" textAnchor="middle" className="label">5V 10A PSU</text>
-      <text x="90" y="76" textAnchor="middle" className="pin">AC in (Schuko)</text>
-      <text x="90" y="92" textAnchor="middle" className="pin">DC out (barrel)</text>
+      {/* PSU/charger */}
+      <rect x="20" y="40" width="170" height="86" className="box" />
+      <text x="105" y="68" textAnchor="middle" className="label">5V source</text>
+      <text x="105" y="86" textAnchor="middle" className="pin">USB-A charger</text>
+      <text x="105" y="100" textAnchor="middle" className="pin">(or Mean Well S-50-5)</text>
+      <text x="105" y="116" textAnchor="middle" className="small">230V AC → 5V DC</text>
 
-      {/* Barrel pigtail → rails */}
-      <text x="175" y="60" className="pin">+5V</text>
-      <text x="175" y="95" className="pin">GND</text>
-      <path d="M 160 55 L 200 55" className="wire-r" />
-      <path d="M 160 90 L 200 90" className="wire-k" />
+      {/* Bus rail labels */}
+      <text x="200" y="52" className="pin">+5V</text>
+      <text x="200" y="118" className="pin">GND</text>
+      <path d="M 190 60 L 220 60" className="wire-r" />
+      <path d="M 190 105 L 220 105" className="wire-k" />
 
-      {/* Cap (decoupling) */}
-      <circle cx="215" cy="72" r="10" className="cap" />
-      <text x="215" y="76" textAnchor="middle" className="pin">1000µF</text>
+      {/* Cap */}
+      <circle cx="240" cy="82" r="12" className="cap" />
+      <text x="240" y="86" textAnchor="middle" className="small">1000µF</text>
+      <path d="M 240 70 L 240 60" className="wire-r" />
+      <path d="M 240 94 L 240 105" className="wire-k" />
 
       {/* Rails */}
-      <path d="M 200 55 L 600 55" className="wire-r" />
-      <path d="M 200 90 L 600 90" className="wire-k" />
-      <text x="610" y="58" className="pin">+5V rail</text>
-      <text x="610" y="93" className="pin">GND rail</text>
+      <path d="M 220 60 L 660 60" className="wire-r" />
+      <path d="M 220 105 L 660 105" className="wire-k" />
+      <text x="666" y="63" className="pin">+5V rail</text>
+      <text x="666" y="108" className="pin">GND rail</text>
 
       {/* ESP32 */}
-      <rect x="220" y="150" width="160" height="90" className="box" />
-      <text x="300" y="180" textAnchor="middle" className="label">ESP32-S3</text>
-      <text x="300" y="196" textAnchor="middle" className="pin">5V · GND · GPIO5</text>
-      <text x="300" y="212" textAnchor="middle" className="pin">USB-C for flashing</text>
-      <text x="300" y="228" textAnchor="middle" className="note">WiFi 2.4GHz</text>
+      <rect x="240" y="160" width="180" height="100" className="box" />
+      <text x="330" y="190" textAnchor="middle" className="label">ESP32-S3</text>
+      <text x="330" y="208" textAnchor="middle" className="pin">5V · GND · GPIO5 · GPIO4</text>
+      <text x="330" y="224" textAnchor="middle" className="pin">USB-C ▶ flashing</text>
+      <text x="330" y="244" textAnchor="middle" className="small">WiFi 2.4 GHz · MQTT</text>
 
-      {/* ESP32 power */}
-      <path d="M 240 150 L 240 55" className="wire-r" />
-      <path d="M 280 150 L 280 90" className="wire-k" />
+      <path d="M 270 160 L 270 60" className="wire-r" />
+      <path d="M 310 160 L 310 105" className="wire-k" />
 
       {/* Level shifter */}
-      <rect x="240" y="270" width="120" height="60" className="box" />
-      <text x="300" y="295" textAnchor="middle" className="label">74AHCT125</text>
-      <text x="300" y="311" textAnchor="middle" className="pin">3.3V in → 5V out</text>
+      <rect x="260" y="290" width="140" height="64" className="box" />
+      <text x="330" y="316" textAnchor="middle" className="label">74AHCT125</text>
+      <text x="330" y="334" textAnchor="middle" className="pin">3.3V → 5V buffer</text>
 
-      {/* ESP32 GPIO5 → shifter */}
-      <path d="M 320 240 L 320 270" className="wire-g" />
+      <path d="M 350 260 L 350 290" className="wire-y" markerEnd="url(#arr)" />
+      <text x="358" y="278" className="small">GPIO5 → pin 2</text>
 
-      {/* Shifter power */}
-      <path d="M 250 270 L 250 150 Z" className="wire-k wire-dash" />
-      <path d="M 350 270 L 350 55 Z" className="wire-r wire-dash" />
+      <path d="M 280 290 L 280 105" className="wire-k" />
+      <path d="M 380 290 L 380 60" className="wire-r" />
 
       {/* Resistor */}
-      <rect x="400" y="285" width="40" height="20" className="res" />
-      <text x="420" y="299" textAnchor="middle" className="pin">330Ω</text>
-      <path d="M 360 295 L 400 295" className="wire-g" />
+      <rect x="430" y="310" width="44" height="22" className="res" />
+      <text x="452" y="324" textAnchor="middle" className="pin">330Ω</text>
+      <path d="M 400 322 L 430 322" className="wire-y" />
 
-      {/* Data to strip */}
-      <path d="M 440 295 L 520 295" className="wire-g" />
+      {/* Strip */}
+      <rect x="510" y="290" width="150" height="64" className="box" />
+      <text x="585" y="316" textAnchor="middle" className="label">WS2812B strip</text>
+      <text x="585" y="334" textAnchor="middle" className="pin">5V · DIN · GND</text>
 
-      {/* LED strip */}
-      <rect x="520" y="270" width="100" height="60" className="box" />
-      <text x="570" y="295" textAnchor="middle" className="label">WS2812B</text>
-      <text x="570" y="311" textAnchor="middle" className="pin">DIN · 5V · GND</text>
-
-      {/* Strip power from rails */}
-      <path d="M 580 270 L 580 55" className="wire-r" />
-      <path d="M 560 270 L 560 90" className="wire-k" />
+      <path d="M 474 322 L 510 322" className="wire-y" markerEnd="url(#arr)" />
+      <path d="M 600 290 L 600 60" className="wire-r" />
+      <path d="M 560 290 L 560 105" className="wire-k" />
 
       {/* Legend */}
-      <rect x="20" y="370" width="18" height="3" fill="#ef4444" />
-      <text x="45" y="374" className="note">+5V</text>
-      <rect x="85" y="370" width="18" height="3" fill="#94a3b8" />
-      <text x="110" y="374" className="note">GND</text>
-      <rect x="150" y="370" width="18" height="3" fill="#34d399" />
-      <text x="175" y="374" className="note">Data (DIN)</text>
+      <rect x="20" y="410" width="20" height="3" fill="#ef4444" />
+      <text x="46" y="414" className="small">+5V</text>
+      <rect x="90" y="410" width="20" height="3" fill="#94a3b8" />
+      <text x="116" y="414" className="small">GND</text>
+      <rect x="160" y="410" width="20" height="3" fill="#fbbf24" />
+      <text x="186" y="414" className="small">DATA (3.3V → 5V)</text>
+      <text x="20" y="438" className="small">arrow on strip points AWAY from input — connect at the AWAY side.</text>
     </svg>
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Mental model diagram                                                      */
+/* -------------------------------------------------------------------------- */
+
+function MentalModel() {
+  const Block = ({ label, sub, color }: { label: string; sub?: string; color: string }) => (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 110,
+        padding: "10px 12px",
+        background: `${color}1a`,
+        border: `1px solid ${color}55`,
+        borderRadius: 8,
+        textAlign: "center",
+      }}
+    >
+      <div style={{ fontWeight: 600, fontSize: 12, color, fontFamily: "var(--font-mono)" }}>{label}</div>
+      {sub && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+  const Arrow = () => (
+    <div
+      style={{
+        color: "var(--text-muted)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 16,
+        flexShrink: 0,
+        padding: "0 4px",
+      }}
+    >
+      →
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <Block label="WALL" sub="230V AC" color="#fca5a5" />
+        <Arrow />
+        <Block label="PSU" sub="5V DC" color="#fbbf24" />
+        <Arrow />
+        <Block label="ESP32" sub="WiFi brain" color="#3fcee5" />
+        <Arrow />
+        <Block label="SHIFTER" sub="3.3V → 5V" color="#a78bfa" />
+        <Arrow />
+        <Block label="LEDs" sub="WS2812B" color="#34d399" />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <Block label="LAPTOP" sub="dashboard" color="#94a3b8" />
+        <Arrow />
+        <Block label="MQTT" sub="HiveMQ cloud" color="#3fcee5" />
+        <Arrow />
+        <Block label="ESP32" sub="receives commands" color="#3fcee5" />
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Hero                                                                      */
+/* -------------------------------------------------------------------------- */
+
+function Hero() {
+  return (
+    <div
+      style={{
+        position: "relative",
+        background:
+          "radial-gradient(ellipse at top right, rgba(63,206,229,0.10), transparent 60%), radial-gradient(ellipse at bottom left, rgba(168,139,250,0.08), transparent 60%), linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))",
+        backdropFilter: "var(--surface-blur)",
+        border: "var(--surface-border)",
+        boxShadow: "var(--surface-shadow)",
+        borderRadius: "var(--radius)",
+        padding: "32px 28px",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "4px 10px",
+          borderRadius: 999,
+          background: "var(--accent-light)",
+          border: "1px solid var(--accent-border)",
+          fontSize: 11,
+          fontFamily: "var(--font-mono)",
+          color: "var(--accent)",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          marginBottom: 16,
+        }}
+      >
+        <Sparkles size={12} />
+        Build #1 — bench prototype
+      </div>
+      <H1>Storage LED — one-box test</H1>
+      <p
+        style={{
+          color: "var(--text-secondary)",
+          fontSize: 15,
+          margin: "12px 0 0",
+          maxWidth: 720,
+          lineHeight: 1.6,
+        }}
+      >
+        First-time-electronics walkthrough for wiring one card box with a
+        controllable LED strip. End goal of this build: click a slot in the
+        Stock table → the matching LED on the box lights up. We get this
+        working bench-side before scaling to 25 boxes.
+      </p>
+      <div
+        style={{
+          marginTop: 20,
+          display: "flex",
+          gap: 12,
+          flexWrap: "wrap",
+          fontSize: 12,
+          color: "var(--text-muted)",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
+        <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
+          <Thermometer size={12} /> 4–6 h spread over 2 evenings
+        </span>
+        <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
+          <Boxes size={12} /> €150 already spent
+        </span>
+        <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
+          <CodeIcon size={12} /> ESPHome firmware · MQTT · HiveMQ free tier
+        </span>
+      </div>
+      <div style={{ marginTop: 24 }}>
+        <MentalModel />
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Glossary                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const GLOSSARY: { term: string; meaning: string }[] = [
+  { term: "5V / 3.3V", meaning: "DC voltages. Most chips run at 3.3V; LED strips want 5V." },
+  { term: "GND", meaning: "Ground — the return path for current. Every +5V wire needs a matching GND." },
+  { term: "GPIO", meaning: "Pins on the ESP32 you can program. We use GPIO5 (data) and GPIO4 (button)." },
+  { term: "DIN", meaning: "Data IN — the input pin on the LED strip that listens for instructions." },
+  { term: "PSU", meaning: "Power Supply Unit. Converts 230V wall AC into 5V DC." },
+  { term: "Breadboard", meaning: "Reusable plastic board with rows of holes that connect under the surface — push wires in to make a circuit without soldering." },
+  { term: "Dupont wires", meaning: "Pre-made multi-coloured jumper wires with metal pins on the ends." },
+  { term: "Decoupling cap", meaning: "A reservoir of charge across +5V/GND that smooths out voltage dips when the strip suddenly draws current." },
+  { term: "Level shifter", meaning: "Chip that translates 3.3V signals → 5V signals. The 74AHCT125." },
+  { term: "Heatshrink", meaning: "Plastic tubing that shrinks when heated — slide it over a soldered joint and shrink with the heat gun for insulation." },
+  { term: "Solder", meaning: "Metal alloy that melts at ~250°C. Bonds two metals permanently." },
+  { term: "Flux", meaning: "Chemical that cleans metal as you solder so the joint actually bonds. Your solder wire has flux inside it — usually no extra needed." },
+  { term: "MQTT", meaning: "Messaging protocol. Like a chatroom for devices: ESP32 says 'I'm here', dashboard says 'light LED #42 green', the broker passes it on." },
+  { term: "HiveMQ", meaning: "The free cloud-hosted MQTT broker we'll use." },
+  { term: "ESPHome", meaning: "Firmware framework. Instead of writing C++, you write a YAML file describing what the ESP32 should do." },
+  { term: "Firmware", meaning: "The small program that lives on the ESP32 and tells it what to do. We 'flash' it via USB-C." },
+];
+
+function Glossary() {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+        gap: 10,
+      }}
+    >
+      {GLOSSARY.map(({ term, meaning }) => (
+        <div
+          key={term}
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "10px 12px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
+              fontWeight: 600,
+              color: "var(--accent)",
+              letterSpacing: "0.02em",
+            }}
+          >
+            {term}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.55 }}>
+            {meaning}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Parts data                                                                */
+/* -------------------------------------------------------------------------- */
+
+const P = {
+  led: "/storage-setup/ws2812b-strip.jpeg",
+  esp32: "/storage-setup/esp32-s3.jpeg",
+  psuFront: "/storage-setup/psu-5v-10a-terminals.jpeg",
+  psuSide: "/storage-setup/psu-5v-10a-side.jpeg",
+  pigtail: "/storage-setup/dc-barrel-pigtail.jpeg",
+  shifter: "/storage-setup/level-shifter-74ahct125.jpeg",
+  caps: "/storage-setup/capacitor-kit.jpeg",
+  res: "/storage-setup/resistor-kit.jpeg",
+  silicone: "/storage-setup/silicone-wire-red-black.jpeg",
+  dupont: "/storage-setup/dupont-jumpers.jpeg",
+  bread: "/storage-setup/breadboard.jpeg",
+  buttons: "/storage-setup/pushbuttons.jpeg",
+  iron: "/storage-setup/soldering-iron.jpeg",
+  solder: "/storage-setup/solder-wire.jpeg",
+  wick: "/storage-setup/solder-wick.jpeg",
+  strip: "/storage-setup/wire-stripper-multitool.jpeg",
+  cutters: "/storage-setup/flush-cutters.jpeg",
+  multi: "/storage-setup/multimeter-aneng-an8008.jpeg",
+  shrink: "/storage-setup/heatshrink-kit.jpeg",
+  gun: "/storage-setup/heat-gun.jpeg",
+  hands: "/storage-setup/helping-hands.jpeg",
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Toolbar / nav                                                             */
+/* -------------------------------------------------------------------------- */
+
+const NAV: { id: string; label: string; icon: React.ReactNode }[] = [
+  { id: "overview", label: "Overview", icon: <Sparkles size={13} /> },
+  { id: "glossary", label: "Glossary", icon: <BookOpen size={13} /> },
+  { id: "parts", label: "Parts", icon: <Boxes size={13} /> },
+  { id: "tools", label: "Tools", icon: <Wrench size={13} /> },
+  { id: "safety", label: "Safety", icon: <ShieldAlert size={13} /> },
+  { id: "wiring", label: "Wiring", icon: <Plug size={13} /> },
+  { id: "build", label: "Build steps", icon: <BatteryCharging size={13} /> },
+  { id: "firmware", label: "Firmware", icon: <Cpu size={13} /> },
+  { id: "first-light", label: "First light", icon: <Lightbulb size={13} /> },
+  { id: "trouble", label: "Troubleshoot", icon: <AlertTriangle size={13} /> },
+  { id: "next", label: "What's next", icon: <Rocket size={13} /> },
+];
+
+function StickyNav() {
+  return (
+    <div
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 20,
+        marginBottom: 24,
+        padding: "10px 12px",
+        background: "rgba(10,15,20,0.85)",
+        backdropFilter: "blur(12px)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        display: "flex",
+        gap: 4,
+        overflowX: "auto",
+      }}
+    >
+      {NAV.map((n) => (
+        <a
+          key={n.id}
+          href={`#${n.id}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "6px 10px",
+            borderRadius: 6,
+            fontSize: 12,
+            fontFamily: "var(--font-mono)",
+            color: "var(--text-secondary)",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+            transition: "background 120ms, color 120ms",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--accent-light)";
+            e.currentTarget.style.color = "var(--accent)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = "var(--text-secondary)";
+          }}
+        >
+          {n.icon}
+          {n.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Page                                                                      */
+/* -------------------------------------------------------------------------- */
+
 export default function StorageSetupContent() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24, maxWidth: 960 }}>
-      <div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Storage setup — one-box test
-        </h1>
-        <p
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      <StickyNav />
+
+      {/* ── Hero ────────────────────────────────────────────────────────── */}
+      <section id="overview">
+        <Hero />
+      </section>
+
+      {/* ── Path A vs Path B note ──────────────────────────────────────── */}
+      <Panel accent="var(--accent)">
+        <H2 icon={<Plug size={18} />}>How you'll power the bench: Path A</H2>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6, margin: "0 0 12px" }}>
+          Your kit has the proper{" "}
+          <PartChip src={P.psuFront} label="Mean Well S-50-5 PSU" /> — but it requires wiring
+          230 V mains into the screw terminals via a Schuko plug. <strong>Don't do that on
+          build #1.</strong> Use Path A:
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div
+            style={{
+              padding: 14,
+              borderRadius: 8,
+              background: "var(--success-light)",
+              border: "1px solid rgba(52,211,153,0.25)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--success)",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                PATH A · BENCH (this build)
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.55 }}>
+              Cut the USB-A end off any old phone-charger cable.{" "}
+              <strong style={{ color: "#ef4444" }}>Red wire</strong> = +5 V,{" "}
+              <strong>black wire</strong> = GND. Plug the charger into the wall — the dangerous
+              part is already done by the manufacturer. Strip the two wires and you have a
+              5 V source with zero exposed mains.
+            </div>
+          </div>
+          <div
+            style={{
+              padding: 14,
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid var(--border)",
+              opacity: 0.85,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text-muted)",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                }}
+              >
+                PATH B · PSU (later)
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.55 }}>
+              When you build the second carrier and you're confident, wire L/N into the PSU's
+              terminal block via a Schuko plug. Same 5 V output, much higher current capacity,
+              feeds the full 25-box deployment.
+            </div>
+          </div>
+        </div>
+      </Panel>
+
+      {/* ── Glossary ───────────────────────────────────────────────────── */}
+      <Panel>
+        <H2 id="glossary" icon={<BookOpen size={18} />}>Plain-English glossary</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          Skim once. Refer back when a term shows up below.
+        </p>
+        <Glossary />
+      </Panel>
+
+      {/* ── Parts gallery ──────────────────────────────────────────────── */}
+      <Panel>
+        <H2 id="parts" icon={<Boxes size={18} />}>Parts you have</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          Click any photo to see it full-size. Hover any{" "}
+          <PartChip src={P.led} label="part name" /> in the steps below to peek a thumbnail.
+        </p>
+        <div
           style={{
-            color: "var(--text-muted)",
-            fontSize: 13,
-            margin: "6px 0 0",
-            maxWidth: 720,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: 14,
           }}
         >
-          Step-by-step to wire one 4k box with an LED strip driven by an ESP32
-          talking MQTT to the dashboard. Goal: click a slot in the Stock
-          table, the matching LED lights up. Everything here runs without the
-          production cap — duct-tape the strip to the box edge for the MVP.
-        </p>
-        <p
+          <PartCard
+            src={P.led}
+            name="WS2812B LED strip"
+            role="144 LEDs/m, 5 m roll. Each LED is individually controllable RGB. Has a printed arrow — data flows in the arrow direction. Connect to ESP32 at the AWAY-from-arrow end. Pre-soldered JST-SM connectors are a nice bonus."
+            filename="ws2812b-strip.jpeg"
+          />
+          <PartCard
+            src={P.esp32}
+            name="ESP32-S3 dev board"
+            role="The brain. Tiny WiFi+Bluetooth computer. Two USB-C ports — use either for flashing. The grey wire is an external IPEX antenna; ignore it for the bench, plug it in only when you mount the box on a far shelf."
+            filename="esp32-s3.jpeg"
+          />
+          <PartCard
+            src={P.psuFront}
+            name="5V 10A PSU (S-50-5)"
+            role="Mean Well terminal-block PSU. Skip this on build #1 (needs mains wiring). Use Path A. Comes back into play on the second carrier."
+            filename="psu-5v-10a-terminals.jpeg"
+            caution="L and N terminals carry 230 V — never probe live."
+          />
+          <PartCard
+            src={P.pigtail}
+            name="DC barrel pigtail"
+            role="5.5×2.1 mm barrel plug → bare wire pigtail. Useful if you eventually buy a 5 V wall-wart with matching barrel jack. Not used on Path A."
+            filename="dc-barrel-pigtail.jpeg"
+          />
+          <PartCard
+            src={P.shifter}
+            name="74AHCT125 level shifter ×10"
+            role="Translates ESP32's 3.3 V data signal to 5 V the strip understands. You only need ONE — the rest are spares. Notch on one short edge marks pin 1. Use only buffer 1."
+            filename="level-shifter-74ahct125.jpeg"
+          />
+          <PartCard
+            src={P.caps}
+            name="Capacitor kit (500 pcs)"
+            role="We need exactly one 1000 µF capacitor (16 V or 25 V — both fine). Box label tells you the compartment. The leg next to the white stripe is NEGATIVE — wire it to GND."
+            filename="capacitor-kit.jpeg"
+            caution="Wired backwards, electrolytic caps can pop and smoke."
+          />
+          <PartCard
+            src={P.res}
+            name="Resistor kit (assorted)"
+            role="We need exactly one 330 Ω resistor. 4-band code: orange · orange · brown · gold. Verify with multimeter on Ω: should read 313–347."
+            filename="resistor-kit.jpeg"
+          />
+          <PartCard
+            src={P.silicone}
+            name="Silicone wire 18 AWG"
+            role="Red + black spools, separate. For longer power runs (>30 cm) where Dupont wires would sag. You'll use these later when mounting the strip on the actual box."
+            filename="silicone-wire-red-black.jpeg"
+          />
+          <PartCard
+            src={P.dupont}
+            name="Dupont jumpers ×120"
+            role="Pre-made multi-coloured jumper wires for the breadboard. Mix of M-M, M-F, F-F. We'll only use ~10 for the bench."
+            filename="dupont-jumpers.jpeg"
+          />
+          <PartCard
+            src={P.bread}
+            name="Breadboard 830-tie"
+            role="Push wires in to make circuits without soldering. The two long red/blue rails on top + bottom are power rails. The middle has columns of 5 holes each, with a gap down the centre."
+            filename="breadboard.jpeg"
+          />
+          <PartCard
+            src={P.buttons}
+            name="Tactile pushbuttons"
+            role="Tiny 4-pin metal buttons. Pins on the same side are always connected; pressing connects the two sides. We need just ONE for the 'I picked the card' confirm button."
+            filename="pushbuttons.jpeg"
+          />
+        </div>
+      </Panel>
+
+      {/* ── Tools ──────────────────────────────────────────────────────── */}
+      <Panel>
+        <H2 id="tools" icon={<Wrench size={18} />}>Tools you have</H2>
+        <div
           style={{
-            color: "var(--text-muted)",
-            fontSize: 12,
-            margin: "12px 0 0",
-            fontFamily: "var(--font-mono)",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: 14,
           }}
         >
-          Tap items to check them off — progress persists in your browser.
+          <PartCard
+            src={P.iron}
+            name="Soldering iron 60 W"
+            role="Plug in, wait ~90 s, melt solder. Set temp to ~360 °C for the lead-free wire you have. Rest in stand when not in hand."
+            filename="soldering-iron.jpeg"
+            caution="Tip is 350°C+. Never on the bare bench."
+          />
+          <PartCard
+            src={P.solder}
+            name="Lead-free solder 0.8 mm"
+            role="Sn99.3 Cu0.7, 2% flux core. The flux inside means no separate flux pen needed for breadboard joints."
+            filename="solder-wire.jpeg"
+          />
+          <PartCard
+            src={P.wick}
+            name="Solder wick"
+            role="Braided copper ribbon. When you have too much solder or a bad joint, lay the wick on it and press with the iron — it soaks up the excess. 3 reels = lots of room for mistakes."
+            filename="solder-wick.jpeg"
+          />
+          <PartCard
+            src={P.strip}
+            name="Wire stripper multi-tool"
+            role="Removes plastic insulation without cutting the wire. Numbered notches = wire-gauge sizes. Use 18 for silicone wire, smallest notch for thin Dupont wire."
+            filename="wire-stripper-multitool.jpeg"
+          />
+          <PartCard
+            src={P.cutters}
+            name="Flush cutters"
+            role="Precision cutters for snipping wire ends, resistor legs, zip-tie tails. Soft wire only — don't try to cut steel."
+            filename="flush-cutters.jpeg"
+          />
+          <PartCard
+            src={P.multi}
+            name="Multimeter ANENG AN8008"
+            role="Your most-used tool after the iron. Modes: V (DC) for rail check, Ω for resistor check, beep icon for continuity. Red probe in VΩHz, black always in COM."
+            filename="multimeter-aneng-an8008.jpeg"
+          />
+          <PartCard
+            src={P.shrink}
+            name="Heatshrink kit"
+            role="Plastic tubing in many sizes. Slide over a wire BEFORE soldering, then push over the joint and shrink with the heat gun."
+            filename="heatshrink-kit.jpeg"
+          />
+          <PartCard
+            src={P.gun}
+            name="Mini heat gun 300 W"
+            role="For shrinking heatshrink. Hot air ~250 °C. Hold ~5 cm away, move slowly. Do NOT use the soldering iron tip to shrink — it melts unevenly."
+            filename="heat-gun.jpeg"
+          />
+          <PartCard
+            src={P.hands}
+            name="Helping hands"
+            role="Alligator clips on flex arms. Holds two wires steady so you can solder them with both hands free. Don't bite stripped wire too hard — crushes the strands."
+            filename="helping-hands.jpeg"
+          />
+        </div>
+      </Panel>
+
+      {/* ── Safety ─────────────────────────────────────────────────────── */}
+      <Panel accent="var(--error)">
+        <H2 id="safety" icon={<ShieldAlert size={18} />}>Safety — read once, fully</H2>
+        <Note tone="danger" icon={<Zap size={16} />} title="230 V mains can kill you.">
+          The five terminals labelled <Code>L</Code> · <Code>N</Code> · <Code>⏚</Code> on the
+          front of the PSU, and the yellow CAUTION sticker, mark the dangerous side. The 5 V
+          DC side cannot hurt you. <strong>You're using Path A on this build, so the
+          mains side is safely sealed inside the wall charger.</strong>
+        </Note>
+        <Note tone="warn" icon={<Flame size={16} />} title="Soldering iron etiquette.">
+          Tip is 350–400 °C. Always rests in the stand. Always. Most burns happen on the
+          fifth joint when attention drifts. Work in a ventilated room — rosin fumes are
+          mildly nasty.
+        </Note>
+        <Note tone="warn" icon={<Plug size={16} />} title="Power off before rewiring.">
+          Always: kill power → modify → power up. Never rewire a live circuit.
+        </Note>
+        <Note tone="info" icon={<Info size={16} />}>
+          If you smell something burning, see smoke, or hear a pop — kill the power-strip
+          switch first, ask questions second.
+        </Note>
+      </Panel>
+
+      {/* ── Wiring diagram ─────────────────────────────────────────────── */}
+      <Panel>
+        <H2 id="wiring" icon={<Plug size={18} />}>Wiring diagram</H2>
+        <WiringDiagram />
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "12px 0 0", lineHeight: 1.6 }}>
+          The data line goes through the level shifter (3.3 V → 5 V) and a 330 Ω resistor
+          before reaching the strip. The 1000 µF cap sits across the rails near where power
+          enters — it absorbs voltage dips when the strip suddenly draws current.
         </p>
+      </Panel>
+
+      {/* ── BUILD STEPS ────────────────────────────────────────────────── */}
+      <div id="build" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+        {/* Step 1 */}
+        <Panel>
+          <StepHeader
+            num={1}
+            icon={<Boxes size={18} />}
+            title="Inspect & sort the parts"
+            goal="Confirm you have everything and identify the specific resistor + capacitor you'll need."
+          />
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s1-330">
+              Find the <strong>330 Ω resistor</strong> in the{" "}
+              <PartChip src={P.res} label="resistor kit" />. 4-band code:{" "}
+              <strong>orange · orange · brown · gold</strong>. If unsure, multimeter on{" "}
+              <Code>Ω</Code>: should read 313–347.
+            </CheckItem>
+            <CheckItem id="s1-1000uf">
+              Pull <strong>one</strong> 1000 µF capacitor from the{" "}
+              <PartChip src={P.caps} label="capacitor kit" />. Box label tells you the
+              compartment. Note the white stripe → that leg is{" "}
+              <strong style={{ color: "var(--error)" }}>negative</strong> (will go to GND).
+            </CheckItem>
+            <CheckItem id="s1-shifter">
+              Pull <strong>one</strong> chip from the{" "}
+              <PartChip src={P.shifter} label="level-shifter bag" />. Find the half-circle
+              notch on one short edge — that marks pin 1. Set aside, notch facing left.
+            </CheckItem>
+            <CheckItem id="s1-strip-arrow">
+              Find the printed arrow on the{" "}
+              <PartChip src={P.led} label="LED strip" />. The bare-wire pigtail you'll connect
+              is the one on the side the arrow points <strong>away from</strong>. Mark it with
+              tape if you want.
+            </CheckItem>
+            <CheckItem id="s1-jumpers">
+              From the <PartChip src={P.dupont} label="Dupont pack" />, set out 4 red M-M, 4
+              black M-M, and 2 colourful M-M jumpers. Put the rest back in the bag.
+            </CheckItem>
+          </ul>
+        </Panel>
+
+        {/* Step 2 */}
+        <Panel>
+          <StepHeader
+            num={2}
+            icon={<BatteryCharging size={18} />}
+            title="Set up the 5 V source (Path A)"
+            goal="Get a clean +5 V and GND ready for the breadboard, with no exposed mains."
+          />
+          <Note tone="info" icon={<Lightbulb size={16} />} title="Why we're not using your PSU yet">
+            The terminal-block PSU you bought is great — but it requires assembling a Schuko
+            plug yourself. Doable, scary first time. We'll bring it in for build #2.
+          </Note>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s2-cable">
+              Find an old USB-A cable you don't need (any phone-charger cable from the last 10
+              years works). Cut the <strong>USB-A connector</strong> off the end (the
+              rectangular metal plug, not the small device-end).
+            </CheckItem>
+            <CheckItem id="s2-strip">
+              Use the <PartChip src={P.strip} label="wire stripper" /> on its smallest notch
+              to remove ~10 mm of the outer black/grey jacket. Inside you'll find 4 wires:{" "}
+              <strong style={{ color: "#ef4444" }}>red (+5 V)</strong>,{" "}
+              <strong>black (GND)</strong>, white (data), green (data). Snip white + green
+              short with the <PartChip src={P.cutters} label="flush cutters" /> — we don't use
+              them.
+            </CheckItem>
+            <CheckItem id="s2-strip-rb">
+              Strip ~5 mm off the red and black wires. Twist the strands tight. Optional but
+              helpful: tin them with a quick touch of <PartChip src={P.iron} label="iron" /> +{" "}
+              <PartChip src={P.solder} label="solder" /> so they hold their shape going into
+              the breadboard.
+            </CheckItem>
+            <CheckItem id="s2-test">
+              Plug the charger into the wall. Set the{" "}
+              <PartChip src={P.multi} label="multimeter" /> to <Code>DC V</Code> (~20 V
+              range). Red probe on the red wire, black probe on the black wire — should read{" "}
+              <strong>~5.0 V</strong>. <strong>Reverse the probes</strong> — should read{" "}
+              <strong>−5.0 V</strong>. If both are 0, the cable is dead.
+            </CheckItem>
+            <CheckItem id="s2-unplug">
+              <strong>Unplug from the wall</strong> before continuing.
+            </CheckItem>
+          </ul>
+        </Panel>
+
+        {/* Step 3 */}
+        <Panel>
+          <StepHeader
+            num={3}
+            icon={<Zap size={18} />}
+            title="Build the 5 V rail on the breadboard"
+            goal="Get +5 V and GND running along the long red and blue rails, with a decoupling cap in place."
+          />
+          <Note tone="warn" title="Power-strip OFF the entire time of this step.">
+            We're only physically placing parts. No power until step 4's smoke test.
+          </Note>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s3-orient">
+              Orient the <PartChip src={P.bread} label="breadboard" /> with labels readable.
+              Top long rows: red <Code>+</Code> and blue <Code>−</Code>. Mirror at bottom.
+            </CheckItem>
+            <CheckItem id="s3-source">
+              Push the <strong>red wire</strong> from the cut USB cable into any hole on the
+              top red <Code>+</Code> rail (left end). Push the{" "}
+              <strong>black wire</strong> into the top blue <Code>−</Code> rail (same area).
+            </CheckItem>
+            <CheckItem id="s3-bridge">
+              Bridge top → bottom: a red Dupont from top-red far-right to bottom-red far-right;
+              a black Dupont from top-blue far-right to bottom-blue far-right. Now both rails
+              are powered evenly.
+            </CheckItem>
+            <CheckItem id="s3-cap">
+              Place the <strong>1000 µF cap</strong>: white-stripe leg →{" "}
+              <strong>blue rail (GND)</strong>. Other leg → <strong>red rail (+5 V)</strong>.
+              Put it within 5 cm of where the source enters.
+            </CheckItem>
+          </ul>
+          <Note tone="danger" icon={<AlertTriangle size={16} />} title="Capacitor polarity is the #1 way beginners destroy components.">
+            White stripe = negative = goes to GND/blue rail. Read it twice before you turn
+            power on.
+          </Note>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s3-smoke">
+              <strong>Smoke test:</strong> plug charger in. Multimeter on <Code>DC V</Code> —
+              should read <strong>4.95–5.10 V</strong> across the rails. If negative, polarity
+              is swapped. If 0, source isn't connected. Unplug and fix.
+            </CheckItem>
+            <CheckItem id="s3-off">Power off before continuing.</CheckItem>
+          </ul>
+        </Panel>
+
+        {/* Step 4 */}
+        <Panel>
+          <StepHeader
+            num={4}
+            icon={<Cpu size={18} />}
+            title="Seat the ESP32 and the level shifter"
+            goal="Mount both ICs on the breadboard, give them power, wire the data signal from ESP32 → shifter."
+          />
+          <H3>Seat the ESP32</H3>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s4-esp-seat">
+              Position the <PartChip src={P.esp32} label="ESP32-S3" /> straddling the central
+              gap. Half its pins on each side. USB-C connectors overhang the <strong>left</strong>{" "}
+              end. Press straight down with thumbs along both edges.{" "}
+              <strong>Don't rock side-to-side</strong> — bends the pins.
+            </CheckItem>
+            <CheckItem id="s4-esp-power">
+              Find the <Code>5V</Code> (or <Code>VIN</Code>) pin near the USB end. Run a red
+              Dupont from the column next to that pin to the red <Code>+</Code> rail. Run a
+              black Dupont from any <Code>GND</Code> pin to the blue <Code>−</Code> rail.
+            </CheckItem>
+            <CheckItem id="s4-esp-data">
+              Find <Code>GPIO5</Code> (sometimes <Code>IO5</Code>). Run a green or yellow
+              Dupont from there to a free column in the middle of the board — leave the other
+              end loose for now.
+            </CheckItem>
+          </ul>
+          <H3>Seat the level shifter</H3>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s4-shift-seat">
+              Press the <PartChip src={P.shifter} label="74AHCT125" /> into the breadboard
+              straddling the central gap, <strong>notch facing left</strong>. Pins 1–7 on one
+              side, pins 8–14 on the other. Push on the plastic body, not the pins.
+            </CheckItem>
+            <CheckItem id="s4-shift-vcc">
+              <strong>Pin 14</strong> (top-right, next to the notch on top) →{" "}
+              <Code>+</Code> rail. <strong>Pin 7</strong> (bottom-left) → <Code>−</Code> rail.
+            </CheckItem>
+            <CheckItem id="s4-shift-oe">
+              Tie unused enables low: <strong>Pin 4, Pin 10, Pin 13</strong> → all to{" "}
+              <Code>−</Code> rail with three short black jumpers.
+            </CheckItem>
+            <CheckItem id="s4-shift-data">
+              Connect the loose end of the GPIO5 Dupont to <strong>shifter pin 2</strong>{" "}
+              (the input of buffer 1).
+            </CheckItem>
+          </ul>
+          <Note>
+            The notch end of a DIP chip is always pin 1. Pin numbers go counter-clockwise
+            looking down on the chip: pin 1 is bottom-left of the notch, pin 14 is top-left.
+          </Note>
+        </Panel>
+
+        {/* Step 5 */}
+        <Panel>
+          <StepHeader
+            num={5}
+            icon={<Lightbulb size={18} />}
+            title="Connect the LED strip"
+            goal="Wire the strip's input end (the AWAY-from-arrow end) to the breadboard."
+          />
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s5-verify">
+              Look at the bare end of the <PartChip src={P.led} label="strip" /> under the
+              JST connector. The pads are labelled <Code>5V</Code>, <Code>DI</Code> (or{" "}
+              <Code>DIN</Code>), <Code>GND</Code>. Note which colour wire goes to which pad.
+              Typical mapping: <strong style={{ color: "#ef4444" }}>red→5V</strong>,{" "}
+              <strong style={{ color: "var(--warning)" }}>white→DI</strong>,{" "}
+              <strong>green→GND</strong>. Verify against your specific roll.
+            </CheckItem>
+            <CheckItem id="s5-strip">
+              Strip 5 mm off each of the three wires. Twist tight, optionally tin them.
+            </CheckItem>
+            <CheckItem id="s5-5v">
+              Strip's 5 V wire → red <Code>+</Code> rail.
+            </CheckItem>
+            <CheckItem id="s5-gnd">
+              Strip's GND wire → blue <Code>−</Code> rail.
+            </CheckItem>
+            <CheckItem id="s5-data">
+              Strip's data wire (<Code>DI</Code>) → through the{" "}
+              <strong>330 Ω resistor</strong> → <strong>shifter pin 3</strong> (output of
+              buffer 1). On the breadboard: plug the resistor across two adjacent columns.
+              One leg in the column connected to shifter pin 3. Other leg in a free column.
+              Plug a Dupont from that free column to the strip's <Code>DI</Code> wire.
+            </CheckItem>
+          </ul>
+          <Note title="Why the 330 Ω resistor?">
+            Protects the first LED's input chip from voltage spikes when you plug/unplug
+            the strip. Standard precaution. Without it, the first LED occasionally dies on
+            connect.
+          </Note>
+        </Panel>
+
+        {/* Step 6 */}
+        <Panel>
+          <StepHeader
+            num={6}
+            icon={<AlertTriangle size={18} />}
+            title="Pre-power smoke test"
+            goal="Confirm there are no shorts before applying any power. Confirm voltages once we do."
+          />
+          <H3>While power is OFF — continuity (🔊) checks</H3>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s6-no-short">
+              Probe red <Code>+</Code> rail and blue <Code>−</Code> rail. <strong>Should NOT
+              beep.</strong> If it does, you have a short — find and remove the bridging wire
+              before going further.
+            </CheckItem>
+            <CheckItem id="s6-strip-5v">
+              ESP32 <Code>5V</Code> pin and the strip's 5 V wire — should beep (same rail).
+            </CheckItem>
+            <CheckItem id="s6-strip-gnd">
+              ESP32 <Code>GND</Code> and strip's GND — should beep.
+            </CheckItem>
+            <CheckItem id="s6-data-path">
+              ESP32 <Code>GPIO5</Code> → shifter pin 2 — should beep.
+            </CheckItem>
+            <CheckItem id="s6-resistor">
+              Shifter pin 3 → strip's DIN — through the resistor: continuity may be quiet on
+              some meters; switch to <Code>Ω</Code> mode and confirm reading is ~330.
+            </CheckItem>
+          </ul>
+          <H3>Apply power</H3>
+          <ul style={{ padding: 0, margin: 0 }}>
+            <CheckItem id="s6-rails">
+              Plug charger in. Multimeter on <Code>DC V</Code> across the rails:{" "}
+              <strong>~5.00 V</strong> ✓
+            </CheckItem>
+            <CheckItem id="s6-shifter-power">
+              Across shifter pin 14 and pin 7: <strong>~5.00 V</strong> ✓
+            </CheckItem>
+            <CheckItem id="s6-strip-power">
+              Across the strip's 5 V and GND wires: <strong>~5.00 V</strong> ✓
+            </CheckItem>
+            <CheckItem id="s6-esp-usb">
+              Plug the ESP32 into your computer with the USB-C cable. Two on-board LEDs
+              should glow (red power LED + RGB pulsing). Strip stays <strong>dark</strong>{" "}
+              (no firmware yet).
+            </CheckItem>
+            <CheckItem id="s6-power-off">
+              Power off the charger before moving to firmware.
+            </CheckItem>
+          </ul>
+        </Panel>
+
       </div>
 
-      {/* ── Bill of materials ──────────────────────────────────────────── */}
+      {/* ── MQTT broker ────────────────────────────────────────────────── */}
       <Panel>
-        <H2 id="bom">Bill of materials</H2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px" }}>
-          AliExpress, Portugal. Order everything in one cart so shipping
-          consolidates. Expect 2-3 weeks to arrive.
+        <H2 id="mqtt-broker" icon={<Radio size={18} />}>Step 7 — Set up MQTT (HiveMQ free)</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          The cloud "messaging server" that connects your dashboard to the ESP32. Free tier,
+          no credit card.
         </p>
         <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="bom-strip">
-            <strong>WS2812B strip</strong> — 144 LEDs/m · IP30 · black PCB · 3m
-            · 5V · ordered
+          <CheckItem id="mqtt-signup">
+            Sign up at{" "}
+            <a
+              href="https://console.hivemq.cloud"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--accent)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3 }}
+            >
+              console.hivemq.cloud <ExternalLink size={11} />
+            </a>{" "}
+            with email + password.
           </CheckItem>
-          <CheckItem id="bom-esp32">
-            <strong>ESP32-S3-DevKitC-1 N16R8</strong> — Type-C USB
+          <CheckItem id="mqtt-cluster">
+            Create a <Code>Serverless Cluster</Code>, region <strong>EU</strong>. Copy the
+            broker URL (looks like <Code>abc123.s1.eu.hivemq.cloud</Code>) — you'll paste it
+            into firmware.
           </CheckItem>
-          <CheckItem id="bom-psu">
-            <strong>5V 10A SMPS PSU</strong> — <Code>EU Schuko plug</Code>{" "}
-            variant, 100-240V AC universal input
+          <CheckItem id="mqtt-user-device">
+            Add user <Code>misstep-device</Code>, strong password. Permission:{" "}
+            <strong>Publish and Subscribe</strong> on <Code>misstep/#</Code>.
           </CheckItem>
-          <CheckItem id="bom-pigtail">
-            DC barrel pigtail, 5.5×2.1mm, 30cm
+          <CheckItem id="mqtt-user-dash">
+            Add a second user <Code>misstep-dashboard</Code>, separate password, same
+            permission scope. Two users so you can rotate one without breaking the other.
           </CheckItem>
-          <CheckItem id="bom-shifter">
-            74AHCT125 or 74HCT125 level shifter (DIP-14)
-          </CheckItem>
-          <CheckItem id="bom-kit">
-            Resistor + capacitor combined kit (must include{" "}
-            <Code>330Ω</Code> and <Code>1000µF 16V</Code>)
-          </CheckItem>
-          <CheckItem id="bom-wire">
-            18AWG silicone wire, 5m red + 5m black spools (separate)
-          </CheckItem>
-          <CheckItem id="bom-dupont">
-            Dupont jumper wires, 20cm, 120pcs assortment (M-M, M-F, F-F)
-          </CheckItem>
-          <CheckItem id="bom-bread">Breadboard, 830 tie-point</CheckItem>
-          <CheckItem id="bom-buttons">
-            Tactile pushbuttons 6×6×5mm, 20-pack (only need 1 for MVP)
-          </CheckItem>
-          <CheckItem id="bom-usbc">
-            USB-C cable (for flashing ESP32)
-          </CheckItem>
-        </ul>
-        <H3>Tools (one-time)</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="tool-iron">
-            Soldering iron kit, 60W, adjustable temp, EU plug
-          </CheckItem>
-          <CheckItem id="tool-solder">
-            Solder wire 0.8mm, 60/40 rosin-core
-          </CheckItem>
-          <CheckItem id="tool-flux">Rosin flux paste or flux pen</CheckItem>
-          <CheckItem id="tool-strippers">Self-adjusting wire strippers</CheckItem>
-          <CheckItem id="tool-cutters">Flush cutters</CheckItem>
-          <CheckItem id="tool-multi">
-            Digital multimeter — <Code>ANENG AN8008</Code> (auto-ranging, true
-            RMS)
-          </CheckItem>
-          <CheckItem id="tool-heatshrink">Heatshrink tubing assortment</CheckItem>
-          <CheckItem id="tool-heatgun">Mini heat gun 300W (or lighter)</CheckItem>
-          <CheckItem id="tool-hands">Helping hands / PCB holder</CheckItem>
-          <CheckItem id="tool-wick">Solder wick / desoldering braid</CheckItem>
-        </ul>
-      </Panel>
-
-      {/* ── Safety ──────────────────────────────────────────────────────── */}
-      <Panel>
-        <H2 id="safety">Safety first</H2>
-        <Note tone="danger" icon={<Zap size={14} />}>
-          <strong>Mains (230V) side of the PSU is lethal.</strong> Do not probe
-          the AC input pins. Plug it in only after the DC output is wired and
-          the lid is closed (if it has one).
-        </Note>
-        <Note tone="warn" icon={<Flame size={14} />}>
-          Soldering iron tip sits at 350-400°C. Rest it on a stand — never on
-          the bench. Work in ventilated space; rosin fumes aren&apos;t
-          friendly.
-        </Note>
-        <Note tone="warn" icon={<HardHat size={14} />}>
-          Don&apos;t wire or rewire anything while the PSU is plugged in. Kill
-          power, then modify, then power up.
-        </Note>
-      </Panel>
-
-      {/* ── Wiring diagram ────────────────────────────────────────────── */}
-      <Panel>
-        <H2 id="wiring">Wiring diagram</H2>
-        <WiringDiagram />
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "12px 0 0" }}>
-          Red = +5V, grey = GND, green = data. Dashed lines = power to
-          auxiliary components (level shifter).
-        </p>
-      </Panel>
-
-      {/* ── Build steps ────────────────────────────────────────────────── */}
-      <Panel>
-        <H2 id="build">Build — bench assembly</H2>
-
-        <H3>1. Prep the PSU</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="build-psu-plug">
-            Confirm PSU has <strong>EU Schuko plug</strong> and says{" "}
-            <Code>100-240V</Code> input on the label.
-          </CheckItem>
-          <CheckItem id="build-psu-strip">
-            If PSU has bare leads (no plug): don&apos;t use it yet — get a DC
-            pigtail or buy one with built-in Schuko cord.
-          </CheckItem>
-          <CheckItem id="build-psu-polarity">
-            Check pigtail polarity with the multimeter on <Code>DC V</Code>{" "}
-            mode before wiring — red probe on inner pin of barrel plug, black
-            on outer sleeve. Should read near 0V with PSU unplugged; +5V once
-            you plug the PSU in for the test. Unplug again afterwards.
-          </CheckItem>
-        </ul>
-
-        <H3>2. Wire the 5V rail on the breadboard</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="build-rail-pigtail">
-            Strip ~6mm of insulation off both pigtail leads. Tin them with the
-            iron.
-          </CheckItem>
-          <CheckItem id="build-rail-5v">
-            Red pigtail lead → breadboard <Code>+</Code> rail (long red line).
-          </CheckItem>
-          <CheckItem id="build-rail-gnd">
-            Black pigtail lead → breadboard <Code>-</Code> rail (long blue
-            line).
-          </CheckItem>
-          <CheckItem id="build-rail-cap">
-            Place the <Code>1000µF 16V</Code> cap across the rails near where
-            the pigtail enters — <strong>watch polarity</strong>: the cap&apos;s
-            stripe/minus leg goes on GND.
-          </CheckItem>
-        </ul>
-        <Note tone="warn">
-          A 1000µF cap installed backwards can pop loudly and smoke. The white
-          stripe on the can is the <em>negative</em> side; that leg goes to
-          GND.
-        </Note>
-
-        <H3>3. Seat the ESP32 and level shifter</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="build-esp-seat">
-            Press the ESP32-S3 into the breadboard straddling the center gap.
-            Half the pins on each side.
-          </CheckItem>
-          <CheckItem id="build-esp-power">
-            Jumper from ESP32 <Code>5V</Code> pin to breadboard <Code>+</Code>{" "}
-            rail; from <Code>GND</Code> pin to <Code>-</Code> rail.
-          </CheckItem>
-          <CheckItem id="build-shifter-seat">
-            Seat the 74AHCT125 (DIP-14) on the breadboard, notch to the left.
-          </CheckItem>
-          <CheckItem id="build-shifter-vcc">
-            Pin 14 (VCC) → <Code>+</Code> rail. Pin 7 (GND) → <Code>-</Code>{" "}
-            rail.
-          </CheckItem>
-          <CheckItem id="build-shifter-oe">
-            Pins 1, 4, 10, 13 (all <Code>OE</Code> enables) → <Code>-</Code>{" "}
-            rail to keep the outputs always enabled.
-          </CheckItem>
-          <CheckItem id="build-shifter-signal">
-            ESP32 <Code>GPIO5</Code> → 74AHCT125 pin 2 (A1, input); pin 3 (Y1,
-            output) → <Code>330Ω</Code> resistor → strip <Code>DIN</Code>.
-          </CheckItem>
-        </ul>
-
-        <H3>4. Solder leads to the LED strip</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="build-strip-cut">
-            The strip has solder pads every 1cm or so labeled{" "}
-            <Code>5V · DIN · GND</Code>. Don&apos;t cut yet — work with the
-            full 3m roll until you&apos;ve tested end-to-end.
-          </CheckItem>
-          <CheckItem id="build-strip-solder">
-            Tin the three pads on the <strong>input</strong> end (look for the
-            arrow printed on the strip — data flows <em>away</em> from the
-            arrow). Solder a short red/green/black wire trio.
-          </CheckItem>
-          <CheckItem id="build-strip-wires">
-            Strip ends: red → breadboard <Code>+</Code> rail · black →{" "}
-            <Code>-</Code> rail · green → junction after the 330Ω resistor.
-          </CheckItem>
-          <CheckItem id="build-strip-mount">
-            Duct-tape the strip flat on the box for now. Production cap comes
-            later.
-          </CheckItem>
-        </ul>
-        <Note>
-          If the data arrow is ambiguous on your strip, remember: the pads
-          without the arrow next to them are the <strong>input</strong> side.
-          Data always flows in the direction the arrows point.
-        </Note>
-
-        <H3>5. Pre-power smoke test</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="build-check-shorts">
-            Multimeter on continuity (beep) mode: probe <Code>+</Code> rail
-            and <Code>-</Code> rail. <strong>Should not beep.</strong> If it
-            does, find and fix the short before applying power.
-          </CheckItem>
-          <CheckItem id="build-psu-apply">
-            Plug the PSU in. Multimeter on <Code>DC V</Code>: should read
-            close to 5.0V across the rails. Strip should be dark (no firmware
-            yet).
-          </CheckItem>
-          <CheckItem id="build-esp-usb">
-            Connect ESP32 via USB-C to your computer. Its onboard LED should
-            blink.
+          <CheckItem id="mqtt-test">
+            From the WebSocket Client tab: connect with <Code>misstep-dashboard</Code>,
+            subscribe to <Code>misstep/#</Code>, publish to <Code>misstep/storage/test</Code>.
+            You should see your own message come back instantly.
           </CheckItem>
         </ul>
       </Panel>
 
-      {/* ── Firmware ─────────────────────────────────────────────────── */}
+      {/* ── Firmware ───────────────────────────────────────────────────── */}
       <Panel>
-        <H2 id="firmware">Firmware — ESPHome</H2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px" }}>
-          ESPHome is the fastest path to MQTT + WS2812 + OTA without writing
-          C++. Later you can replace it with custom PlatformIO for richer
-          effects.
+        <H2 id="firmware" icon={<CodeIcon size={18} />}>Step 8 — Firmware (ESPHome)</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          ESPHome is a Python tool. It compiles a YAML config into ESP32 firmware and flashes
+          it via USB-C. Way easier than writing C++.
         </p>
 
-        <H3>1. Install ESPHome CLI</H3>
-        <Pre>pip install esphome</Pre>
-        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 12px" }}>
-          Or use the ESPHome web dashboard if you prefer a GUI:
-          <br />
-          <Code>docker run --rm -p 6052:6052 -v ./esphome-data:/config -it esphome/esphome</Code>
+        <H3>Install ESPHome</H3>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 6px" }}>
+          You need Python 3.9+. Check with <Code>python --version</Code>. Install from{" "}
+          <a
+            href="https://www.python.org/downloads/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--accent)", textDecoration: "none" }}
+          >
+            python.org
+          </a>{" "}
+          if missing (tick "Add Python to PATH").
         </p>
+        <Pre lang="powershell">{`pip install esphome
+esphome version`}</Pre>
 
-        <H3>2. Config file — <Code>misstep-storage-01.yaml</Code></H3>
-        <Pre>{`esphome:
+        <H3>Create folder + secrets</H3>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 6px" }}>
+          Make a folder (e.g. <Code>C:\misstep-firmware\</Code>). Inside it, create{" "}
+          <Code>secrets.yaml</Code>:
+        </p>
+        <Pre lang="yaml">{`wifi_ssid: "YOUR_2.4_GHZ_WIFI_NAME"
+wifi_password: "..."
+api_key: "32-char-base64-any-value"
+ota_password: "pick-something"
+mqtt_broker: "abc123.s1.eu.hivemq.cloud"
+mqtt_username: "misstep-device"
+mqtt_password: "..."`}</Pre>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          Generate a 32-char <Code>api_key</Code> in PowerShell with:
+        </p>
+        <Pre lang="powershell">{`[Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24))`}</Pre>
+
+        <H3>Config file — <Code>misstep-storage-01.yaml</Code></H3>
+        <Pre lang="yaml">{`esphome:
   name: misstep-storage-01
   platform: ESP32
   board: esp32-s3-devkitc-1
@@ -581,8 +1744,8 @@ ota:
     password: !secret ota_password
 
 mqtt:
-  broker: !secret mqtt_broker     # e.g. abc123.s1.eu.hivemq.cloud
-  port: 8883
+  broker: !secret mqtt_broker
+  port: 8883                  # TLS, NOT 1883
   username: !secret mqtt_username
   password: !secret mqtt_password
   topic_prefix: misstep/storage/misstep-storage-01
@@ -591,7 +1754,7 @@ light:
   - platform: neopixelbus
     variant: WS2812
     pin: GPIO5
-    num_leds: 432          # 3m × 144/m — adjust to your strip length
+    num_leds: 432             # 3 m × 144/m. Adjust to your strip length.
     rgb_order: GRB
     name: "Storage strip"
     id: storage_strip
@@ -600,7 +1763,7 @@ light:
 binary_sensor:
   - platform: gpio
     pin:
-      number: GPIO4        # pushbutton — tied to GND with internal pullup
+      number: GPIO4
       mode: INPUT_PULLUP
       inverted: true
     name: "Pull confirm"
@@ -610,219 +1773,233 @@ binary_sensor:
             topic: misstep/storage/misstep-storage-01/pull-complete
             payload: '{"deviceId":"misstep-storage-01"}'`}</Pre>
 
-        <H3>3. Create a secrets file — <Code>secrets.yaml</Code></H3>
-        <Pre>{`wifi_ssid: "YOUR_WIFI"
-wifi_password: "..."
-api_key: "32-char-base64-any-value"
-ota_password: "pick-something"
-mqtt_broker: "abc123.s1.eu.hivemq.cloud"
-mqtt_username: "misstep-device"
-mqtt_password: "..."`}</Pre>
-
-        <H3>4. Flash the ESP32</H3>
-        <Pre>{`# First flash (USB cable required)
+        <H3>Flash</H3>
+        <Pre lang="powershell">{`# First flash (USB-C cable required)
 esphome run misstep-storage-01.yaml
 
 # Subsequent flashes go over the air once WiFi is up`}</Pre>
-        <Note icon={<Cpu size={14} />}>
-          If flashing fails with "Failed to connect", hold the{" "}
-          <Code>BOOT</Code> button on the ESP32-S3 while plugging in USB, then
-          retry.
+        <Note tone="warn" icon={<Cpu size={16} />} title="If flashing times out:">
+          Hold the <Code>BOOT</Code> button on the ESP32 while plugging in USB-C, release
+          after 1 second, then re-run the command. Some boards refuse to enter download
+          mode otherwise.
         </Note>
       </Panel>
 
-      {/* ── MQTT broker ──────────────────────────────────────────────── */}
-      <Panel>
-        <H2 id="mqtt">MQTT broker — HiveMQ Cloud free tier</H2>
+      {/* ── First light ────────────────────────────────────────────────── */}
+      <Panel accent="var(--success)">
+        <H2 id="first-light" icon={<Lightbulb size={18} />}>Step 9 — First light 🟢</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          The magic moment. Send a colour command from the cloud and watch the strip light
+          up.
+        </p>
         <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="mqtt-signup">
-            Sign up at <Code>console.hivemq.cloud</Code> — free tier, 100
-            sessions, TLS, no card required.
+          <CheckItem id="fl-watch">
+            In HiveMQ console → WebSocket Client tab, connect with the{" "}
+            <Code>misstep-dashboard</Code> credentials. Subscribe to{" "}
+            <Code>misstep/storage/misstep-storage-01/#</Code>. You should see the device's
+            heartbeat messages.
           </CheckItem>
-          <CheckItem id="mqtt-cluster">
-            Create a <Code>Serverless Cluster</Code>. Region EU. Note the
-            broker URL (looks like <Code>abc123.s1.eu.hivemq.cloud</Code>).
+          <CheckItem id="fl-publish">
+            Publish to <Code>misstep/storage/misstep-storage-01/light/command</Code> with
+            payload:
+            <Pre lang="json">{`{"state":"ON","color":{"r":0,"g":255,"b":0},"transition":0,"effect":"None"}`}</Pre>
+            The whole strip should turn <strong style={{ color: "var(--success)" }}>green</strong>.
+            <strong> That's the milestone. Take a photo.</strong>
           </CheckItem>
-          <CheckItem id="mqtt-creds-device">
-            Add a user <Code>misstep-device</Code> with a strong password.
-            Role: <strong>Publish and Subscribe</strong> on{" "}
-            <Code>misstep/#</Code>.
+          <CheckItem id="fl-colours">
+            Try other colours by changing the <Code>r</Code>/<Code>g</Code>/<Code>b</Code>{" "}
+            numbers (0–255 each).
           </CheckItem>
-          <CheckItem id="mqtt-creds-dashboard">
-            Add a second user <Code>misstep-dashboard</Code>, same permission
-            scope. Keeps device and dashboard credentials separate so you can
-            rotate one without breaking the other.
-          </CheckItem>
-          <CheckItem id="mqtt-test">
-            From the HiveMQ web UI <Code>WebSocket Client</Code>: subscribe to{" "}
-            <Code>misstep/#</Code>. Publish a test message to{" "}
-            <Code>misstep/storage/test</Code>. You should see your own message
-            come back.
+          <CheckItem id="fl-off">
+            Turn off: <Code>{`{"state":"OFF"}`}</Code>.
           </CheckItem>
         </ul>
-        <Note icon={<Wifi size={14} />}>
-          ESP32-S3 only supports 2.4GHz WiFi. If your router broadcasts
-          separate 2.4/5GHz SSIDs, pick the 2.4 one.
-        </Note>
+        <H3>Test the button</H3>
+        <ul style={{ padding: 0, margin: 0 }}>
+          <CheckItem id="fl-btn-place">
+            Place a <PartChip src={P.buttons} label="pushbutton" /> straddling the breadboard
+            centre gap.
+          </CheckItem>
+          <CheckItem id="fl-btn-wire">
+            One pin → ESP32 <Code>GPIO4</Code>. One pin on the OTHER side → blue{" "}
+            <Code>−</Code> rail (GND).
+          </CheckItem>
+          <CheckItem id="fl-btn-press">
+            Press the button. A message should appear on{" "}
+            <Code>misstep/storage/misstep-storage-01/pull-complete</Code> in the WebSocket
+            client.
+          </CheckItem>
+        </ul>
       </Panel>
 
-      {/* ── First light ──────────────────────────────────────────────── */}
+      {/* ── Power injection ────────────────────────────────────────────── */}
       <Panel>
-        <H2 id="first-light">First light — hello world</H2>
+        <H2 icon={<BatteryCharging size={18} />}>When long strips look wrong (later)</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          Won't hit you on the bench. Once you mount 432 LEDs:
+        </p>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          <strong>Symptom:</strong> colours drift past ~1.5 m. Whites look pink, pinks look
+          orange. First half of the strip fine, far end isn't.
+          <br />
+          <strong>Cause:</strong> voltage drop. 5 V at one end becomes 4.6 V at the other at
+          high brightness; LEDs need ≥4.5 V.
+          <br />
+          <strong>Fix:</strong> solder fresh +5 V and GND wires from the PSU directly to the
+          strip's pads at the 1.5 m and 3 m points. Data signal continues uninterrupted. No
+          firmware change.
+          <br />
+          <strong>Until then:</strong> just run at 30–50% brightness — for indicator use,
+          you'll only have 1–10 LEDs lit at a time anyway.
+        </p>
+      </Panel>
+
+      {/* ── Troubleshooting ────────────────────────────────────────────── */}
+      <Panel>
+        <H2 id="trouble" icon={<AlertTriangle size={18} />}>Troubleshooting</H2>
+
+        <H3>Strip stays completely dark</H3>
+        <ul style={{ padding: 0, margin: 0 }}>
+          <CheckItem id="ts-dark-power">
+            Multimeter on <Code>DC V</Code> across the strip's 5V/GND pads at the input.
+            Should read ~5 V. If 0 V, rail wiring is wrong.
+          </CheckItem>
+          <CheckItem id="ts-dark-arrow">
+            Arrow on the strip must point AWAY from the end you connected. If you wired the
+            wrong end, no data can flow. Move connections to the other end.
+          </CheckItem>
+          <CheckItem id="ts-dark-trace">
+            Continuity-trace from ESP32 GPIO5 → shifter pin 2 → resistor → strip DIN. Re-seat
+            any flaky breadboard jumper.
+          </CheckItem>
+          <CheckItem id="ts-dark-shifter">
+            Shifter powered? <Code>DC V</Code> between pin 14 and pin 7 should read ~5 V. If
+            0, the chip's power jumpers are missing.
+          </CheckItem>
+        </ul>
+
+        <H3>First LED works, the rest are wrong colours / dead</H3>
+        <ul style={{ padding: 0, margin: 0 }}>
+          <CheckItem id="ts-shift-skipped">
+            Almost always: you skipped the level shifter. The ESP32's 3.3 V signal works at
+            short distances, but fails at 144/m density. Make sure GPIO5 → shifter pin 2 →
+            pin 3 → 330 Ω → strip DIN, and shifter pin 14 is at 5 V.
+          </CheckItem>
+          <CheckItem id="ts-rgb-order">
+            Red and green swapped? Strip uses GRB by default, but some rolls are RGB or BRG.
+            Try changing <Code>rgb_order: GRB</Code> in the YAML to <Code>RGB</Code> or{" "}
+            <Code>BRG</Code> until colours match.
+          </CheckItem>
+        </ul>
+
+        <H3>ESP32 won't connect to WiFi</H3>
+        <ul style={{ padding: 0, margin: 0 }}>
+          <CheckItem id="ts-wifi-band">
+            ESP32-S3 is <strong>2.4 GHz only</strong>. If your router broadcasts a single
+            SSID for both bands, it may silently push the ESP32 to 5 GHz on first connect.
+            Temporarily disable 5 GHz, or create a 2.4-only guest network.
+          </CheckItem>
+          <CheckItem id="ts-wifi-creds">
+            Re-check SSID/password in <Code>secrets.yaml</Code>. No quotes inside the value,
+            no trailing spaces.
+          </CheckItem>
+        </ul>
+
+        <H3>Device won't connect to MQTT</H3>
+        <ul style={{ padding: 0, margin: 0 }}>
+          <CheckItem id="ts-mqtt-port">
+            Port <strong>8883</strong>, not 1883. HiveMQ free tier is TLS-only.
+          </CheckItem>
+          <CheckItem id="ts-mqtt-creds">
+            Re-paste username/password from HiveMQ — typing them is a common typo source.
+          </CheckItem>
+          <CheckItem id="ts-mqtt-cluster">
+            Free clusters get suspended after long inactivity. Refresh the HiveMQ dashboard
+            to wake it up.
+          </CheckItem>
+        </ul>
+
+        <H3>Solder joint looks rough or dull</H3>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          That's a "cold joint". Reheat with the iron, let the solder reflow shiny. Heat the{" "}
+          <em>parts</em> first, then touch the solder to the parts (not the iron tip).
+        </p>
+      </Panel>
+
+      {/* ── What's next ────────────────────────────────────────────────── */}
+      <Panel accent="var(--accent)">
+        <H2 id="next" icon={<Rocket size={18} />}>What comes after this works</H2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+          Once first-light + button-press both work, the bench prototype is complete. Next:
+        </p>
         <ol
           style={{
-            paddingLeft: 20,
+            paddingLeft: 22,
             margin: 0,
             color: "var(--text-primary)",
             fontSize: 13,
-            lineHeight: 1.7,
+            lineHeight: 1.8,
           }}
         >
           <li>
-            Device boots, connects to WiFi, connects to MQTT. Check HiveMQ
-            dashboard &mdash; device should show up under{" "}
-            <Code>Clients</Code>.
+            <strong>Build one carrier (the box-carrier-cap sandwich).</strong> Plywood tray,
+            aluminium cap rail, two back posts, drawer slides. Mount the strip permanently
+            under the cap.
           </li>
           <li>
-            Subscribe to <Code>misstep/storage/misstep-storage-01/#</Code> in
-            the HiveMQ WebSocket Client to watch what the device publishes.
+            <strong>Wire mains via Path B.</strong> The terminal-block PSU + Schuko plug, now
+            you've earned it.
           </li>
           <li>
-            Publish to <Code>misstep/storage/misstep-storage-01/light/command</Code>{" "}
-            with payload:
-            <Pre>{`{"state":"ON","color":{"r":0,"g":255,"b":0},"transition":0,"effect":"None"}`}</Pre>
-            The whole strip should turn green. <strong>That&apos;s M1.</strong>
+            <strong>Dashboard side:</strong>
+            <ul style={{ marginTop: 4 }}>
+              <li>
+                New collection <Code>dashboard_storage_devices</Code> — deviceId, label,
+                scopes, ledOffset.
+              </li>
+              <li>
+                Slot → LED resolver (pure function mirroring{" "}
+                <Code>readingDirection</Code> in <Code>lib/storage.ts</Code>).
+              </li>
+              <li>
+                <Code>POST /api/storage/light</Code> — takes <Code>{"{slotKeys, mode, ttl}"}</Code>,
+                resolves to device + LED addresses, publishes to MQTT.
+              </li>
+              <li>
+                Calibration UI — click a slot in the 3D shelf render, the LED lights, you
+                enter the observed LED index.
+              </li>
+              <li>
+                "Light slot" button on Stock rows (white, 60 s TTL).
+              </li>
+              <li>
+                "Pull order" button on Cardmarket order detail (green, 5 min, button-press
+                clears + decrements stock).
+              </li>
+            </ul>
           </li>
           <li>
-            Press the pushbutton. A message should appear on{" "}
-            <Code>misstep/storage/misstep-storage-01/pull-complete</Code>.
+            <strong>Build a second carrier</strong>, validate the wiring style, then scale to
+            the full grid (~25 boxes).
           </li>
         </ol>
+        <Note tone="success" icon={<Sparkles size={16} />} title="Send photos at first-light.">
+          The first carrier always has rough edges; the second is where the real engineering
+          choices land.
+        </Note>
       </Panel>
 
-      {/* ── Power injection ──────────────────────────────────────────── */}
-      <Panel>
-        <H2 id="power-injection">When the far end looks wrong</H2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
-          At 144 LEDs/m on 5V, colors drift past ~1.5m at high brightness —
-          pinks look orange, whites look pink. Two options:
-        </p>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="inj-low-brightness">
-            <strong>Just run lower brightness.</strong> For indicator use,
-            you&apos;ll light 1-50 LEDs at a time at maybe 40% brightness —
-            voltage drop never shows up. This is the MVP path.
-          </CheckItem>
-          <CheckItem id="inj-midpoint">
-            <strong>Add power injection</strong> at the 1.5m and 3m points:
-            solder fresh <Code>+5V</Code> and <Code>GND</Code> leads from the
-            PSU trunk directly to the strip pads at those positions. Data
-            continues uninterrupted. No firmware changes.
-          </CheckItem>
-        </ul>
-      </Panel>
-
-      {/* ── Troubleshooting ──────────────────────────────────────────── */}
-      <Panel>
-        <H2 id="trouble">Troubleshooting</H2>
-        <H3>Strip stays dark</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="ts-dark-power">
-            Multimeter on <Code>DC V</Code> across strip&apos;s 5V/GND pads at
-            the <em>input</em> end. Should read ~5V. If 0V, your pigtail or
-            rail wiring is wrong.
-          </CheckItem>
-          <CheckItem id="ts-dark-data">
-            Verify ESP32 GPIO5 → 74AHCT125 pin 2 → 330Ω → strip DIN, with no
-            breaks. Re-seat jumpers on breadboard.
-          </CheckItem>
-          <CheckItem id="ts-dark-orientation">
-            Strip arrow must point <em>away</em> from the end you soldered
-            the leads to. If you wired the wrong end, desolder and move.
-          </CheckItem>
-        </ul>
-        <H3>First LED lights, rest are wrong color / dead</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="ts-timing">
-            Almost always a data timing issue from skipping the level
-            shifter. ESP32&apos;s 3.3V output works at short distances but
-            fails at 144/m density or longer strips. Make sure 74AHCT125 is
-            in-circuit and powered from 5V (pin 14).
-          </CheckItem>
-          <CheckItem id="ts-rgb-order">
-            If red and green swap, the strip is BRG or GRB instead of the
-            ESPHome default. Change <Code>rgb_order: GRB</Code> to match.
-          </CheckItem>
-        </ul>
-        <H3>Device won&apos;t connect to MQTT</H3>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="ts-wifi-band">
-            Confirm WiFi SSID is <strong>2.4GHz</strong>. Many routers
-            broadcast a joint SSID that silently puts ESP32 on 5GHz →
-            connection fails.
-          </CheckItem>
-          <CheckItem id="ts-tls">
-            HiveMQ free tier is TLS-only on port <Code>8883</Code>. Make sure
-            your YAML has <Code>port: 8883</Code> (not 1883).
-          </CheckItem>
-          <CheckItem id="ts-creds">
-            Re-check MQTT username/password — copy-paste from HiveMQ, don&apos;t
-            retype.
-          </CheckItem>
-        </ul>
-      </Panel>
-
-      {/* ── Dashboard next steps ─────────────────────────────────────── */}
-      <Panel>
-        <H2 id="next">Next — dashboard integration</H2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
-          Once first light works, the dashboard side takes over:
-        </p>
-        <ul style={{ padding: 0, margin: 0 }}>
-          <CheckItem id="next-devices-col">
-            New <Code>dashboard_storage_devices</Code> collection —{" "}
-            <Code>{`{ deviceId, label, scopes: [{ shelfRowId, boxId, boxRowIndex, ledOffset, ledCount, direction }] }`}</Code>
-          </CheckItem>
-          <CheckItem id="next-resolver">
-            Slot → LED resolver — pure function mirroring the{" "}
-            <Code>readingDirection</Code> logic in <Code>lib/storage.ts</Code>.
-            Unit-tested.
-          </CheckItem>
-          <CheckItem id="next-api">
-            <Code>POST /api/storage/light</Code> — takes{" "}
-            <Code>{`{ slotKeys, mode, ttl }`}</Code>, resolves to device+LED
-            addresses, publishes to MQTT.
-          </CheckItem>
-          <CheckItem id="next-calibration">
-            Calibration UI in Storage tab — click a slot in the 3D render, LED
-            lights, you enter the observed LED index as{" "}
-            <Code>ledOffset</Code> for that scope.
-          </CheckItem>
-          <CheckItem id="next-find">
-            &quot;Light slot&quot; button on Stock rows — white, 60s TTL.
-          </CheckItem>
-          <CheckItem id="next-pull">
-            &quot;Pull order&quot; button on Cardmarket order detail — green
-            mode, 5min TTL, button-press on device clears the session +
-            decrements stock.
-          </CheckItem>
-        </ul>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "12px 0 0" }}>
-          Once the MVP proves useful, consider a custom PCB for the cap (1 LED
-          per slot using SK6805-1515) and Option C full-matrix switches (one
-          per zone) via MCP23017 I²C expanders.
-        </p>
-      </Panel>
-
-      <Note icon={<Lightbulb size={14} />}>
-        Send me the parts photos when they land and we&apos;ll walk through
-        the first solder joint together.
-      </Note>
-
-      <Note tone="info" icon={<Cable size={14} />}>
-        This page lives at <Code>/system/storage-setup</Code> — bookmark it
-        on your phone for bench reference.
-      </Note>
+      <p
+        style={{
+          fontSize: 12,
+          color: "var(--text-muted)",
+          textAlign: "center",
+          fontFamily: "var(--font-mono)",
+          padding: "8px 0 24px",
+        }}
+      >
+        bookmark <Code>/system/storage-setup</Code> on your phone for bench reference
+      </p>
     </div>
   );
 }
