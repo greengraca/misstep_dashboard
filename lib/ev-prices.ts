@@ -76,6 +76,15 @@ export interface EffectivePriceInput {
     nonfoil?: EvCardCmPriceSnapshot;
     foil?: EvCardCmPriceSnapshot;
   } | null;
+  /**
+   * Scryfall's `finishes` array. Used to detect single-variant-on-CM printings
+   * (e.g. foil-only Starter Collection prints, etched-only commanders) so the
+   * variant-fallback can route a foil request to nonfoil-side CM data when
+   * the card simply has no nonfoil version on Cardmarket. Without this, the
+   * `oppositeScryfall == null` heuristic doesn't fire for foil-only cards
+   * because `applyUsdFallback` fills `price_eur` from `price_eur_foil`.
+   */
+  finishes?: string[];
 }
 
 export interface EffectivePrice {
@@ -120,7 +129,16 @@ export function getEffectivePrice(
   const requestedVariant = isFoil ? card.cm_prices?.foil : card.cm_prices?.nonfoil;
   const oppositeVariant = isFoil ? card.cm_prices?.nonfoil : card.cm_prices?.foil;
   const oppositeScryfall = isFoil ? card.price_eur : card.price_eur_foil;
-  const isSingleVariantOnCm = oppositeScryfall == null;
+  // Prefer the `finishes` signal — it directly tells us whether the requested
+  // variant exists at all. The Scryfall-null heuristic is unreliable because
+  // `applyUsdFallback` (lib/ev.ts) fills `price_eur` from `price_eur_foil` for
+  // foil-only printings, leaving `oppositeScryfall` populated even when the
+  // card has no nonfoil version on Cardmarket. Fall back to the legacy check
+  // for callers that don't pass `finishes`.
+  const isSingleVariantOnCm =
+    card.finishes != null && card.finishes.length > 0
+      ? (isFoil ? !card.finishes.includes("nonfoil") : !card.finishes.includes("foil"))
+      : oppositeScryfall == null;
   const requestedHasData =
     !!requestedVariant && (requestedVariant.from != null || requestedVariant.trend != null);
   const oppositeHasData =

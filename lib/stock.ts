@@ -113,6 +113,7 @@ interface _JoinedCard {
     nonfoil?: { trend?: number; updatedAt: string };
     foil?: { trend?: number; updatedAt: string };
   } | null;
+  finishes: string[];
 }
 
 async function enrichWithTrend(
@@ -158,6 +159,7 @@ async function enrichWithTrend(
             price_eur_foil: 1,
             prices_updated_at: 1,
             cardmarket_id: 1,
+            finishes: 1,
             "cm_prices.nonfoil.trend": 1,
             "cm_prices.nonfoil.updatedAt": 1,
             "cm_prices.foil.trend": 1,
@@ -173,6 +175,7 @@ async function enrichWithTrend(
         prices_updated_at: (c.prices_updated_at as string | null) ?? null,
         cardmarket_id: (c.cardmarket_id as number | null) ?? null,
         cm_prices: (c.cm_prices as _JoinedCard["cm_prices"]) ?? null,
+        finishes: (c.finishes as string[] | undefined) ?? [],
       });
     }
   }
@@ -193,6 +196,7 @@ async function enrichWithTrend(
               price_eur_foil: 1,
               prices_updated_at: 1,
               cardmarket_id: 1,
+              finishes: 1,
               "cm_prices.nonfoil.trend": 1,
               "cm_prices.nonfoil.updatedAt": 1,
               "cm_prices.foil.trend": 1,
@@ -209,6 +213,7 @@ async function enrichWithTrend(
           prices_updated_at: (c.prices_updated_at as string | null) ?? null,
           cardmarket_id: (c.cardmarket_id as number | null) ?? null,
           cm_prices: (c.cm_prices as _JoinedCard["cm_prices"]) ?? null,
+          finishes: (c.finishes as string[] | undefined) ?? [],
         };
         const bucket = cardsByNameSet.get(key);
         if (bucket) bucket.push(variant);

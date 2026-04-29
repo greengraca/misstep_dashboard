@@ -24,6 +24,9 @@ export interface EvCardPriceRef {
     foil?: EvCardCmPriceSnapshot;
   } | null;
   cardmarket_id?: number | null;
+  /** Scryfall's `finishes` array — needed by getEffectivePrice for the
+   *  single-variant-on-CM check on foil-only / nonfoil-only printings. */
+  finishes?: string[];
 }
 
 export interface CalculateProductEvOptions {
@@ -310,6 +313,7 @@ export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPric
           prices_updated_at: 1,
           cm_prices: 1,
           cardmarket_id: 1,
+          finishes: 1,
         },
       }
     )
@@ -324,6 +328,7 @@ export async function fetchCardsByScryfallIds(ids: string[]): Promise<EvCardPric
     prices_updated_at: (d.prices_updated_at ?? null) as string | null,
     cm_prices: (d.cm_prices ?? null) as EvCardPriceRef["cm_prices"],
     cardmarket_id: (d.cardmarket_id ?? null) as number | null,
+    finishes: (d.finishes ?? []) as string[],
   }));
 }
 
