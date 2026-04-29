@@ -113,6 +113,18 @@ export function isCardmarketSearchUrl(raw: string | undefined | null): boolean {
  */
 export const MANUAL_CARDMARKET_ID_OVERRIDES: Record<string, number> = {
   "mh3:381": 759807,
+  // FDN Starter Collection miswires (Scryfall pointed at unrelated CM products
+  // — Multiverse Legends Aurelia, Secret Lair Circuitous Route, DCI Promos
+  // Ruby). Verified by user against the correct CM slug URLs (2026-04-29).
+  // Note Ruby's correct target is the *regular* Foundations CM page, not the
+  // Starter Collection one — its art/printing matches the Play Booster slot.
+  "fdn:651": 796075, // Aurelia, the Warleader → …Starter-Collection/Aurelia-the-Warleader
+  "fdn:635": 796019, // Circuitous Route       → …Starter-Collection/Circuitous-Route
+  "fdn:245": 797290, // Ruby, Daring Tracker   → Magic-The-Gathering-Foundations/Ruby-Daring-Tracker
+  "fdn:619": 795934, // Bolt Bend              → …Starter-Collection/Bolt-Bend
+  "fdn:258": 796545, // Swiftfoot Boots (regular CN 258 — Starter Collection ships the play-booster print, not the borderless one despite WOTC's article) → Magic-The-Gathering-Foundations/Swiftfoot-Boots
+  "fdn:652": 796078, // Ayli, Eternal Pilgrim  → …Starter-Collection/Ayli-Eternal-Pilgrim
+  "fdn:588": 795829, // Dive Down              → …Starter-Collection/Dive-Down
 };
 
 /**
@@ -133,6 +145,13 @@ export function getCardmarketIdOverride(setCode: string | undefined | null, coll
  */
 const MANUAL_CARDMARKET_URLS: Record<string, string> = {
   "mh3:381": "https://www.cardmarket.com/en/Magic/Products/Singles/Modern-Horizons-3-Extras/Emrakul-the-World-Anew-V1",
+  "fdn:651": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations-Starter-Collection/Aurelia-the-Warleader",
+  "fdn:635": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations-Starter-Collection/Circuitous-Route",
+  "fdn:245": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations/Ruby-Daring-Tracker",
+  "fdn:619": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations-Starter-Collection/Bolt-Bend",
+  "fdn:258": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations/Swiftfoot-Boots",
+  "fdn:652": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations-Starter-Collection/Ayli-Eternal-Pilgrim",
+  "fdn:588": "https://www.cardmarket.com/en/Magic/Products/Singles/Magic-The-Gathering-Foundations-Starter-Collection/Dive-Down",
 };
 
 export function buildCardmarketUrl(
