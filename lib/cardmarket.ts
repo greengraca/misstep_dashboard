@@ -2257,7 +2257,19 @@ export async function getStockCoverage(): Promise<{
   percentage: number | null;
 }> {
   const db = await getDb();
-  const tracked = await db.collection(COL.stock).countDocuments();
+  // `tracked` compares against CM's `totalListings` (the count CM displays
+  // on /Stock/Offers — every individual card, qty=4 listing counts as 4).
+  // We previously used countDocuments here, which counts DB rows — but a
+  // row with qty=4 represents 4 CM listings, so countDocuments understated
+  // coverage by ~2.5×. Sum(qty) is the right denominator-comparable
+  // metric: a fully-walked stock matches CM's totalListings ~1:1.
+  const trackedAgg = await db
+    .collection(COL.stock)
+    .aggregate<{ tracked: number }>([
+      { $group: { _id: null, tracked: { $sum: "$qty" } } },
+    ])
+    .toArray();
+  const tracked = trackedAgg[0]?.tracked ?? 0;
   const latestSnapshot = await db
     .collection(COL.stockSnapshots)
     .findOne({}, { sort: { extractedAt: -1 } });
