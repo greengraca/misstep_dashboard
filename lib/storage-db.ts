@@ -211,11 +211,14 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
   // (so rows that already have a code pass through). `resolveSetCode` handles
   // a few common Cardmarket-vs-Scryfall divergences beyond exact name match.
   const setCodeLookup = new Map<string, string>();
+  // Index by code so the inject step below can branch on set_type.
+  const setMetaByCode = new Map<string, SetMeta>();
   for (const s of sets) {
     setCodeLookup.set(s.code.toLowerCase(), s.code);
     if (!setCodeLookup.has(s.name.toLowerCase())) {
       setCodeLookup.set(s.name.toLowerCase(), s.code);
     }
+    setMetaByCode.set(s.code, s);
   }
 
   // First pass: clean names and try to resolve set strings to Scryfall codes.
@@ -250,9 +253,22 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
   //     in ev_cards. Used to match Cardmarket's flip-card listings (Kamigawa)
   //     where CM lists "Akki Lavarunner" but Scryfall stores
   //     "Akki Lavarunner // Tok-Tok, Volcano Born".
+  //   - cardMetaByCleanName: keyed by `cleanCardName(scryfallName)`. Catches
+  //     cards where Scryfall's name has parens but CM's doesn't ("Hazmat Suit
+  //     (Used)" in ust → CM lists as "Hazmat Suit").
+  //   - cardMetaByLowerName: case-insensitive last-resort lookup ("Start your
+  //     Engines" CM typo → "Start Your Engines").
+  //   - tokenMetaByName, tokenMetaByAposLowerName: TOKEN-only subsets, used
+  //     when CM rowName ends in " Token" — the user wants the actual token,
+  //     not a same-named spell card. "Ajanis Pridemate Token" must match the
+  //     token in tm20, not the spell card.
   const cardMetaByKey = new Map<string, CardMeta>();
   const cardMetaByName = new Map<string, CardMeta>();
   const cardMetaByFrontFace = new Map<string, CardMeta>();
+  const cardMetaByCleanName = new Map<string, CardMeta>();
+  const cardMetaByLowerName = new Map<string, CardMeta>();
+  const tokenMetaByName = new Map<string, CardMeta>();
+  const tokenMetaByAposLowerName = new Map<string, CardMeta>();
   for (const c of cardDocs) {
     const meta = projectCardMeta(c);
     cardMetaByKey.set(`${c.name}|${c.set}`, meta);
@@ -260,6 +276,21 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
     if (c.name.includes(" // ")) {
       const front = c.name.split(" // ", 1)[0];
       if (!cardMetaByFrontFace.has(front)) cardMetaByFrontFace.set(front, meta);
+    }
+    const cleaned = cleanCardName(c.name);
+    if (cleaned !== c.name && !cardMetaByCleanName.has(cleaned)) {
+      cardMetaByCleanName.set(cleaned, meta);
+    }
+    const lower = c.name.toLowerCase();
+    if (!cardMetaByLowerName.has(lower)) cardMetaByLowerName.set(lower, meta);
+    const isToken =
+      c.layout === "token" || (c.type_line ?? "").includes("Token");
+    if (isToken) {
+      if (!tokenMetaByName.has(c.name)) tokenMetaByName.set(c.name, meta);
+      const aposLess = lower.replace(/'/g, "");
+      if (!tokenMetaByAposLowerName.has(aposLess)) {
+        tokenMetaByAposLowerName.set(aposLess, meta);
+      }
     }
   }
 
@@ -317,6 +348,74 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
       if (artHit) return artHit;
     }
 
+    // (f) Jumpstart Pack Summary Card. CM lists "Jumpstart Pack Summary Card:
+    //     Fun Guys" under set j25; Scryfall stores it as "Fun Guys" in fj25
+    //     (set_type = memorabilia, parent_set_code = j25). After matching,
+    //     the existing memorabilia re-homing routes the card to j25 with
+    //     landTier 3 (after tokens) — same shelving rule as Art Series.
+    //     Includes a case-insensitive token fallback so quirks like CM's
+    //     "Of The Coast" (Scryfall: "Of the Coast") resolve cleanly.
+    if (rowName.startsWith("Jumpstart Pack Summary Card: ")) {
+      const inner = rowName.slice("Jumpstart Pack Summary Card: ".length);
+      const tokenHit = tokenMetaByName.get(inner);
+      if (tokenHit) return tokenHit;
+      const nameHit = cardMetaByName.get(inner);
+      if (nameHit) return nameHit;
+      const lowerToken = tokenMetaByAposLowerName.get(inner.toLowerCase().replace(/'/g, ""));
+      if (lowerToken) return lowerToken;
+    }
+
+    // (g) Cleaned Scryfall name. Scryfall sometimes embeds parens in the
+    //     printed name ("Hazmat Suit (Used)" in ust); CM strips them. We
+    //     pre-built a map keyed on cleanCardName(scryfallName) so this just
+    //     works.
+    const cleanedHit = cardMetaByCleanName.get(rowName);
+    if (cleanedHit) return cleanedHit;
+
+    // (h) Reversed DFC. CM may list "A // B" while Scryfall stores it as
+    //     "B // A" — e.g. CLB's "The Initiative // Undercity" vs Scryfall
+    //     "Undercity // The Initiative".
+    if (rowName.includes(" // ")) {
+      const [a, b] = rowName.split(" // ", 2);
+      if (a && b) {
+        const reversedHit = cardMetaByName.get(`${b} // ${a}`);
+        if (reversedHit) return reversedHit;
+      }
+    }
+
+    // (i) Role DFC tokens. CM lists "Monster Role // Sorcerer Role Token"
+    //     while Scryfall stores it as "Monster // Sorcerer" in twoe. Strip
+    //     " Role" from each half and " Token" from the suffix, then try both
+    //     orderings.
+    if (rowName.includes(" // ") && rowName.endsWith(" Token")) {
+      const stripped = rowName.slice(0, -" Token".length);
+      const halves = stripped.split(" // ", 2).map((h) => h.replace(/ Role$/, "").trim());
+      if (halves.length === 2 && halves[0] && halves[1]) {
+        const candidates = [
+          `${halves[0]} // ${halves[1]}`,
+          `${halves[1]} // ${halves[0]}`,
+        ];
+        for (const c of candidates) {
+          const hit = cardMetaByName.get(c);
+          if (hit) return hit;
+        }
+      }
+    }
+
+    // (j) " Token"-suffixed row, apostrophe-insensitive token-only lookup.
+    //     "Ajanis Pridemate Token" → "Ajani's Pridemate" in token sets only,
+    //     deliberately bypassing the same-named spell card.
+    if (rowName.endsWith(" Token")) {
+      const inner = rowName.slice(0, -" Token".length).toLowerCase().replace(/'/g, "");
+      const tokenHit = tokenMetaByAposLowerName.get(inner);
+      if (tokenHit) return tokenHit;
+    }
+
+    // (k) Last resort: case-insensitive name match. Catches CM typos like
+    //     "Start your Engines" → "Start Your Engines" in kld.
+    const lowerHit = cardMetaByLowerName.get(rowName.toLowerCase());
+    if (lowerHit) return lowerHit;
+
     return null;
   }
 
@@ -329,6 +428,15 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
   //   - If the user's set was an unresolvable Cardmarket label ("Buy a Box
   //     Promos", "Commander: Ikoria"), rewrite the row's set to the found
   //     printing's set code so it shelves with its native Scryfall set.
+  //
+  //   Subtlety for plain tokens: when the fallback chain finds a token in a
+  //   non-memorabilia set (e.g. "Ajanis Pridemate Token" in m20 → match
+  //   "Ajani's Pridemate" token in plst), we override the matched card's
+  //   `set` to the user's set. Otherwise effectiveSetFor would re-home the
+  //   token to plst's parent (or stay in plst) and the card would land in
+  //   plst's box — which can be a floor zone! For memorabilia (Art Series,
+  //   Pack Summary Cards), we keep the matched set so set_type=memorabilia
+  //   triggers the parent re-home + landTier 3 in the pure core.
   for (const row of stock) {
     const primaryKey = `${row.name}|${row.set}`;
     if (cardMetaByKey.has(primaryKey)) continue;
@@ -337,7 +445,16 @@ export async function rebuildStorageSlots(): Promise<RebuildResult> {
     if (!fallback) continue;
 
     if (row.setWasResolved) {
-      cardMetaByKey.set(primaryKey, fallback);
+      const matchedSet = setMetaByCode.get(fallback.set);
+      const matchedIsMemorabilia = matchedSet?.set_type === "memorabilia";
+      const matchedIsToken =
+        fallback.layout === "token" || (fallback.type_line ?? "").includes("Token");
+      // Override fallback.set → user's set ONLY for plain tokens (not memorabilia).
+      const adjusted =
+        matchedIsToken && !matchedIsMemorabilia
+          ? { ...fallback, set: row.set }
+          : fallback;
+      cardMetaByKey.set(primaryKey, adjusted);
     } else {
       row.set = fallback.set;
       const rewrittenKey = `${row.name}|${row.set}`;
