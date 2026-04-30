@@ -232,6 +232,7 @@ const TYPE_LABEL: Record<EvProduct["product_type"], string> = {
   duel: "Duel",
   challenger: "Challenger",
   event_deck: "Event Deck",
+  bundle: "Bundle",
   other: "Other",
 };
 
