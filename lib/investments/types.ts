@@ -29,10 +29,30 @@ export interface InvestmentSourceCollection {
   card_count: number;            // sum(qty) of non-excluded cards at creation
 }
 
+/**
+ * Bought a heterogeneous bag of singles in a single transaction (e.g. a
+ * customer's whole binder). No per-card data — just total cost and an
+ * estimate of how many cards are in the bag. Lots grow lazily from
+ * MS-tag attribution as the user lists individual cards on Cardmarket
+ * (same flow as `box`/`product`). Sealed flips are not allowed (no
+ * sealed product to flip).
+ */
+export interface InvestmentSourceCustomerBulk {
+  kind: "customer_bulk";
+  /** User's estimate of the total card count in the bag. Used as
+   *  `expected_open_card_count` while listing for display purposes only;
+   *  at close, per-unit cost basis is computed from `sum(qty_opened)`
+   *  across actual lots, not from this estimate. */
+  estimated_card_count: number;
+  /** Optional ISO date string — when the bag was acquired. */
+  acquired_at?: string;
+}
+
 export type InvestmentSource =
   | InvestmentSourceBox
   | InvestmentSourceProduct
-  | InvestmentSourceCollection;
+  | InvestmentSourceCollection
+  | InvestmentSourceCustomerBulk;
 
 export interface SealedFlip {
   recorded_at: Date;
