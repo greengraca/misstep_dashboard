@@ -43,7 +43,10 @@ export default function StorageContent() {
   const statsSwr = useSWR<StatsResponse>("/api/storage/stats", fetcher);
   const layoutSwr = useSWR<LayoutResponse>("/api/storage/layout", fetcher);
 
-  const slotsUrl = `/api/storage/slots?pageSize=500${search ? `&search=${encodeURIComponent(search)}` : ""}`;
+  // Fetch ALL placed slots in one go — both the 3D scene (per-box fill bars)
+  // and the click-to-open BoxContentsPanel read from the same global list,
+  // so partial fetches hide content from any box past the first ~5.
+  const slotsUrl = `/api/storage/slots?pageSize=50000${search ? `&search=${encodeURIComponent(search)}` : ""}`;
   const slotsSwr = useSWR<SlotsResponse>(slotsUrl, fetcher);
 
   const handleRebuild = async () => {
