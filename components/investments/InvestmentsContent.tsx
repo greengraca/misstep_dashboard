@@ -25,6 +25,9 @@ function sourceLabel(src: InvestmentListItem["source"]): string {
   if (src.kind === "product") {
     return `${src.unit_count}× ${src.product_slug}`;
   }
+  if (src.kind === "customer_bulk") {
+    return `Customer bulk · ~${src.estimated_card_count.toLocaleString()} cards`;
+  }
   return `Collection · ${src.card_count} cards`;
 }
 
