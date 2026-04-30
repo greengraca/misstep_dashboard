@@ -37,6 +37,12 @@ function sourceLabel(source: Detail["source"]): string {
   if (source.kind === "product") {
     return `${source.unit_count}× ${source.product_slug}`;
   }
+  if (source.kind === "customer_bulk") {
+    const acquired = source.acquired_at
+      ? ` · acquired ${new Date(source.acquired_at).toLocaleDateString("pt-PT")}`
+      : "";
+    return `Customer bulk · ~${source.estimated_card_count.toLocaleString()} cards${acquired}`;
+  }
   return `Collection · ${source.card_count} cards`;
 }
 
@@ -257,7 +263,11 @@ export default function InvestmentDetail({ id }: { id: string }) {
       <SealedFlipsSection
         investmentId={detail.id}
         flips={detail.sealed_flips}
-        canRecord={detail.status !== "archived"}
+        canRecord={
+          detail.status !== "archived" &&
+          detail.source.kind !== "collection" &&
+          detail.source.kind !== "customer_bulk"
+        }
         onChanged={() => mutate()}
       />
 
