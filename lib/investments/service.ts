@@ -87,6 +87,11 @@ async function defaultCmSetNames(db: Db, source: InvestmentSource): Promise<stri
       .findOne({ code: p.parent_set_code }, { projection: { name: 1 } });
     return set?.name ? [set.name as string] : [];
   }
+  if (source.kind === "customer_bulk") {
+    // Heterogeneous bag, no canonical set scoping. User can edit
+    // cm_set_names later via updateInvestment if they want to scope it.
+    return [];
+  }
   // collection-kind: union of distinct setNames across the cards.
   const cards = await db
     .collection<AppraiserCardDoc>(COL_APPRAISER_CARDS)
@@ -442,7 +447,7 @@ export async function computeExpectedEv(investment: Investment): Promise<number 
     if (evPerUnit == null) return null;
     return evPerUnit * investment.source.unit_count;
   }
-  // collection-kind: no published EV concept — the cost is what it is.
+  // collection and customer_bulk: no published EV concept.
   return null;
 }
 
@@ -499,8 +504,8 @@ export async function recordSealedFlip(params: {
     .collection<Investment>(COL_INVESTMENTS)
     .findOne({ _id: new ObjectId(params.id) });
   if (!inv) return null;
-  if (inv.source.kind === "collection") {
-    // No sealed product to flip on a collection-kind investment.
+  if (inv.source.kind === "collection" || inv.source.kind === "customer_bulk") {
+    // No sealed product to flip on these kinds.
     return inv;
   }
 
