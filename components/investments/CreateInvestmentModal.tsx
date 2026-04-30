@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Boxes, Layers, ChevronDown, Sliders } from "lucide-react";
+import { Boxes, Layers, ChevronDown, Sliders, Wallet } from "lucide-react";
 import Modal from "@/components/dashboard/modal";
 import Select from "@/components/dashboard/select";
 import type {
@@ -17,7 +17,7 @@ const DEFAULT_PACKS: Record<BoosterType, { packs: number; cards: number }> = {
   set: { packs: 30, cards: 15 },
 };
 
-type Kind = "box" | "product" | null;
+type Kind = "box" | "product" | "customer_bulk" | null;
 
 const fieldStyle: React.CSSProperties = {
   background: "var(--bg-card)",
@@ -228,10 +228,10 @@ export default function CreateInvestmentModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="New Investment" maxWidth="max-w-xl">
+    <Modal open={open} onClose={onClose} title="New Investment" maxWidth="max-w-2xl">
       <div className="flex flex-col gap-5">
         {/* Kind selector */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <KindCard
             active={kind === "box"}
             onClick={() => setKind("box")}
@@ -245,6 +245,13 @@ export default function CreateInvestmentModal({
             icon={<Layers size={22} style={{ color: "var(--accent)" }} />}
             title="Fixed-pool product"
             description="Commander precon, Planeswalker deck, Starter deck — known card list."
+          />
+          <KindCard
+            active={kind === "customer_bulk"}
+            onClick={() => setKind("customer_bulk")}
+            icon={<Wallet size={22} style={{ color: "var(--accent)" }} />}
+            title="Customer bulk purchase"
+            description="Heterogeneous bag of singles bought as a lot — tracked by total cost and an estimated card count."
           />
         </div>
 
