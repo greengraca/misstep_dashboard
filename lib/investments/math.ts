@@ -29,6 +29,9 @@ export function computeExpectedOpenCardCount(
   if (investment.source.kind === "collection") {
     return investment.source.card_count;
   }
+  if (investment.source.kind === "customer_bulk") {
+    return investment.source.estimated_card_count;
+  }
   const flippedUnits = sumSealedFlipUnits(investment.sealed_flips);
   if (investment.source.kind === "box") {
     const { packs_per_box, cards_per_pack, box_count } = investment.source;
