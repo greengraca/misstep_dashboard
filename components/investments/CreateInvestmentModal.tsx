@@ -133,6 +133,10 @@ export default function CreateInvestmentModal({
   const [productSlug, setProductSlug] = useState("");
   const [unitCount, setUnitCount] = useState(1);
 
+  // Customer-bulk fields
+  const [estimatedCardCount, setEstimatedCardCount] = useState(0);
+  const [acquiredAt, setAcquiredAt] = useState(() => isoToday());
+
   // Common fields
   const [cost, setCost] = useState(0);
   const [name, setName] = useState("");
@@ -157,6 +161,8 @@ export default function CreateInvestmentModal({
       setBoxCount(1);
       setProductSlug("");
       setUnitCount(1);
+      setEstimatedCardCount(0);
+      setAcquiredAt(isoToday());
       setCost(0);
       setName("");
       setNotes("");
@@ -177,21 +183,31 @@ export default function CreateInvestmentModal({
         }
       : kind === "product"
         ? { kind: "product", product_slug: productSlug.trim(), unit_count: unitCount }
-        : null;
+        : kind === "customer_bulk"
+          ? {
+              kind: "customer_bulk",
+              estimated_card_count: estimatedCardCount,
+              acquired_at: acquiredAt || undefined,
+            }
+          : null;
 
   const defaultName =
     kind === "box"
       ? `${boxCount}× ${setCode ? setCode.toUpperCase() : "?"} ${boosterType} — ${monthYear()}`
       : kind === "product"
         ? `${unitCount}× ${productSlug || "?"}`
-        : "";
+        : kind === "customer_bulk"
+          ? `Customer bulk — ~${(estimatedCardCount || 0).toLocaleString()} cards — ${monthYear()}`
+          : "";
 
   const sourceValid =
     kind === "box"
       ? !!setCode && boxCount > 0 && packsPerBox > 0 && cardsPerPack > 0
       : kind === "product"
         ? !!productSlug && unitCount > 0
-        : false;
+        : kind === "customer_bulk"
+          ? estimatedCardCount > 0
+          : false;
 
   const valid = sourceValid && cost >= 0 && Number.isFinite(cost);
 
@@ -413,6 +429,49 @@ export default function CreateInvestmentModal({
           </div>
         )}
 
+        {/* Customer-bulk form */}
+        {kind === "customer_bulk" && (
+          <div className="flex flex-col gap-3 animate-[fadeIn_0.2s_ease]">
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Estimated cards"
+                hint="Rough is fine. Used for display while still listing."
+              >
+                <input
+                  type="number"
+                  min={1}
+                  className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+                  placeholder="5000"
+                  value={estimatedCardCount || ""}
+                  onChange={(e) => setEstimatedCardCount(Number(e.target.value))}
+                />
+              </Field>
+              <Field label="Total cost (€)">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+                  placeholder="0.00"
+                  value={cost || ""}
+                  onChange={(e) => setCost(Number(e.target.value))}
+                />
+              </Field>
+            </div>
+            <Field label="Acquired" hint="When you bought the bag.">
+              <input
+                type="date"
+                className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
+                style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+                value={acquiredAt}
+                onChange={(e) => setAcquiredAt(e.target.value)}
+              />
+            </Field>
+          </div>
+        )}
+
         {/* Common: Name + Notes */}
         {kind && (
           <div className="flex flex-col gap-3 animate-[fadeIn_0.2s_ease]">
@@ -483,4 +542,13 @@ export default function CreateInvestmentModal({
 
 function monthYear(): string {
   return new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function isoToday(): string {
+  // YYYY-MM-DD in local time — matches the format <input type="date"> emits.
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
