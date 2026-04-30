@@ -42,7 +42,17 @@ function validateSource(src: unknown): string | null {
       return "source.card_count must be a non-negative number";
     return null;
   }
-  return "source.kind must be 'box', 'product', or 'collection'";
+  if (kind === "customer_bulk") {
+    const s = src as Record<string, unknown>;
+    if (typeof s.estimated_card_count !== "number"
+      || !Number.isFinite(s.estimated_card_count)
+      || s.estimated_card_count <= 0)
+      return "source.estimated_card_count must be positive";
+    if (s.acquired_at !== undefined && typeof s.acquired_at !== "string")
+      return "source.acquired_at must be an ISO date string";
+    return null;
+  }
+  return "source.kind must be 'box', 'product', 'collection', or 'customer_bulk'";
 }
 
 export const GET = withExtAuthRead(async (req) => {
