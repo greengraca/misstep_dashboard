@@ -5,6 +5,7 @@ import { fetcher } from "@/lib/fetcher";
 import type { PendingReimbursement } from "@/lib/types";
 import StatCard from "@/components/dashboard/stat-card";
 import NextGoal from "@/components/home/NextGoal";
+import SalesEconomicsPanel from "@/components/cardmarket/SalesEconomicsPanel";
 import { Wallet, Store, CreditCard, PackageCheck, Clock, CheckCircle } from "lucide-react";
 
 export default function HomeContent() {
@@ -62,6 +63,9 @@ export default function HomeContent() {
           subtitle="Paid · awaiting send"
         />
       </div>
+
+      {/* Sales economics — ASP/card, ship profit/pkg, by-status / method / country */}
+      <SalesEconomicsPanel />
 
       {/* Pending Reimbursements */}
       <div

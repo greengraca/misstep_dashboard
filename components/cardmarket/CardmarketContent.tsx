@@ -769,6 +769,42 @@ function OrderRow({
   const fullOrder = detail?.order as any;
   const items = detail?.items || [];
 
+  // Sync-state indicator — 3 states.
+  //
+  //   red    no order_detail ever synced (no timeline) → user must visit on CM
+  //   yellow detail exists but at least one field never made it into the doc
+  //          (older ext version, race, or partial scrape). Shipping math
+  //          and per-card aggregates degrade for these — surfaced so the
+  //          user can revisit and re-scrape.
+  //   green  fully captured.
+  //
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const o = order as any;
+  const hasTimeline = !!o.timeline;
+  const missing: string[] = [];
+  if (hasTimeline) {
+    if (!o.itemCount) missing.push("itemCount");
+    if (!o.country) missing.push("country");
+    if (!o.counterparty) missing.push("counterparty");
+    if (o.itemValue == null) missing.push("itemValue");
+    if (o.shippingPrice == null) missing.push("shippingPrice");
+    if (!o.shippingMethod) missing.push("shippingMethod");
+  }
+  const syncState: "green" | "yellow" | "red" =
+    !hasTimeline ? "red" : missing.length > 0 ? "yellow" : "green";
+  const syncColor =
+    syncState === "green"
+      ? "var(--success)"
+      : syncState === "yellow"
+        ? "var(--warning, #f59e0b)"
+        : "#f44336";
+  const syncTitle =
+    syncState === "green"
+      ? "Detail synced"
+      : syncState === "yellow"
+        ? `Partial sync — missing: ${missing.join(", ")}. Re-visit on CM to refresh.`
+        : "Needs sync — visit order on CM";
+
   return (
     <>
       <tr
@@ -809,12 +845,12 @@ function OrderRow({
               {order.orderId}
             </a>
             <span
-              title={(order as unknown as Record<string, unknown>).timeline ? "Detail synced" : "Needs sync — visit order on CM"}
+              title={syncTitle}
               style={{
                 width: "6px",
                 height: "6px",
                 borderRadius: "50%",
-                background: (order as unknown as Record<string, unknown>).timeline ? "var(--success)" : "#f44336",
+                background: syncColor,
                 flexShrink: 0,
               }}
             />

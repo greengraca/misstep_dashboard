@@ -2161,6 +2161,372 @@ export async function getCmRevenueForMonth(month: string): Promise<{
   };
 }
 
+// ── Sales Economics ────────────────────────────────────────────────
+//
+// Aggregates paid+sent+arrived sale orders into a per-card / per-package
+// economics view: average sell price per card (net of CM fees), shipping
+// profit per package, and breakdowns by status / shipping method. Mirrors
+// the math in `getCmRevenueForMonth` (5% selling, 1% trustee on trustee
+// orders) but supports an arbitrary date window and exposes per-card and
+// per-package derived figures.
+//
+// Date semantics: `timeline.paid` (the moment the buyer paid) is the
+// truthful purchase date — `orderDate` is rewritten to the current-status
+// timestamp on every status change, so it can't drive a monthly view.
+// Orders without a synced timeline fall back to `orderDate`.
+//
+// Shipping expense source: `dashboard_transactions` where
+// `type=expense` AND `category=shipping`, matched to the same window by
+// `date` (ISO "YYYY-MM-DD"). This is the same source the finance tab's
+// Shipping Profit card uses.
+
+export type SalesEconomicsRange =
+  | { kind: "month"; month: string }       // "YYYY-MM"
+  | { kind: "range"; from: string; to: string } // ISO "YYYY-MM-DD" inclusive
+  | { kind: "lifetime" };
+
+export interface SalesEconomicsResult {
+  rangeLabel: string;
+  windowStart: string | null; // observed earliest paid date (YYYY-MM-DD)
+  windowEnd: string | null;   // observed latest paid date
+  daysInWindow: number;       // requested-range days (inclusive) when bounded,
+                              // else (windowEnd − windowStart + 1)
+
+  packages: number;
+  cards: number;
+  avgCardsPerPackage: number;
+  avgPackagesPerDay: number;
+  avgCardsPerDay: number;
+  detailSyncedPct: number;       // % of pkgs with order_detail synced
+  ordersMissingDetail: number;
+  // Data-quality counts that mirror the order-row indicator (red/yellow/green).
+  // Surfaced so the UI can show a "X need re-sync · Y partial" banner.
+  ordersUnsynced: number;        // no timeline at all (red)
+  ordersPartial: number;         // has timeline but missing 1+ field (yellow)
+  ordersUnknownMethod: number;   // shippingMethod missing (subset of partial)
+
+  // Money
+  totalReceived: number;          // article + shipping (gross from buyers)
+  articleGross: number;           // article-only revenue (gross)
+  shippingIncome: number;         // shipping fees from buyers
+  trusteeArticleGross: number;
+  sellingFee: number;             // 5% of articleGross
+  trusteeFee: number;             // 1% of trusteeArticleGross
+  articleNet: number;             // articleGross − fees
+  shippingExpense: number;        // real shipping cost in window
+  shippingProfit: number;         // shippingIncome − shippingExpense
+
+  // Per-card / per-package
+  avgArticleGrossPerCard: number;
+  avgArticleNetPerCard: number;
+  avgShipIncomePerPackage: number;
+  avgShipProfitPerPackage: number;
+  avgShipProfitPerCard: number;   // shippingProfit / cards
+  fullPerCardNet: number;         // avgArticleNetPerCard + avgShipProfitPerCard
+
+  // Breakdowns
+  byStatus: Record<"paid" | "sent" | "arrived", {
+    packages: number;
+    cards: number;
+    articleGross: number;
+    articleNet: number;
+    shippingIncome: number;
+    avgArticleNetPerCard: number;
+  }>;
+  byShippingMethod: {
+    method: string;
+    packages: number;
+    cards: number;
+    shippingIncome: number;
+    avgPerPackage: number;
+  }[];
+  byCountry: {
+    country: string;
+    packages: number;
+    cards: number;
+    grossReceived: number;     // article + shipping
+    avgGrossPerPackage: number;
+  }[];
+
+  records: {
+    largest: { orderId: string; total: number; cards: number; country?: string; date?: string } | null;
+    mostCards: { orderId: string; total: number; cards: number; country?: string; date?: string } | null;
+    smallest: { orderId: string; total: number; cards: number; country?: string; date?: string } | null;
+  };
+}
+
+function parseCmDateToISO(s: string | undefined | null): string | null {
+  if (!s) return null;
+  // "DD.MM.YYYY [HH:MM]"
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})/.exec(s);
+  if (!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+function rangeBounds(r: SalesEconomicsRange): { from: string | null; to: string | null; label: string } {
+  if (r.kind === "month") {
+    const [y, m] = r.month.split("-");
+    // Build the last-day-of-month in UTC; using a local-time Date here would
+    // lose the 30th in DST timezones (e.g., Lisbon WEST: local midnight on
+    // the 30th = 23:00 UTC on the 29th, so getUTCDate() returns 29).
+    const last = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate();
+    return {
+      from: `${r.month}-01`,
+      to: `${r.month}-${String(last).padStart(2, "0")}`,
+      label: r.month,
+    };
+  }
+  if (r.kind === "range") return { from: r.from, to: r.to, label: `${r.from} → ${r.to}` };
+  return { from: null, to: null, label: "lifetime" };
+}
+
+export async function getCmSalesEconomics(
+  range: SalesEconomicsRange = { kind: "lifetime" }
+): Promise<SalesEconomicsResult> {
+  const db = await getDb();
+  const { from, to, label } = rangeBounds(range);
+
+  // Pull every paid/sent/arrived sale; we filter by paid-date in JS so
+  // timeline-aware date logic stays in one place. Volumes are small
+  // (current scale ~500; 10× headroom is still trivial).
+  const orders = await db.collection(COL.orders).find({
+    direction: { $in: ["sale", null] },
+    status: { $in: ["paid", "sent", "arrived"] },
+  }).toArray();
+
+  // Bucket by status helper
+  const blankBucket = () => ({
+    packages: 0, cards: 0, articleGross: 0, articleNet: 0,
+    shippingIncome: 0, avgArticleNetPerCard: 0,
+  });
+  const byStatus: SalesEconomicsResult["byStatus"] = {
+    paid: blankBucket(), sent: blankBucket(), arrived: blankBucket(),
+  };
+  const byMethodMap = new Map<string, { packages: number; cards: number; shippingIncome: number }>();
+  const byCountryMap = new Map<string, { packages: number; cards: number; grossReceived: number }>();
+
+  let pkgs = 0, cards = 0;
+  let articleGross = 0, shippingIncome = 0, totalReceived = 0;
+  let trusteeArticleGross = 0;
+  let detailSynced = 0;
+  let ordersUnsynced = 0;
+  let ordersPartial = 0;
+  let ordersUnknownMethod = 0;
+  // For per-status fees we need to accumulate trustee-article per status too
+  const trusteeArticleByStatus: Record<string, number> = { paid: 0, sent: 0, arrived: 0 };
+
+  let earliest: string | null = null;
+  let latest: string | null = null;
+  type Rec = { orderId: string; total: number; cards: number; country?: string; date?: string };
+  let largest: Rec | null = null;
+  let mostCards: Rec | null = null;
+  let smallest: Rec | null = null;
+
+  for (const o of orders) {
+    const status = o.status as "paid" | "sent" | "arrived";
+    const total = (o.totalPrice as number) || 0;
+    const ship = (o.shippingPrice as number) || 0;
+    const ic = (o.itemCount as number) || 0;
+    const hasDetail = o.itemValue != null || o.shippingPrice != null;
+    const article = o.itemValue != null
+      ? (o.itemValue as number)
+      : Math.max(0, total - ship); // shipping is 0 when detail absent → article = total
+    const trustee = !!o.trustee;
+
+    // Date for window filter — prefer timeline.paid, fall back to orderDate
+    const tl = (o.timeline as Record<string, string> | undefined) || {};
+    const dateISO =
+      parseCmDateToISO(tl.paid) ??
+      parseCmDateToISO(tl.unpaid) ??
+      parseCmDateToISO(o.orderDate as string | undefined);
+
+    if (from && to) {
+      if (!dateISO) continue;          // can't place this order — drop from windowed view
+      if (dateISO < from || dateISO > to) continue;
+    }
+
+    if (dateISO) {
+      if (!earliest || dateISO < earliest) earliest = dateISO;
+      if (!latest || dateISO > latest) latest = dateISO;
+    }
+
+    pkgs += 1;
+    cards += ic;
+    totalReceived += total;
+    articleGross += article;
+    shippingIncome += ship;
+    if (trustee) trusteeArticleGross += article;
+    if (hasDetail) detailSynced += 1;
+
+    // Quality state — same definition the OrderRow indicator uses:
+    //   no timeline                  → red (unsynced)
+    //   has timeline, ANY field gone → yellow (partial)
+    //   all fields present           → green
+    // Captured here so the panel banner can show "N need re-sync · M partial".
+    const hasTimeline = !!o.timeline;
+    if (!hasTimeline) {
+      ordersUnsynced += 1;
+    } else {
+      const partial =
+        !o.itemCount ||
+        !o.country ||
+        !o.counterparty ||
+        o.itemValue == null ||
+        o.shippingPrice == null ||
+        !o.shippingMethod;
+      if (partial) ordersPartial += 1;
+    }
+    if (!o.shippingMethod) ordersUnknownMethod += 1;
+
+    const b = byStatus[status];
+    if (b) {
+      b.packages += 1;
+      b.cards += ic;
+      b.articleGross += article;
+      b.shippingIncome += ship;
+      if (trustee) trusteeArticleByStatus[status] += article;
+    }
+
+    const method = (o.shippingMethod as string | undefined) || "(unknown)";
+    const mb = byMethodMap.get(method) ?? { packages: 0, cards: 0, shippingIncome: 0 };
+    mb.packages += 1;
+    mb.cards += ic;
+    mb.shippingIncome += ship;
+    byMethodMap.set(method, mb);
+
+    const countryKey = (o.country as string | undefined) || "(?)";
+    const cb = byCountryMap.get(countryKey) ?? { packages: 0, cards: 0, grossReceived: 0 };
+    cb.packages += 1;
+    cb.cards += ic;
+    cb.grossReceived += total;
+    byCountryMap.set(countryKey, cb);
+
+    const cmDate = (o.orderDate as string | undefined) ?? dateISO ?? undefined;
+    const orderId = o.orderId as string;
+    const recCountry = o.country as string | undefined;
+    if (!largest || total > largest.total) largest = { orderId, total, cards: ic, country: recCountry, date: cmDate };
+    if (ic > 0 && (!mostCards || ic > mostCards.cards)) mostCards = { orderId, total, cards: ic, country: recCountry, date: cmDate };
+    if (ic > 0 && (!smallest || total < smallest.total)) smallest = { orderId, total, cards: ic, country: recCountry, date: cmDate };
+  }
+
+  // CM fees (mirror getCmRevenueForMonth rounding: ceil to cents)
+  const sellingFee = Math.ceil(articleGross * 0.05 * 100) / 100;
+  const trusteeFee = Math.ceil(trusteeArticleGross * 0.01 * 100) / 100;
+  const articleNet = articleGross - sellingFee - trusteeFee;
+
+  // Per-status net: apply the same fee rates so the per-card net column
+  // is consistent with the global articleNet.
+  for (const st of ["paid", "sent", "arrived"] as const) {
+    const b = byStatus[st];
+    const stSelling = Math.ceil(b.articleGross * 0.05 * 100) / 100;
+    const stTrustee = Math.ceil(trusteeArticleByStatus[st] * 0.01 * 100) / 100;
+    b.articleNet = b.articleGross - stSelling - stTrustee;
+    b.avgArticleNetPerCard = b.cards > 0 ? b.articleNet / b.cards : 0;
+  }
+
+  // Shipping expenses in window. For lifetime we sum all; for a date
+  // window we filter by transaction `date` (ISO "YYYY-MM-DD").
+  const txQuery: Record<string, unknown> = { type: "expense", category: "shipping" };
+  if (from && to) txQuery.date = { $gte: from, $lte: to };
+  const shipTxs = await db.collection("dashboard_transactions").find(txQuery).toArray();
+  const shippingExpense = shipTxs.reduce((s, t) => s + ((t.amount as number) || 0), 0);
+  const shippingProfit = shippingIncome - shippingExpense;
+
+  // Per-card / per-package derived figures
+  const avgArticleGrossPerCard = cards > 0 ? articleGross / cards : 0;
+  const avgArticleNetPerCard = cards > 0 ? articleNet / cards : 0;
+  const avgShipIncomePerPackage = pkgs > 0 ? shippingIncome / pkgs : 0;
+  const avgShipProfitPerPackage = pkgs > 0 ? shippingProfit / pkgs : 0;
+  const avgShipProfitPerCard = cards > 0 ? shippingProfit / cards : 0;
+  const fullPerCardNet = avgArticleNetPerCard + avgShipProfitPerCard;
+
+  const byShippingMethod = Array.from(byMethodMap.entries())
+    .map(([method, v]) => ({
+      method,
+      packages: v.packages,
+      cards: v.cards,
+      shippingIncome: Math.round(v.shippingIncome * 100) / 100,
+      avgPerPackage: v.packages > 0 ? v.shippingIncome / v.packages : 0,
+    }))
+    .sort((a, b) => b.packages - a.packages);
+
+  const byCountry = Array.from(byCountryMap.entries())
+    .map(([country, v]) => ({
+      country,
+      packages: v.packages,
+      cards: v.cards,
+      grossReceived: Math.round(v.grossReceived * 100) / 100,
+      avgGrossPerPackage: v.packages > 0 ? v.grossReceived / v.packages : 0,
+    }))
+    .sort((a, b) => b.packages - a.packages);
+
+  // Days-in-window: when the user picked an explicit range, honour it
+  // (so partial-month "this month" gets divided by elapsed days, not 30).
+  // For lifetime, span the observed first→last paid date.
+  function daySpan(a: string | null, b: string | null): number {
+    if (!a || !b) return 0;
+    const ms = Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`);
+    return Math.max(1, Math.floor(ms / 86400_000) + 1);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const daysInWindow = from && to
+    // Don't count days that haven't happened yet — for "thisMonth" partway
+    // through, divide by elapsed days, not the full 30.
+    ? daySpan(from, to < today ? to : today)
+    : daySpan(earliest, latest);
+
+  const avgPackagesPerDay = daysInWindow > 0 ? pkgs / daysInWindow : 0;
+  const avgCardsPerDay = daysInWindow > 0 ? cards / daysInWindow : 0;
+
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+
+  return {
+    rangeLabel: label,
+    windowStart: earliest,
+    windowEnd: latest,
+    daysInWindow,
+
+    packages: pkgs,
+    cards,
+    avgCardsPerPackage: pkgs > 0 ? r2(cards / pkgs) : 0,
+    avgPackagesPerDay: r2(avgPackagesPerDay),
+    avgCardsPerDay: r2(avgCardsPerDay),
+    detailSyncedPct: pkgs > 0 ? r2((detailSynced / pkgs) * 100) : 0,
+    ordersMissingDetail: pkgs - detailSynced,
+    ordersUnsynced,
+    ordersPartial,
+    ordersUnknownMethod,
+
+    totalReceived: r2(totalReceived),
+    articleGross: r2(articleGross),
+    shippingIncome: r2(shippingIncome),
+    trusteeArticleGross: r2(trusteeArticleGross),
+    sellingFee: r2(sellingFee),
+    trusteeFee: r2(trusteeFee),
+    articleNet: r2(articleNet),
+    shippingExpense: r2(shippingExpense),
+    shippingProfit: r2(shippingProfit),
+
+    avgArticleGrossPerCard: r4(avgArticleGrossPerCard),
+    avgArticleNetPerCard: r4(avgArticleNetPerCard),
+    avgShipIncomePerPackage: r4(avgShipIncomePerPackage),
+    avgShipProfitPerPackage: r4(avgShipProfitPerPackage),
+    avgShipProfitPerCard: r4(avgShipProfitPerCard),
+    fullPerCardNet: r4(fullPerCardNet),
+
+    byStatus: {
+      paid: { ...byStatus.paid, articleGross: r2(byStatus.paid.articleGross), articleNet: r2(byStatus.paid.articleNet), shippingIncome: r2(byStatus.paid.shippingIncome), avgArticleNetPerCard: r4(byStatus.paid.avgArticleNetPerCard) },
+      sent: { ...byStatus.sent, articleGross: r2(byStatus.sent.articleGross), articleNet: r2(byStatus.sent.articleNet), shippingIncome: r2(byStatus.sent.shippingIncome), avgArticleNetPerCard: r4(byStatus.sent.avgArticleNetPerCard) },
+      arrived: { ...byStatus.arrived, articleGross: r2(byStatus.arrived.articleGross), articleNet: r2(byStatus.arrived.articleNet), shippingIncome: r2(byStatus.arrived.shippingIncome), avgArticleNetPerCard: r4(byStatus.arrived.avgArticleNetPerCard) },
+    },
+    byShippingMethod,
+    byCountry,
+
+    records: { largest, mostCards, smallest },
+  };
+}
+
 export async function markOrdersPrinted(orderIds: string[], printed: boolean): Promise<void> {
   const db = await getDb();
   await db.collection(COL.orders).updateMany(
