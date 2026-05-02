@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { Transaction } from "@/lib/types";
@@ -29,7 +29,9 @@ import {
   Trash2,
   Receipt,
   ArrowDownRight,
+  PieChart as PieChartIcon,
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartTooltip } from "recharts";
 
 const CATEGORIES = [
   { value: "shipping", label: "Shipping" },
@@ -165,6 +167,20 @@ export default function FinanceContent() {
     .filter((t) => t.type === "expense" && t.category === "direct")
     .reduce((s, t) => s + t.amount, 0);
   const treasuryAccount = totalWithdrawals - checkedReimbursements + directIncome - directExpenses;
+
+  // Category breakdown for the Expenses panel — group expense rows by
+  // category, sorted desc by total. Skip when no expenses this month.
+  const expensesByCategory = useMemo(() => {
+    const buckets = new Map<string, number>();
+    for (const t of transactions) {
+      if (t.type !== "expense") continue;
+      const k = t.category || "other";
+      buckets.set(k, (buckets.get(k) ?? 0) + t.amount);
+    }
+    return Array.from(buckets.entries())
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total);
+  }, [transactions]);
 
   // Previous-month aggregates — same formulas, computed once and used for
   // each StatCard's delta. Treasury and Net Balance are running-status
@@ -453,6 +469,17 @@ export default function FinanceContent() {
         />
       </div>
 
+      {/* Expense category breakdown */}
+      {expensesByCategory.length > 0 && (
+        <Panel>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <H2 icon={<PieChartIcon size={16} />}>Where Expenses went</H2>
+            <StatusPill tone="muted">€{totalExpenses.toFixed(2)} total</StatusPill>
+          </div>
+          <ExpenseBreakdownChart items={expensesByCategory} total={totalExpenses} />
+        </Panel>
+      )}
+
       {/* CM Revenue breakdown */}
       {cmRev && cmRev.orderCount > 0 && (
         <Panel>
@@ -681,6 +708,121 @@ export default function FinanceContent() {
         confirmLabel="Delete"
         variant="danger"
       />
+    </div>
+  );
+}
+
+// Stable category color map. Same colors regardless of which categories
+// are present this month so a returning user gets visual consistency.
+const CATEGORY_COLOR: Record<string, string> = {
+  shipping:    "var(--accent)",
+  operational: "var(--warning)",
+  direct:      "var(--info)",
+  other:       "var(--text-tertiary)",
+  withdrawal:  "var(--text-muted)",
+};
+
+function categoryColor(c: string): string {
+  return CATEGORY_COLOR[c] ?? "var(--text-tertiary)";
+}
+
+function categoryLabel(c: string): string {
+  return c.charAt(0).toUpperCase() + c.slice(1);
+}
+
+interface ExpenseTooltipPayload {
+  payload: { category: string; total: number };
+}
+
+function ExpenseChartTooltip({ active, payload, total }: {
+  active?: boolean;
+  payload?: ExpenseTooltipPayload[];
+  total: number;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  const pct = total > 0 ? (p.total / total) * 100 : 0;
+  return (
+    <div
+      style={{
+        background: "rgba(15, 20, 25, 0.95)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        fontSize: 11,
+        color: "var(--text-primary)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+      }}
+    >
+      <div style={{ color: categoryColor(p.category), fontWeight: 600, marginBottom: 2 }}>
+        {categoryLabel(p.category)}
+      </div>
+      <div style={{ fontFamily: "var(--font-mono)" }}>
+        €{p.total.toFixed(2)} · {pct.toFixed(1)}%
+      </div>
+    </div>
+  );
+}
+
+function ExpenseBreakdownChart({
+  items,
+  total,
+}: {
+  items: { category: string; total: number }[];
+  total: number;
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-4 items-center">
+      <div style={{ width: "100%", height: 180 }}>
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie
+              data={items}
+              dataKey="total"
+              nameKey="category"
+              cx="50%"
+              cy="50%"
+              innerRadius={48}
+              outerRadius={80}
+              paddingAngle={2}
+              isAnimationActive={false}
+            >
+              {items.map((it) => (
+                <Cell key={it.category} fill={categoryColor(it.category)} stroke="var(--bg-page)" strokeWidth={2} />
+              ))}
+            </Pie>
+            <RechartTooltip content={<ExpenseChartTooltip total={total} />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {items.map((it) => {
+          const pct = total > 0 ? (it.total / total) * 100 : 0;
+          return (
+            <div key={it.category} className="flex items-center gap-2 text-sm">
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  background: categoryColor(it.category),
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ color: "var(--text-primary)", flex: 1, minWidth: 0 }}>
+                {categoryLabel(it.category)}
+              </span>
+              <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontSize: 13 }}>
+                €{it.total.toFixed(2)}
+              </span>
+              <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 42, textAlign: "right" }}>
+                {pct.toFixed(0)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
