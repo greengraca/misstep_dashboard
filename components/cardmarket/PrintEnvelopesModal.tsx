@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Modal from "@/components/dashboard/modal";
 import { StatusPill } from "@/components/dashboard/status-pill";
 import { Note } from "@/components/dashboard/page-shell";
-import { Printer, AlertTriangle } from "lucide-react";
+import { Printer, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { CmOrder } from "@/lib/types";
 
 // Same shape printEnvelopes already filters on. Typed loosely because
@@ -35,11 +35,17 @@ interface Props {
 }
 
 export default function PrintEnvelopesModal({ open, orders, onClose, onConfirm }: Props) {
-  // Per-order skip state. Default is "include" for every order with an
-  // address. Reset whenever the modal opens with a new list.
+  // Per-order skip state. Reset whenever the modal opens with a new list.
+  // Already-printed orders are skipped by default — re-printing is a
+  // deliberate opt-in, not the default behavior.
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   useEffect(() => {
-    if (open) setSkipped(new Set());
+    if (open) {
+      const initialSkipped = new Set(
+        orders.filter((o) => o.printed).map((o) => o.orderId)
+      );
+      setSkipped(initialSkipped);
+    }
   }, [open, orders]);
 
   const withAddress = useMemo(
@@ -49,6 +55,10 @@ export default function PrintEnvelopesModal({ open, orders, onClose, onConfirm }
   const withoutAddress = useMemo(
     () => orders.filter((o) => !o.shippingAddress?.name),
     [orders]
+  );
+  const alreadyPrintedCount = useMemo(
+    () => withAddress.filter((o) => o.printed).length,
+    [withAddress]
   );
 
   function toggleSkip(orderId: string) {
@@ -71,6 +81,11 @@ export default function PrintEnvelopesModal({ open, orders, onClose, onConfirm }
             <Printer size={11} className="inline mr-1 -mt-px" />
             {willPrint.length} of {orders.length} will print
           </StatusPill>
+          {alreadyPrintedCount > 0 && (
+            <StatusPill tone="success">
+              {alreadyPrintedCount} already printed
+            </StatusPill>
+          )}
           {skipped.size > 0 && (
             <StatusPill tone="muted">{skipped.size} skipped</StatusPill>
           )}
@@ -87,11 +102,13 @@ export default function PrintEnvelopesModal({ open, orders, onClose, onConfirm }
           </Note>
         )}
 
-        {/* Address-bearing orders — togglable */}
+        {/* Address-bearing orders — togglable. Already-printed orders are
+            visually marked AND skipped by default; re-printing is opt-in. */}
         {withAddress.length > 0 && (
           <div className="flex flex-col" style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
             {withAddress.map((o, i) => {
               const skip = skipped.has(o.orderId);
+              const wasPrinted = !!o.printed;
               const addr = o.shippingAddress!;
               return (
                 <label
@@ -100,7 +117,7 @@ export default function PrintEnvelopesModal({ open, orders, onClose, onConfirm }
                   style={{
                     background: skip ? "transparent" : "var(--bg-card-hover)",
                     borderTop: i === 0 ? "none" : "1px solid var(--border-subtle)",
-                    opacity: skip ? 0.5 : 1,
+                    opacity: skip ? 0.55 : 1,
                   }}
                 >
                   <input
@@ -118,6 +135,16 @@ export default function PrintEnvelopesModal({ open, orders, onClose, onConfirm }
                       <span className="text-[11px]" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                         #{o.orderId}
                       </span>
+                      {wasPrinted && (
+                        <span
+                          className="inline-flex items-center gap-1 text-[10px]"
+                          style={{ color: "var(--success)", fontFamily: "var(--font-mono)" }}
+                          title="This envelope was already printed. Toggle to opt back in if you need a re-print."
+                        >
+                          <CheckCircle2 size={11} />
+                          already printed
+                        </span>
+                      )}
                     </div>
                     <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
                       {addr.extra ? `${addr.extra} · ` : ""}
