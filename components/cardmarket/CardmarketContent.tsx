@@ -9,6 +9,7 @@ import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const SENDER_ADDRESS = {
   name: "João Graça",
@@ -98,6 +99,33 @@ function ExpansionIcon({ pos, set }: { pos?: string; set?: string }) {
         }}
       />
     </span>
+  );
+}
+
+function BalanceTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; payload: { extractedAt: string } }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  return (
+    <div
+      style={{
+        background: "rgba(15, 20, 25, 0.95)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        fontSize: 11,
+        color: "var(--text-primary)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+      }}
+    >
+      <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-mono)" }}>
+        € {p.value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </div>
+    </div>
   );
 }
 
@@ -348,25 +376,38 @@ export default function CardmarketContent() {
       {balance?.history?.length > 0 && (
         <Panel>
           <H2 icon={<TrendingUp size={16} />}>Balance History</H2>
-          <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
-            {balance.history.map((snap: { balance: number; extractedAt: string }, i: number) => {
-              const min = Math.min(...balance.history.map((s: { balance: number }) => s.balance));
-              const max = Math.max(...balance.history.map((s: { balance: number }) => s.balance));
-              const range = max - min || 1;
-              const h = ((snap.balance - min) / range) * 60 + 20;
-              return (
-                <div
-                  key={i}
-                  className="flex-1 min-w-0 rounded-t"
-                  style={{
-                    height: `${h}%`,
-                    background: "var(--accent)",
-                    opacity: 0.6 + (i / balance.history.length) * 0.4,
-                  }}
-                  title={`${formatEur(snap.balance)} — ${new Date(snap.extractedAt).toLocaleDateString("pt-PT")}`}
+          <div style={{ width: "100%", height: 100 }}>
+            <ResponsiveContainer>
+              <AreaChart
+                data={balance.history.map((s: { balance: number; extractedAt: string }) => ({
+                  balance: s.balance,
+                  extractedAt: s.extractedAt,
+                  label: new Date(s.extractedAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit" }),
+                }))}
+                margin={{ top: 4, right: 4, left: 4, bottom: 4 }}
+              >
+                <defs>
+                  <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="label" hide />
+                <YAxis hide domain={["auto", "auto"]} />
+                <Tooltip
+                  content={<BalanceTooltip />}
+                  cursor={{ stroke: "var(--accent)", strokeOpacity: 0.4, strokeDasharray: "3 3" }}
                 />
-              );
-            })}
+                <Area
+                  type="monotone"
+                  dataKey="balance"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  fill="url(#balanceFill)"
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </Panel>
       )}
@@ -629,7 +670,6 @@ function PipelineChart({
   history: PipelinePoint[];
   formatEur: (n: number | null | undefined) => string;
 }) {
-  const max = Math.max(1, ...history.map((p) => p.total));
   const latest = history[history.length - 1];
 
   function formatDay(ymd: string) {
@@ -640,6 +680,38 @@ function PipelineChart({
   function legendDot(color: string) {
     return (
       <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: color }} />
+    );
+  }
+
+  function PipelineTooltip({ active, payload }: {
+    active?: boolean;
+    payload?: Array<{ payload: PipelinePoint }>;
+  }) {
+    if (!active || !payload?.length) return null;
+    const p = payload[0].payload;
+    return (
+      <div
+        style={{
+          background: "rgba(15, 20, 25, 0.95)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 8,
+          padding: "8px 10px",
+          fontSize: 11,
+          color: "var(--text-primary)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
+        <div style={{ color: "var(--text-muted)", marginBottom: 4 }}>{formatDay(p.date)}</div>
+        <div>Bal: {formatEur(p.balance)}</div>
+        <div>U: {formatEur(p.unpaid)}</div>
+        <div>P: {formatEur(p.paid)}</div>
+        <div>S: {formatEur(p.sent)}</div>
+        <div style={{ marginTop: 4, color: "var(--text-secondary)" }}>Total: {formatEur(p.total)}</div>
+        <div style={{ marginTop: 2, fontSize: 10, color: "var(--text-muted)" }}>
+          ({p.source})
+        </div>
+      </div>
     );
   }
 
@@ -668,62 +740,29 @@ function PipelineChart({
         </div>
       </div>
 
-      <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
-        {history.map((p, i) => {
-          const totalPct = (p.total / max) * 100;
-          const balPct = (p.balance / max) * 100;
-          const uPct = (p.unpaid / max) * 100;
-          const pPct = (p.paid / max) * 100;
-          const sPct = (p.sent / max) * 100;
-          const tooltip = [
-            formatDay(p.date),
-            `Bal: ${formatEur(p.balance)}`,
-            `U: ${formatEur(p.unpaid)}`,
-            `P: ${formatEur(p.paid)}`,
-            `S: ${formatEur(p.sent)}`,
-            `Total: ${formatEur(p.total)}`,
-            p.source === "snapshot" ? "(snapshot)" : "(reconstructed)",
-          ].join(" · ");
-          return (
-            <div
-              key={`${p.date}-${i}`}
-              title={tooltip}
-              className="flex-1 min-w-0 flex flex-col justify-end"
-              style={{ height: "100%", opacity: p.total > 0 ? 0.6 + (i / history.length) * 0.4 : 0.25 }}
-            >
-              {/* Stack from BOTTOM: balance → sent → paid → unpaid. */}
-              <div
-                style={{
-                  height: `${totalPct}%`,
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "flex-end",
-                  borderTopLeftRadius: 2,
-                  borderTopRightRadius: 2,
-                  overflow: "hidden",
-                }}
-              >
-                {uPct > 0 && (
-                  <div style={{ flex: uPct, background: PIPELINE_COLORS.unpaid }} />
-                )}
-                {pPct > 0 && (
-                  <div style={{ flex: pPct, background: PIPELINE_COLORS.paid }} />
-                )}
-                {sPct > 0 && (
-                  <div style={{ flex: sPct, background: PIPELINE_COLORS.sent }} />
-                )}
-                {balPct > 0 && (
-                  <div style={{ flex: balPct, background: PIPELINE_COLORS.balance }} />
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex justify-between mt-1 text-[9px]" style={{ color: "var(--text-muted)" }}>
-        <span>{formatDay(history[0].date)}</span>
-        <span>{formatDay(history[history.length - 1].date)}</span>
+      <div style={{ width: "100%", height: 140 }}>
+        <ResponsiveContainer>
+          <BarChart
+            data={history}
+            margin={{ top: 4, right: 4, left: 4, bottom: 4 }}
+            barCategoryGap={2}
+          >
+            <XAxis
+              dataKey="date"
+              tickFormatter={formatDay}
+              interval="preserveStartEnd"
+              tick={{ fontSize: 9, fill: "var(--text-muted)" }}
+              axisLine={{ stroke: "var(--border)" }}
+              tickLine={false}
+            />
+            <YAxis hide domain={[0, "auto"]} />
+            <Tooltip content={<PipelineTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+            <Bar dataKey="balance" stackId="pipeline" fill={PIPELINE_COLORS.balance} isAnimationActive={false} />
+            <Bar dataKey="sent"    stackId="pipeline" fill={PIPELINE_COLORS.sent}    isAnimationActive={false} />
+            <Bar dataKey="paid"    stackId="pipeline" fill={PIPELINE_COLORS.paid}    isAnimationActive={false} />
+            <Bar dataKey="unpaid"  stackId="pipeline" fill={PIPELINE_COLORS.unpaid}  isAnimationActive={false} radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </Panel>
   );
