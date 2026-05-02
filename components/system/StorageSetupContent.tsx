@@ -118,19 +118,63 @@ function Pre({ children, lang }: { children: React.ReactNode; lang?: string }) {
 /*  Persistent checkbox                                                       */
 /* -------------------------------------------------------------------------- */
 
+// Module-level registry of every <CheckItem> instance currently mounted.
+// Lets the page-level progress widget compute "X of Y" without hardcoding
+// the total or threading props through every section. Each CheckItem
+// registers its id on mount and notifies subscribers whenever the
+// completion state changes.
+const checkItemRegistry = new Set<string>();
+const progressSubscribers = new Set<() => void>();
+function notifyProgressChange() {
+  for (const cb of progressSubscribers) cb();
+}
+function checkItemKey(id: string) {
+  return `misstep:storage-setup:${id}`;
+}
+
+function useCheckProgress(): { done: number; total: number } {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const cb = () => setTick((n) => n + 1);
+    progressSubscribers.add(cb);
+    function onStorage(e: StorageEvent) {
+      if (e.key && e.key.startsWith("misstep:storage-setup:")) cb();
+    }
+    window.addEventListener("storage", onStorage);
+    return () => {
+      progressSubscribers.delete(cb);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+  let done = 0;
+  if (typeof window !== "undefined") {
+    for (const id of checkItemRegistry) {
+      if (window.localStorage.getItem(checkItemKey(id)) === "1") done++;
+    }
+  }
+  return { done, total: checkItemRegistry.size };
+}
+
 function CheckItem({ id, children }: { id: string; children: React.ReactNode }) {
-  const storageKey = `misstep:storage-setup:${id}`;
+  const storageKey = checkItemKey(id);
   const [done, setDone] = useState<boolean>(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     setDone(window.localStorage.getItem(storageKey) === "1");
-  }, [storageKey]);
+    checkItemRegistry.add(id);
+    notifyProgressChange();
+    return () => {
+      checkItemRegistry.delete(id);
+      notifyProgressChange();
+    };
+  }, [storageKey, id]);
   function toggle() {
     const next = !done;
     setDone(next);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(storageKey, next ? "1" : "0");
     }
+    notifyProgressChange();
   }
   return (
     <li
@@ -888,6 +932,23 @@ const NAV: { id: string; label: string; icon: React.ReactNode }[] = [
 ];
 
 function StickyNav() {
+  const { done, total } = useCheckProgress();
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const allDone = total > 0 && done === total;
+
+  function resetAllChecks() {
+    if (typeof window === "undefined") return;
+    if (!confirm(`Reset all ${total} check marks? This can't be undone.`)) return;
+    for (const id of checkItemRegistry) {
+      window.localStorage.removeItem(checkItemKey(id));
+    }
+    // Force every mounted CheckItem to re-read its localStorage value.
+    notifyProgressChange();
+    // Re-emit a storage event for cross-instance reactivity (CheckItem's own
+    // useEffect doesn't re-run on storage; trigger the equivalent path).
+    window.location.reload();
+  }
+
   return (
     <div
       style={{
@@ -901,40 +962,99 @@ function StickyNav() {
         border: "1px solid var(--border)",
         borderRadius: 10,
         display: "flex",
-        gap: 4,
-        overflowX: "auto",
+        flexDirection: "column",
+        gap: 8,
       }}
     >
-      {NAV.map((n) => (
-        <a
-          key={n.id}
-          href={`#${n.id}`}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 10px",
-            borderRadius: 6,
-            fontSize: 12,
-            fontFamily: "var(--font-mono)",
-            color: "var(--text-secondary)",
-            textDecoration: "none",
-            whiteSpace: "nowrap",
-            transition: "background 120ms, color 120ms",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "var(--accent-light)";
-            e.currentTarget.style.color = "var(--accent)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "var(--text-secondary)";
-          }}
-        >
-          {n.icon}
-          {n.label}
-        </a>
-      ))}
+      <div style={{ display: "flex", gap: 4, overflowX: "auto" }}>
+        {NAV.map((n) => (
+          <a
+            key={n.id}
+            href={`#${n.id}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 10px",
+              borderRadius: 6,
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
+              color: "var(--text-secondary)",
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+              transition: "background 120ms, color 120ms",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--accent-light)";
+              e.currentTarget.style.color = "var(--accent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }}
+          >
+            {n.icon}
+            {n.label}
+          </a>
+        ))}
+      </div>
+
+      {/* Progress strip — overall completion across every CheckItem on the
+          page. Bar turns success-green when 100%. Reset button is muted
+          and tucked at the right so it doesn't invite mis-clicks. */}
+      {total > 0 && (
+        <div className="flex items-center gap-3">
+          <div
+            className="flex-1 h-1.5 rounded-full overflow-hidden"
+            style={{ background: "rgba(255,255,255,0.06)" }}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-500 ease-out"
+              style={{
+                width: `${pct}%`,
+                background: allDone ? "var(--success)" : "var(--accent)",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              color: allDone ? "var(--success)" : "var(--text-muted)",
+              fontFamily: "var(--font-mono)",
+              minWidth: 80,
+              textAlign: "right",
+            }}
+            title={allDone ? "All checks complete!" : `${total - done} remaining`}
+          >
+            {done} / {total} · {pct}%
+          </span>
+          <button
+            onClick={resetAllChecks}
+            style={{
+              fontSize: 10,
+              fontFamily: "var(--font-mono)",
+              color: "var(--text-muted)",
+              background: "transparent",
+              border: "1px solid var(--border)",
+              borderRadius: 4,
+              padding: "2px 8px",
+              cursor: "pointer",
+              transition: "color 120ms, border-color 120ms",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--error)";
+              e.currentTarget.style.borderColor = "var(--error-border)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--text-muted)";
+              e.currentTarget.style.borderColor = "var(--border)";
+            }}
+            title="Clear every check mark on this page"
+          >
+            reset
+          </button>
+        </div>
+      )}
     </div>
   );
 }
