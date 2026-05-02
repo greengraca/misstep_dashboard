@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
 import Select from "@/components/dashboard/select";
+import { Panel, H2, Note } from "@/components/dashboard/page-shell";
 import { AlertTriangle, Coins, Globe, Layers, Package, ShoppingBag, Trophy, Truck } from "lucide-react";
 
 // Pipeline colours, matched to CardmarketContent's PIPELINE_COLORS.
@@ -73,12 +74,6 @@ type SalesEconomics = {
     mostCards: { orderId: string; total: number; cards: number; country?: string; date?: string } | null;
     smallest: { orderId: string; total: number; cards: number; country?: string; date?: string } | null;
   };
-};
-
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
 };
 
 type RangePreset =
@@ -175,14 +170,12 @@ export default function SalesEconomicsPanel() {
   // absolutely above the icon and would otherwise clip at this panel's
   // rounded edge.
   return (
-    <div className="rounded-xl" style={surfaceStyle}>
+    <Panel>
       {/* Header + range selector */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            Sales economics
-          </h2>
-          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+          <H2 icon={<Coins size={16} />}>Sales economics</H2>
+          <p className="text-[11px] -mt-2" style={{ color: "var(--text-muted)" }}>
             Paid + sent + arrived sales · {subtitleRange}
           </p>
         </div>
@@ -196,15 +189,15 @@ export default function SalesEconomicsPanel() {
       </div>
 
       {!e || isLoading ? (
-        <div className="px-4 pb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
           Loading…
         </div>
       ) : e.packages === 0 ? (
-        <div className="px-4 pb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
           No paid/sent/arrived sales in this window.
         </div>
       ) : (
-        <div className="px-4 pb-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
           {/* Data-quality banner — replaces the old footnote. Shows up
               only when something is off, scaled by severity. */}
           {(e.ordersUnsynced > 0 || e.ordersPartial > 0) && (
@@ -343,7 +336,7 @@ export default function SalesEconomicsPanel() {
           )}
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -356,31 +349,16 @@ function DataQualityBanner({
 }: {
   unsynced: number; partial: number; unknownMethod: number; packages: number;
 }) {
-  const severity: "red" | "yellow" = unsynced / Math.max(packages, 1) > 0.3 ? "red" : "yellow";
-  const tone =
-    severity === "red"
-      ? { bg: "rgba(244, 67, 54, 0.10)", border: "rgba(244, 67, 54, 0.45)", icon: "#f44336" }
-      : { bg: "rgba(245, 158, 11, 0.08)", border: "rgba(245, 158, 11, 0.40)", icon: "#f59e0b" };
+  const tone: "warn" | "danger" = unsynced / Math.max(packages, 1) > 0.3 ? "danger" : "warn";
   const parts: string[] = [];
   if (unsynced > 0) parts.push(`${unsynced} need re-sync`);
   if (partial > 0) parts.push(`${partial} partial`);
   if (unknownMethod > 0 && unknownMethod !== unsynced) parts.push(`${unknownMethod} missing shipping method`);
   return (
-    <div
-      className="flex items-start gap-2 px-3 py-2 rounded-lg text-[11px]"
-      style={{ background: tone.bg, border: `1px solid ${tone.border}`, color: "var(--text-secondary)" }}
-    >
-      <AlertTriangle size={14} style={{ color: tone.icon, marginTop: 1, flexShrink: 0 }} />
-      <div className="min-w-0">
-        <div style={{ color: "var(--text-primary)", fontWeight: 500 }}>
-          Data quality: {parts.join(" · ")}
-        </div>
-        <div style={{ color: "var(--text-muted)" }}>
-          Numbers below treat missing fields as zero, so cards / shipping totals are slightly low. Visit
-          the affected orders on Cardmarket to refresh.
-        </div>
-      </div>
-    </div>
+    <Note tone={tone} icon={<AlertTriangle size={14} />} title={`Data quality: ${parts.join(" · ")}`}>
+      Numbers below treat missing fields as zero, so cards / shipping totals are slightly low. Visit
+      the affected orders on Cardmarket to refresh.
+    </Note>
   );
 }
 
