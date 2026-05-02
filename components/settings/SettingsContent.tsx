@@ -3,8 +3,10 @@ import Link from "next/link";
 import useSWR, { mutate as globalMutate } from "swr";
 import { useState } from "react";
 import { fetcher } from "@/lib/fetcher";
-import { CheckCircle, XCircle, RefreshCw, ChevronRight, Radar, Download, PlusCircle, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle, XCircle, RefreshCw, ChevronRight, Radar, Download, PlusCircle, Pencil, Trash2, Users, Server } from "lucide-react";
 import { LATEST_EXT_VERSION } from "@/lib/constants";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
 
 interface EnvVar {
   name: string;
@@ -20,15 +22,6 @@ interface TeamMember {
   email?: string;
 }
 
-const panelClass = "p-4 sm:p-6";
-const panelStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "var(--surface-border)",
-  boxShadow: "var(--surface-shadow)",
-  borderRadius: "var(--radius)",
-};
-
 export default function SettingsContent() {
   const { data, isLoading, mutate } = useSWR<{ envVars: EnvVar[]; teamMembers: TeamMember[] }>(
     "/api/settings",
@@ -43,6 +36,7 @@ export default function SettingsContent() {
   const [formRole, setFormRole] = useState("member");
   const [formEmail, setFormEmail] = useState("");
   const [addMode, setAddMode] = useState(false);
+  const [deletingMember, setDeletingMember] = useState<TeamMember | null>(null);
 
   function beginAdd() {
     setEditingId(null);
@@ -91,137 +85,138 @@ export default function SettingsContent() {
     globalMutate("/api/team");
   }
 
-  async function deleteMember(m: TeamMember) {
-    if (!confirm(`Remove ${m.name}?`)) return;
+  function requestDeleteMember(m: TeamMember) {
+    setDeletingMember(m);
+  }
+
+  async function confirmDeleteMember() {
+    const m = deletingMember;
+    if (!m) return;
     await fetch("/api/team", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: m._id }),
     });
+    setDeletingMember(null);
     await mutate();
     globalMutate("/api/team");
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Settings
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <H1 subtitle="Team, environment variables, and the browser extension">Settings</H1>
         <button
           onClick={() => mutate()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           style={{
             background: "var(--bg-card)",
             color: "var(--text-secondary)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "8px 14px",
-            fontSize: "14px",
             cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
           }}
         >
-          <RefreshCw size={15} /> Refresh
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
       {/* Seed Stock progress link */}
-      <Link
-        href="/settings/seed-progress"
-        className={panelClass}
-        style={{
-          ...panelStyle,
-          display: "flex",
-          alignItems: "center",
-          gap: "16px",
-          textDecoration: "none",
-          color: "inherit",
-          cursor: "pointer",
-        }}
-      >
-        <div
+      <Panel>
+        <Link
+          href="/settings/seed-progress"
           style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "10px",
-            background: "rgba(63,206,229,0.1)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            color: "var(--accent, #3fcee5)",
+            gap: "16px",
+            textDecoration: "none",
+            color: "inherit",
+            cursor: "pointer",
           }}
         >
-          <Radar size={20} />
-        </div>
-        <div className="min-w-0" style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
-            Seed Stock Progress
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "var(--accent-light)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--accent)",
+              flexShrink: 0,
+            }}
+          >
+            <Radar size={20} />
           </div>
-          <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-            Team-wide coverage, active leases, and per-member last position.
+          <div className="min-w-0" style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
+              Seed Stock Progress
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+              Team-wide coverage, active leases, and per-member last position.
+            </div>
           </div>
-        </div>
-        <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
-      </Link>
+          <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
+        </Link>
+      </Panel>
 
       {/* Extension download (plain <a>, not next/link — must trigger a real download, not client-side navigation) */}
-      <a
-        href="/api/ext/download"
-        download
-        className={panelClass}
-        style={{
-          ...panelStyle,
-          display: "flex",
-          alignItems: "center",
-          gap: "16px",
-          textDecoration: "none",
-          color: "inherit",
-          cursor: "pointer",
-        }}
-      >
-        <div
+      <Panel>
+        <a
+          href="/api/ext/download"
+          download
           style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "10px",
-            background: "rgba(63,206,229,0.1)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            color: "var(--accent, #3fcee5)",
+            gap: "16px",
+            textDecoration: "none",
+            color: "inherit",
+            cursor: "pointer",
           }}
         >
-          <Download size={20} />
-        </div>
-        <div className="min-w-0" style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
-            Download Extension (v{LATEST_EXT_VERSION})
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "var(--accent-light)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--accent)",
+              flexShrink: 0,
+            }}
+          >
+            <Download size={20} />
           </div>
-          <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-            Unzip over your existing misstep-ext folder, then hit Reload in chrome://extensions.
+          <div className="min-w-0" style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
+              Download Extension (v{LATEST_EXT_VERSION})
+            </div>
+            <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+              Unzip over your existing misstep-ext folder, then hit Reload in chrome://extensions.
+            </div>
           </div>
-        </div>
-        <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
-      </a>
+          <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
+        </a>
+      </Panel>
 
       {/* Team Members */}
-      <div className={panelClass} style={panelStyle}>
+      <Panel>
         <div className="flex items-center justify-between mb-4">
-          <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-            Team Members
-          </h2>
+          <H2 icon={<Users size={16} />}>Team members</H2>
           {!addMode && !editingId && (
             <button
               onClick={beginAdd}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{
-                background: "rgba(251, 191, 36, 0.15)",
-                color: "var(--accent)",
-                border: "1px solid rgba(251, 191, 36, 0.35)",
+                background: "var(--accent)",
+                color: "var(--accent-text)",
+                border: "1px solid var(--accent)",
                 cursor: "pointer",
               }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
             >
               <PlusCircle size={14} /> Add
             </button>
@@ -322,7 +317,7 @@ export default function SettingsContent() {
                       <Pencil size={14} />
                     </button>
                     <button
-                      onClick={() => deleteMember(member)}
+                      onClick={() => requestDeleteMember(member)}
                       className="p-1 rounded-lg"
                       style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
                       aria-label="Remove member"
@@ -347,13 +342,11 @@ export default function SettingsContent() {
             />
           )}
         </div>
-      </div>
+      </Panel>
 
       {/* Environment Variables */}
-      <div className={panelClass} style={panelStyle}>
-        <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
-          Environment Variables
-        </h2>
+      <Panel>
+        <H2 icon={<Server size={16} />}>Environment variables</H2>
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {isLoading ? (
             [1, 2, 3, 4].map(i => (
@@ -376,13 +369,13 @@ export default function SettingsContent() {
                     padding: "10px 16px",
                     background: "var(--bg-card)",
                     borderRadius: "var(--radius)",
-                    border: `1px solid ${missingRequired ? "var(--danger, #ef4444)" : "var(--border)"}`,
+                    border: `1px solid ${missingRequired ? "var(--error)" : "var(--border)"}`,
                   }}
                 >
                   {ev.set ? (
                     <CheckCircle size={16} style={{ color: "var(--success)", flexShrink: 0 }} />
                   ) : (
-                    <XCircle size={16} style={{ color: missingRequired ? "var(--danger, #ef4444)" : "var(--text-muted)", flexShrink: 0 }} />
+                    <XCircle size={16} style={{ color: missingRequired ? "var(--error)" : "var(--text-muted)", flexShrink: 0 }} />
                   )}
                   <span
                     className="flex-1 min-w-0 truncate"
@@ -415,7 +408,17 @@ export default function SettingsContent() {
             })
           )}
         </div>
-      </div>
+      </Panel>
+
+      <ConfirmModal
+        open={!!deletingMember}
+        onClose={() => setDeletingMember(null)}
+        onConfirm={confirmDeleteMember}
+        title="Remove team member"
+        message={deletingMember ? `Remove ${deletingMember.name}? Their finance entries stay attributed to them, but they won't appear in dropdowns going forward.` : ""}
+        confirmLabel="Remove"
+        variant="danger"
+      />
     </div>
   );
 }
@@ -500,11 +503,11 @@ function TeamMemberForm({
         <button
           onClick={onSave}
           disabled={!name.trim()}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
           style={{
-            background: "rgba(251, 191, 36, 0.15)",
-            border: "1px solid rgba(251, 191, 36, 0.35)",
-            color: "var(--accent)",
+            background: name.trim() ? "var(--accent)" : "var(--bg-card)",
+            border: "1px solid var(--accent)",
+            color: name.trim() ? "var(--accent-text)" : "var(--text-muted)",
             cursor: name.trim() ? "pointer" : "not-allowed",
           }}
         >
