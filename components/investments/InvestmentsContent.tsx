@@ -34,22 +34,75 @@ function SortableHeader({
 import StatCard from "@/components/dashboard/stat-card";
 import CreateInvestmentModal from "./CreateInvestmentModal";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
+import { SetSymbol } from "@/components/dashboard/set-symbol";
+import { Wallet, Layers } from "lucide-react";
 import type { InvestmentListItem, InvestmentStatus } from "@/lib/investments/types";
+import type { EvProduct } from "@/lib/types";
 
 const formatEur = (n: number | null | undefined) =>
   n != null ? `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : "—";
 
-function sourceLabel(src: InvestmentListItem["source"]): string {
+interface SourceCellProps {
+  src: InvestmentListItem["source"];
+  productMap: Map<string, EvProduct>;
+}
+
+/** Visual rendering of an investment source. Box → set icon + set code chip
+ *  + booster-type pill. Product → product image (when known) + product name.
+ *  Customer bulk → wallet icon + card count. Collection → layers icon + card
+ *  count. */
+function SourceCell({ src, productMap }: SourceCellProps) {
   if (src.kind === "box") {
-    return `${src.box_count}× ${src.set_code.toUpperCase()} · ${src.booster_type}`;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <SetSymbol code={src.set_code} size={14} />
+        <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+          {src.box_count}× {src.set_code.toUpperCase()}
+        </span>
+        <StatusPill tone="muted">{src.booster_type}</StatusPill>
+      </span>
+    );
   }
   if (src.kind === "product") {
-    return `${src.unit_count}× ${src.product_slug}`;
+    const product = productMap.get(src.product_slug);
+    return (
+      <span className="inline-flex items-center gap-2 min-w-0">
+        {product?.image_uri ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={product.image_uri}
+            alt={product.name}
+            style={{ height: 22, width: "auto", objectFit: "contain", flexShrink: 0 }}
+          />
+        ) : (
+          <span style={{ width: 14, flexShrink: 0 }} />
+        )}
+        <span className="min-w-0">
+          <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+            {src.unit_count}×
+          </span>{" "}
+          <span className="truncate" style={{ color: "var(--text-secondary)" }}>
+            {product?.name ?? src.product_slug}
+          </span>
+        </span>
+      </span>
+    );
   }
   if (src.kind === "customer_bulk") {
-    return `Customer bulk · ~${src.estimated_card_count.toLocaleString()} cards`;
+    return (
+      <span className="inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+        <Wallet size={13} />
+        <span>Customer bulk · ~{src.estimated_card_count.toLocaleString()} cards</span>
+      </span>
+    );
   }
-  return `Collection · ${src.card_count} cards`;
+  return (
+    <span className="inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+      <Layers size={13} />
+      <span>Collection · {src.card_count} cards</span>
+    </span>
+  );
 }
 
 const STATUS_TABS: { key: InvestmentStatus | "all"; label: string }[] = [
@@ -101,6 +154,19 @@ export default function InvestmentsContent() {
     { dedupingInterval: 30_000 }
   );
   const allRows = data?.investments ?? [];
+
+  // Resolve product slugs → product docs (for the source-column thumbnails
+  // + names). Fetched once per session, deduped via SWR.
+  const { data: productsData } = useSWR<{ data: EvProduct[] }>(
+    "/api/ev/products",
+    fetcher,
+    { dedupingInterval: 60 * 60 * 1000 }
+  );
+  const productMap = useMemo(() => {
+    const map = new Map<string, EvProduct>();
+    for (const p of productsData?.data ?? []) map.set(p.slug, p);
+    return map;
+  }, [productsData]);
 
   const countsByStatus = useMemo(() => {
     const counts: Record<InvestmentStatus, number> = {
@@ -290,8 +356,8 @@ export default function InvestmentsContent() {
                         <td className="py-2 px-2" style={{ color: "var(--accent)" }}>
                           {r.name}
                         </td>
-                        <td className="py-2 px-2" style={{ color: "var(--text-muted)" }}>
-                          {sourceLabel(r.source)}
+                        <td className="py-2 px-2 text-xs">
+                          <SourceCell src={r.source} productMap={productMap} />
                         </td>
                         <td className="py-2 px-2 text-right" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
                           {formatEur(r.cost_total_eur)}

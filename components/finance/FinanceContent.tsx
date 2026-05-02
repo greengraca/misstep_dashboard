@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { Transaction } from "@/lib/types";
@@ -29,7 +29,10 @@ import {
   Trash2,
   Receipt,
   ArrowDownRight,
+  PieChart as PieChartIcon,
+  ChevronDown,
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartTooltip } from "recharts";
 
 const CATEGORIES = [
   { value: "shipping", label: "Shipping" },
@@ -40,6 +43,31 @@ const CATEGORIES = [
 function getCurrentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Decrements a 'YYYY-MM' string by one calendar month. */
+function previousMonth(month: string): string {
+  const [yStr, mStr] = month.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return month;
+  const prevDate = new Date(Date.UTC(y, m - 2, 1));
+  const py = prevDate.getUTCFullYear();
+  const pm = String(prevDate.getUTCMonth() + 1).padStart(2, "0");
+  return `${py}-${pm}`;
+}
+
+function monthShortLabel(month: string): string {
+  const [yStr, mStr] = month.split("-");
+  const d = new Date(Date.UTC(Number(yStr), Number(mStr) - 1, 1));
+  return d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+}
+
+/** Period-over-period delta as a percent change. Returns null when the
+ *  previous value is 0 (delta would be infinite / undefined). */
+function pctDelta(curr: number, prev: number): number | null {
+  if (!Number.isFinite(prev) || prev === 0) return null;
+  return ((curr - prev) / Math.abs(prev)) * 100;
 }
 
 function isoToday(): string {
@@ -69,6 +97,17 @@ export default function FinanceContent() {
   );
   const cmRev = cmRevData?.data;
 
+  // Previous month — fetched in parallel so each StatCard can render
+  // ↑/↓ % vs the prior month. Same data shapes; same SWR config.
+  const prevMonth = previousMonth(month);
+  const prevLabel = monthShortLabel(prevMonth);
+  const { data: prevTxData } = useSWR<{ data: Transaction[] }>(`/api/finance?month=${prevMonth}`, fetcher);
+  const prevTransactions = prevTxData?.data ?? [];
+  const { data: prevCmRevData } = useSWR<{ data: { orderCount: number; totalSales: number; grossArticleValue: number; sellingFees: number; trusteeFees: number; shippingCosts: number; netRevenue: number } }>(
+    `/api/ext/revenue?month=${prevMonth}`, fetcher
+  );
+  const prevCmRev = prevCmRevData?.data;
+
   // Team members (dynamic, sourced from DB so renames / additions flow through
   // without a code edit). Falls back to [] while loading — the Paid By select
   // just shows only "None" until the fetch lands.
@@ -87,6 +126,25 @@ export default function FinanceContent() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+
+  // Expense breakdown panel — collapsible to keep the Transactions table
+  // above the fold when the user wants to focus on it. Default open;
+  // user's preference persists in localStorage.
+  const [breakdownOpen, setBreakdownOpen] = useState(true);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("finance:expense-breakdown:open");
+    if (stored === "0") setBreakdownOpen(false);
+  }, []);
+  function toggleBreakdown() {
+    setBreakdownOpen((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("finance:expense-breakdown:open", next ? "1" : "0");
+      }
+      return next;
+    });
+  }
 
   // Form state
   const [formDate, setFormDate] = useState(isoToday());
@@ -129,6 +187,47 @@ export default function FinanceContent() {
     .filter((t) => t.type === "expense" && t.category === "direct")
     .reduce((s, t) => s + t.amount, 0);
   const treasuryAccount = totalWithdrawals - checkedReimbursements + directIncome - directExpenses;
+
+  // Category breakdown for the Expenses panel — group expense rows by
+  // category, sorted desc by total. Skip when no expenses this month.
+  const expensesByCategory = useMemo(() => {
+    const buckets = new Map<string, number>();
+    for (const t of transactions) {
+      if (t.type !== "expense") continue;
+      const k = t.category || "other";
+      buckets.set(k, (buckets.get(k) ?? 0) + t.amount);
+    }
+    return Array.from(buckets.entries())
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total);
+  }, [transactions]);
+
+  // Previous-month aggregates — same formulas, computed once and used for
+  // each StatCard's delta. Treasury and Net Balance are running-status
+  // metrics derived from this-month flows; comparing them month-over-month
+  // is meaningful but only when the previous month had any activity.
+  const prevManualIncome = prevTransactions.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const prevCmIncome = prevCmRev?.netRevenue ?? 0;
+  const prevTotalIncome = prevManualIncome + prevCmIncome;
+  const prevTotalExpenses = prevTransactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const prevTotalWithdrawals = prevTransactions.filter((t) => t.type === "withdrawal").reduce((s, t) => s + t.amount, 0);
+  const prevShippingExpenses = prevTransactions.filter((t) => t.type === "expense" && t.category === "shipping").reduce((s, t) => s + t.amount, 0);
+  const prevShippingProfit = (prevCmRev?.shippingCosts ?? 0) - prevShippingExpenses;
+  const prevNetBalance = prevTotalIncome - prevTotalExpenses + prevShippingProfit;
+  const prevCheckedReimbursements = prevTransactions.filter((t) => t.type === "expense" && t.reimbursed).reduce((s, t) => s + t.amount, 0);
+  const prevDirectIncome = prevTransactions.filter((t) => t.type === "income" && t.category === "direct").reduce((s, t) => s + t.amount, 0);
+  const prevDirectExpenses = prevTransactions.filter((t) => t.type === "expense" && t.category === "direct").reduce((s, t) => s + t.amount, 0);
+  const prevTreasury = prevTotalWithdrawals - prevCheckedReimbursements + prevDirectIncome - prevDirectExpenses;
+
+  // Build delta props once per card — null skips the chip when the prior
+  // month had zero of that metric (no meaningful baseline).
+  const deltaIncome    = pctDelta(totalIncome,    prevTotalIncome);
+  const deltaExpenses  = pctDelta(totalExpenses,  prevTotalExpenses);
+  const deltaWithdraw  = pctDelta(totalWithdrawals, prevTotalWithdrawals);
+  const deltaShipProf  = pctDelta(shippingProfit, prevShippingProfit);
+  const deltaTreasury  = pctDelta(treasuryAccount, prevTreasury);
+  const deltaNet       = pctDelta(netBalance,     prevNetBalance);
+  const deltaLabel     = `vs ${prevLabel}`;
 
   function openAdd() {
     setEditingTx(null);
@@ -344,6 +443,7 @@ export default function FinanceContent() {
           icon={<TrendingUp size={20} style={{ color: "var(--success)" }} />}
           tone="success"
           tooltip="Manual income + Cardmarket net revenue"
+          delta={deltaIncome != null ? { value: deltaIncome, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Expenses"
@@ -351,6 +451,9 @@ export default function FinanceContent() {
           icon={<TrendingDown size={20} style={{ color: "var(--error)" }} />}
           tone="danger"
           tooltip="All expenses: shipping, operational, direct, and other"
+          /* For expenses, lower = better, so we flip the sign on the delta
+             so the user sees ↓ N% as success (they spent less). */
+          delta={deltaExpenses != null ? { value: -deltaExpenses, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Withdrawals"
@@ -358,6 +461,7 @@ export default function FinanceContent() {
           icon={<Banknote size={20} style={{ color: "var(--text-tertiary)" }} />}
           tone="muted"
           tooltip="Money withdrawn from Cardmarket balance"
+          delta={deltaWithdraw != null ? { value: deltaWithdraw, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Shipping Profit"
@@ -365,6 +469,7 @@ export default function FinanceContent() {
           icon={<Package size={20} style={{ color: shippingProfit >= 0 ? "var(--success)" : "var(--error)" }} />}
           tone={shippingProfit >= 0 ? "success" : "danger"}
           tooltip="Cardmarket shipping collected minus actual postage costs"
+          delta={deltaShipProf != null ? { value: deltaShipProf, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Treasury Account"
@@ -372,6 +477,7 @@ export default function FinanceContent() {
           icon={<Landmark size={20} style={{ color: "var(--text-tertiary)" }} />}
           tone="muted"
           tooltip="Withdrawals - Reimbursements paid + Direct Transactions net"
+          delta={deltaTreasury != null ? { value: deltaTreasury, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Net Balance"
@@ -379,8 +485,71 @@ export default function FinanceContent() {
           icon={<Wallet size={20} style={{ color: netBalance >= 0 ? "var(--success)" : "var(--error)" }} />}
           tone={netBalance >= 0 ? "success" : "danger"}
           tooltip={isLoading ? "Income - Expenses + Shipping Profit" : `€${totalIncome.toFixed(2)} − €${totalExpenses.toFixed(2)} + €${shippingProfit.toFixed(2)} = €${netBalance.toFixed(2)}`}
+          delta={deltaNet != null ? { value: deltaNet, label: deltaLabel } : undefined}
         />
       </div>
+
+      {/* Expense category breakdown — collapsible. Header acts as the
+          toggle so the user can hide the chart and bring the Transactions
+          table back above the fold. */}
+      {expensesByCategory.length > 0 && (
+        <Panel>
+          <button
+            onClick={toggleBreakdown}
+            className="w-full flex items-center justify-between gap-3 flex-wrap"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              marginBottom: breakdownOpen ? 12 : 0,
+            }}
+            title={breakdownOpen ? "Collapse" : "Expand"}
+          >
+            <div className="flex items-center gap-2">
+              <ChevronDown
+                size={14}
+                style={{
+                  color: "var(--accent)",
+                  transform: breakdownOpen ? "rotate(0)" : "rotate(-90deg)",
+                  transition: "transform 150ms",
+                }}
+              />
+              <H2 icon={<PieChartIcon size={16} />}>Where Expenses went</H2>
+            </div>
+            <div className="flex items-center gap-2">
+              {!breakdownOpen && (
+                /* Mini-summary when collapsed: top 2 categories so the user
+                   gets a glance even with the chart hidden. */
+                <span className="hidden sm:flex items-center gap-2">
+                  {expensesByCategory.slice(0, 2).map((it) => (
+                    <span
+                      key={it.category}
+                      className="text-[11px] inline-flex items-center gap-1"
+                      style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 8,
+                          height: 8,
+                          borderRadius: 2,
+                          background: categoryColor(it.category),
+                        }}
+                      />
+                      {categoryLabel(it.category)} €{it.total.toFixed(0)}
+                    </span>
+                  ))}
+                </span>
+              )}
+              <StatusPill tone="muted">€{totalExpenses.toFixed(2)} total</StatusPill>
+            </div>
+          </button>
+          {breakdownOpen && (
+            <ExpenseBreakdownChart items={expensesByCategory} total={totalExpenses} />
+          )}
+        </Panel>
+      )}
 
       {/* CM Revenue breakdown */}
       {cmRev && cmRev.orderCount > 0 && (
@@ -403,7 +572,28 @@ export default function FinanceContent() {
 
       {/* Transaction table */}
       <Panel>
-        <H2 icon={<Receipt size={16} />}>Transactions</H2>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <H2 icon={<Receipt size={16} />}>Transactions</H2>
+          {transactions.length > 0 && (
+            <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+              <span>
+                {transactions.length} transaction{transactions.length === 1 ? "" : "s"}
+              </span>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span style={{ color: "var(--success)", fontFamily: "var(--font-mono)" }} title="Manual income only (CM revenue is in the Income card above)">
+                +€{manualIncome.toFixed(2)} in
+              </span>
+              <span style={{ color: "var(--error)", fontFamily: "var(--font-mono)" }}>
+                −€{totalExpenses.toFixed(2)} out
+              </span>
+              {totalWithdrawals > 0 && (
+                <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }} title="Money pulled to your own account">
+                  −€{totalWithdrawals.toFixed(2)} withdrawn
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <DataTable
           columns={columns}
           data={transactions}
@@ -610,6 +800,121 @@ export default function FinanceContent() {
         confirmLabel="Delete"
         variant="danger"
       />
+    </div>
+  );
+}
+
+// Stable category color map. Same colors regardless of which categories
+// are present this month so a returning user gets visual consistency.
+const CATEGORY_COLOR: Record<string, string> = {
+  shipping:    "var(--accent)",
+  operational: "var(--warning)",
+  direct:      "var(--info)",
+  other:       "var(--text-tertiary)",
+  withdrawal:  "var(--text-muted)",
+};
+
+function categoryColor(c: string): string {
+  return CATEGORY_COLOR[c] ?? "var(--text-tertiary)";
+}
+
+function categoryLabel(c: string): string {
+  return c.charAt(0).toUpperCase() + c.slice(1);
+}
+
+interface ExpenseTooltipPayload {
+  payload: { category: string; total: number };
+}
+
+function ExpenseChartTooltip({ active, payload, total }: {
+  active?: boolean;
+  payload?: ExpenseTooltipPayload[];
+  total: number;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  const pct = total > 0 ? (p.total / total) * 100 : 0;
+  return (
+    <div
+      style={{
+        background: "rgba(15, 20, 25, 0.95)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        fontSize: 11,
+        color: "var(--text-primary)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+      }}
+    >
+      <div style={{ color: categoryColor(p.category), fontWeight: 600, marginBottom: 2 }}>
+        {categoryLabel(p.category)}
+      </div>
+      <div style={{ fontFamily: "var(--font-mono)" }}>
+        €{p.total.toFixed(2)} · {pct.toFixed(1)}%
+      </div>
+    </div>
+  );
+}
+
+function ExpenseBreakdownChart({
+  items,
+  total,
+}: {
+  items: { category: string; total: number }[];
+  total: number;
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-4 items-center">
+      <div style={{ width: "100%", height: 180 }}>
+        <ResponsiveContainer>
+          <PieChart>
+            <Pie
+              data={items}
+              dataKey="total"
+              nameKey="category"
+              cx="50%"
+              cy="50%"
+              innerRadius={48}
+              outerRadius={80}
+              paddingAngle={2}
+              isAnimationActive={false}
+            >
+              {items.map((it) => (
+                <Cell key={it.category} fill={categoryColor(it.category)} stroke="var(--bg-page)" strokeWidth={2} />
+              ))}
+            </Pie>
+            <RechartTooltip content={<ExpenseChartTooltip total={total} />} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {items.map((it) => {
+          const pct = total > 0 ? (it.total / total) * 100 : 0;
+          return (
+            <div key={it.category} className="flex items-center gap-2 text-sm">
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  background: categoryColor(it.category),
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ color: "var(--text-primary)", flex: 1, minWidth: 0 }}>
+                {categoryLabel(it.category)}
+              </span>
+              <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontSize: 13 }}>
+                €{it.total.toFixed(2)}
+              </span>
+              <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, minWidth: 42, textAlign: "right" }}>
+                {pct.toFixed(0)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

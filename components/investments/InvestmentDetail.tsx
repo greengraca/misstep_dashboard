@@ -14,6 +14,9 @@ import InvestmentKpiRow from "./InvestmentKpiRow";
 import SealedFlipsSection from "./SealedFlipsSection";
 import InvestmentLotsTable from "./InvestmentLotsTable";
 import CloseInvestmentModal from "./CloseInvestmentModal";
+import UntaggedListingsModal from "./UntaggedListingsModal";
+import InvestmentTimeline from "./InvestmentTimeline";
+import SalesHistoryChart from "./SalesHistoryChart";
 
 const STATUS_TONE: Record<Detail["status"], StatusPillTone> = {
   listing: "accent",
@@ -43,7 +46,7 @@ function sourceLabel(source: Detail["source"]): string {
  * Cardmarket listing's comment field; the dashboard parses the tag from
  * stock + order-detail scrapes and attributes sales back automatically.
  */
-function CodeStrip({ detail }: { detail: Detail }) {
+function CodeStrip({ detail, onAuditClick }: { detail: Detail; onAuditClick: () => void }) {
   const [copied, setCopied] = useState(false);
   const onCopy = async () => {
     try {
@@ -56,6 +59,7 @@ function CodeStrip({ detail }: { detail: Detail }) {
   };
   const audit = detail.tag_audit;
   const fullyTagged = audit && audit.expected_lots > 0 && audit.tagged_listings >= audit.expected_lots;
+  const hasGap = audit && audit.expected_lots > 0 && audit.tagged_listings < audit.expected_lots;
   return (
     <div
       className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl"
@@ -91,19 +95,38 @@ function CodeStrip({ detail }: { detail: Detail }) {
       <div className="flex-1 text-[11px] leading-relaxed" style={{ color: "var(--text-muted)", minWidth: 200 }}>
         Paste this code into the comment field of every Cardmarket listing for cards in this investment. Tagged listings attribute sales back here automatically.
       </div>
-      {audit && (
+      {audit && (hasGap ? (
+        <button
+          onClick={onAuditClick}
+          className="text-right transition-colors"
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: 0,
+          }}
+          title="Show which listings are missing the code"
+        >
+          <div className="text-[11px] font-mono" style={{ color: "var(--warning)" }}>
+            {audit.tagged_listings} / {audit.expected_lots} tagged
+          </div>
+          <div className="text-[10px] underline decoration-dotted underline-offset-2" style={{ color: "var(--text-muted)" }}>
+            show missing →
+          </div>
+        </button>
+      ) : (
         <div className="text-right">
           <div
             className="text-[11px] font-mono"
-            style={{ color: fullyTagged ? "var(--success)" : "var(--warning)" }}
+            style={{ color: fullyTagged ? "var(--success)" : "var(--text-muted)" }}
           >
             {audit.tagged_listings} / {audit.expected_lots} tagged
           </div>
           <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-            {fullyTagged ? "all listings tagged" : "some listings missing the code"}
+            {fullyTagged ? "all listings tagged" : "no remaining lots"}
           </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -120,6 +143,7 @@ export default function InvestmentDetail({ id }: { id: string }) {
   const [showClose, setShowClose] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showUntagged, setShowUntagged] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -245,9 +269,13 @@ export default function InvestmentDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      <CodeStrip detail={detail} />
+      <InvestmentTimeline investmentId={detail.id} />
+
+      <CodeStrip detail={detail} onAuditClick={() => setShowUntagged(true)} />
 
       <InvestmentKpiRow kpis={detail.kpis} />
+
+      <SalesHistoryChart investmentId={detail.id} />
 
       <InvestmentLotsTable investmentId={detail.id} />
 
@@ -298,6 +326,13 @@ export default function InvestmentDetail({ id }: { id: string }) {
         message={`This removes "${detail.name}" and every row attached to it — opened lots and sale-log entries. There is no Archived tab fallback and no way to undo this. Prefer Archive if you just want it out of the way.`}
         confirmLabel="Delete permanently"
         variant="danger"
+      />
+
+      <UntaggedListingsModal
+        open={showUntagged}
+        investmentId={detail.id}
+        code={detail.code}
+        onClose={() => setShowUntagged(false)}
       />
     </div>
   );

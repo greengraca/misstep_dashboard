@@ -11,6 +11,7 @@ import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
 import { Pagination } from "@/components/dashboard/pagination";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
+import PrintEnvelopesModal from "./PrintEnvelopesModal";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const SENDER_ADDRESS = {
@@ -146,6 +147,7 @@ export default function CardmarketContent() {
   const [orderPageSize, setOrderPageSize] = useState(20);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [printPreviewOrders, setPrintPreviewOrders] = useState<CmOrder[] | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data: statusData, mutate: mutateStatus } = useSWR("/api/ext/status", fetcher, { refreshInterval: 15000 });
@@ -222,14 +224,12 @@ export default function CardmarketContent() {
     mutateOrders();
   }, [mutateOrders]);
 
-  const printEnvelopes = useCallback((ordersToprint: CmOrder[]) => {
-    // Filter to orders that have shipping address data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const withAddress = ordersToprint.filter((o: any) => o.shippingAddress?.name);
-    if (!withAddress.length) {
-      alert("No orders with shipping address data. Visit the order detail pages on Cardmarket first.");
-      return;
-    }
+  // Renders the actual print window — called by the modal AFTER the user
+  // has reviewed and confirmed which envelopes to include. Trusts that
+  // every order in the list already carries a shippingAddress (the modal
+  // guarantees this).
+  const renderPrintWindow = useCallback((withAddress: CmOrder[]) => {
+    if (!withAddress.length) return;
 
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
@@ -302,6 +302,13 @@ export default function CardmarketContent() {
     printWindow.document.close();
     printWindow.focus();
     printWindow.print();
+  }, []);
+
+  // Public entry: open the preview modal first, never bypasses to print
+  // directly. The modal shows skip-checkboxes per envelope + warns about
+  // missing addresses; user clicks Print N to commit.
+  const requestPrintEnvelopes = useCallback((ordersToReview: CmOrder[]) => {
+    setPrintPreviewOrders(ordersToReview);
   }, []);
 
   return (
@@ -519,7 +526,7 @@ export default function CardmarketContent() {
         {activeTab === "paid" && direction === "sale" && orders?.orders?.length > 0 && (
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
-              onClick={() => printEnvelopes(orders.orders.filter((o: CmOrder) => !o.printed))}
+              onClick={() => requestPrintEnvelopes(orders.orders)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{ background: "var(--accent)", color: "var(--accent-text)" }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
@@ -588,7 +595,7 @@ export default function CardmarketContent() {
                         showPrint={activeTab === "paid"}
                         onToggle={() => setExpandedOrder(isExpanded ? null : order.orderId)}
                         onTogglePrinted={(printed) => togglePrinted(order.orderId, printed)}
-                        onPrint={() => printEnvelopes([order])}
+                        onPrint={() => requestPrintEnvelopes([order])}
                       />
                     );
                   })}
@@ -676,6 +683,16 @@ export default function CardmarketContent() {
           </div>
         </Panel>
       )}
+
+      <PrintEnvelopesModal
+        open={!!printPreviewOrders}
+        orders={printPreviewOrders ?? []}
+        onClose={() => setPrintPreviewOrders(null)}
+        onConfirm={(approved) => {
+          setPrintPreviewOrders(null);
+          renderPrintWindow(approved);
+        }}
+      />
     </div>
   );
 }

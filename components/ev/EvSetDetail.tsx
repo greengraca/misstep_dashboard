@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { EvSet, EvCalculationResult, EvConfig, EvSnapshot } from "@/lib/types";
@@ -41,6 +41,20 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ pct: number; phase: string } | null>(null);
   const [snapshotting, setSnapshotting] = useState(false);
+  // Sub-page tab — defaults to 'cards' (most-common drilldown). Persisted
+  // per-tab in localStorage so the user lands back where they left off.
+  const [innerTab, setInnerTab] = useState<"cards" | "simulation" | "history">("cards");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("ev-set-detail-inner-tab");
+    if (stored === "cards" || stored === "simulation" || stored === "history") {
+      setInnerTab(stored);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("ev-set-detail-inner-tab", innerTab);
+  }, [innerTab]);
 
   // SWR hooks
   const masterpiecesParam = setHasMasterpieces && !includeMasterpieces ? "&masterpieces=off" : "";
@@ -180,10 +194,16 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
       </div>
 
       {isJumpstart ? (
-        /* Jumpstart: theme-based EV */
-        <EvJumpstartThemes setCode={set.code} siftFloor={siftFloor} />
+        /* Jumpstart sets render their own panel; tabs concept doesn't apply.
+           History stays at the bottom for parity with standard sets. */
+        <>
+          <EvJumpstartThemes setCode={set.code} siftFloor={siftFloor} />
+          <EvHistoryChart snapshots={snapshots} isLoading={snapshotsLoading} boosterLabel={boosterLabel} />
+        </>
       ) : (
-        /* Standard: slot-based EV */
+        /* Standard sets: always show summary + slot breakdown, then tab
+           between the deeper drilldowns to keep the page from being a
+           5-panel scrolling wall. */
         <>
           <EvSummaryCards
             result={calcResult}
@@ -199,18 +219,54 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
           {calcResult && (
             <EvSlotBreakdown slots={calcResult.slot_breakdown} boxEvGross={calcResult.box_ev_gross} />
           )}
-          <EvCardTable cards={calcResult?.top_ev_cards ?? []} isLoading={calcLoading} setNames={calcData?.set_names} />
-          <EvCardTable cards={calcResult?.top_price_cards ?? []} isLoading={calcLoading} title="Biggest Pulls" defaultSortKey="price" setNames={calcData?.set_names} />
-          <EvSimulationPanel
-            setCode={set.code}
-            boosterType={boosterType}
-            siftFloor={siftFloor}
-          />
+
+          {/* Sub-page tabs */}
+          <div
+            className="flex gap-0 overflow-x-auto overflow-y-hidden"
+            style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
+          >
+            {(["cards", "simulation", "history"] as const).map((t) => {
+              const active = innerTab === t;
+              const label = t === "cards" ? "Cards" : t === "simulation" ? "Simulation" : "History";
+              return (
+                <button
+                  key={t}
+                  onClick={() => setInnerTab(t)}
+                  className="px-3 py-2 text-xs font-medium transition-all whitespace-nowrap"
+                  style={{
+                    color: active ? "var(--accent)" : "var(--text-muted)",
+                    borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
+                    marginBottom: "-1px",
+                    background: "transparent",
+                    cursor: "pointer",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {innerTab === "cards" && (
+            <>
+              <EvCardTable cards={calcResult?.top_ev_cards ?? []} isLoading={calcLoading} setNames={calcData?.set_names} />
+              <EvCardTable cards={calcResult?.top_price_cards ?? []} isLoading={calcLoading} title="Biggest Pulls" defaultSortKey="price" setNames={calcData?.set_names} />
+            </>
+          )}
+
+          {innerTab === "simulation" && (
+            <EvSimulationPanel
+              setCode={set.code}
+              boosterType={boosterType}
+              siftFloor={siftFloor}
+            />
+          )}
+
+          {innerTab === "history" && (
+            <EvHistoryChart snapshots={snapshots} isLoading={snapshotsLoading} boosterLabel={boosterLabel} />
+          )}
         </>
       )}
-
-      {/* History — shown for both */}
-      <EvHistoryChart snapshots={snapshots} isLoading={snapshotsLoading} boosterLabel={boosterLabel} />
 
       {/* Config Modal */}
       {config && (
