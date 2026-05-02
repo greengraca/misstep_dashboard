@@ -434,7 +434,10 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
             />
             Exclude bulk
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: bulkExclude ? 1 : 0.5 }}>
+          <label
+            style={{ display: "flex", alignItems: "center", gap: 4, opacity: bulkExclude ? 1 : 0.5 }}
+            title="Cards with Cardmarket Trend price below this threshold are treated as bulk: they're priced at the 'Bulk @' rate instead of contributing their Trend value to the offer total."
+          >
             Trend &lt;
             <input
               type="number"
@@ -500,7 +503,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
               userSelect: "none",
               color: undercutEnabled ? "var(--error)" : undefined,
             }}
-            title={undercutEnabled ? `Undercut -${undercutPercent}% applied to Trend values` : undefined}
+            title={`Subtracts this % from each card's Trend price before computing the offer. Use when you want to price below market for fast turnover. Currently ${undercutEnabled ? `−${undercutPercent}% applied` : "off"}.`}
           >
             <input
               type="checkbox"
