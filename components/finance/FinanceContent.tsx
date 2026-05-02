@@ -501,7 +501,28 @@ export default function FinanceContent() {
 
       {/* Transaction table */}
       <Panel>
-        <H2 icon={<Receipt size={16} />}>Transactions</H2>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <H2 icon={<Receipt size={16} />}>Transactions</H2>
+          {transactions.length > 0 && (
+            <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+              <span>
+                {transactions.length} transaction{transactions.length === 1 ? "" : "s"}
+              </span>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span style={{ color: "var(--success)", fontFamily: "var(--font-mono)" }} title="Manual income only (CM revenue is in the Income card above)">
+                +€{manualIncome.toFixed(2)} in
+              </span>
+              <span style={{ color: "var(--error)", fontFamily: "var(--font-mono)" }}>
+                −€{totalExpenses.toFixed(2)} out
+              </span>
+              {totalWithdrawals > 0 && (
+                <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)" }} title="Money pulled to your own account">
+                  −€{totalWithdrawals.toFixed(2)} withdrawn
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <DataTable
           columns={columns}
           data={transactions}
