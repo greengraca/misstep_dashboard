@@ -6,6 +6,7 @@ import { ArrowLeft, RefreshCw, Activity, Layers, Radar } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
+import { MetricRow } from "@/components/dashboard/metric-row";
 
 interface Integrity {
   serverTotal: number;
@@ -30,16 +31,6 @@ interface Lease {
   claimedAt: string;
   expiresAt: string;
 }
-
-const statStyle = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: "4px",
-  padding: "16px",
-  background: "var(--bg-card)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-};
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -129,7 +120,12 @@ export default function SeedProgressContent() {
 
       {/* Integrity */}
       <Panel>
-        <H2 icon={<Radar size={16} />}>Coverage</H2>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <H2 icon={<Radar size={16} />}>Coverage</H2>
+          {integrityData?.snapshotAt && (
+            <StatusPill tone="muted">CM snapshot · {formatDate(integrityData.snapshotAt)}</StatusPill>
+          )}
+        </div>
         {integrityLoading ? (
           <div className="skeleton" style={{ height: "72px" }} />
         ) : !integrityData ? (
@@ -137,62 +133,22 @@ export default function SeedProgressContent() {
             Integrity unavailable.
           </p>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-              gap: "12px",
-            }}
-          >
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Captured
-              </span>
-              <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)" }}>
-                {integrityData.serverTotal.toLocaleString()}
-              </span>
-            </div>
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                CM reported
-              </span>
-              <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)" }}>
-                {integrityData.cmReported === null ? "—" : integrityData.cmReported.toLocaleString()}
-              </span>
-              <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                {formatDate(integrityData.snapshotAt)}
-              </span>
-            </div>
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Gap
-              </span>
-              <span
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 700,
-                  color:
-                    integrityData.gap === null
-                      ? "var(--text-muted)"
-                      : integrityData.gap === 0
-                        ? "var(--success)"
-                        : "var(--error)",
-                }}
-              >
-                {integrityData.gap === null ? "—" : integrityData.gap.toLocaleString()}
-              </span>
-            </div>
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Coverage
-              </span>
-              <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)" }}>
-                {integrityData.coveragePct === null
-                  ? "—"
-                  : integrityData.coveragePct.toFixed(2) + "%"}
-              </span>
-            </div>
-          </div>
+          <MetricRow
+            items={[
+              { label: "Captured", value: integrityData.serverTotal.toLocaleString() },
+              { label: "CM reported", value: integrityData.cmReported === null ? "—" : integrityData.cmReported.toLocaleString(), tone: "muted" },
+              {
+                label: "Gap",
+                value: integrityData.gap === null ? "—" : integrityData.gap.toLocaleString(),
+                tone: integrityData.gap === null ? "muted" : integrityData.gap === 0 ? "success" : "danger",
+              },
+              {
+                label: "Coverage",
+                value: integrityData.coveragePct === null ? "—" : integrityData.coveragePct.toFixed(2) + "%",
+                tone: integrityData.coveragePct != null && integrityData.coveragePct >= 95 ? "success" : "default",
+              },
+            ]}
+          />
         )}
       </Panel>
 
