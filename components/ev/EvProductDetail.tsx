@@ -3,12 +3,13 @@
 import { useState } from "react";
 import useSWR, { mutate } from "swr";
 import Link from "next/link";
-import { ArrowLeft, Package, ListChecks } from "lucide-react";
+import { ArrowLeft, Package, ListChecks, Coins, Box, Boxes as BoxesIcon } from "lucide-react";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
 import DiscountToggle from "@/components/dashboard/discount-toggle";
 import { useDiscount } from "@/lib/discount";
 import { fetcher } from "@/lib/fetcher";
 import { Panel, H1, H2, Note } from "@/components/dashboard/page-shell";
+import StatCard from "@/components/dashboard/stat-card";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
 function SealedPriceInput({
@@ -330,30 +331,27 @@ export default function EvProductDetail({ slug }: Props) {
       </div>
 
       {/* Totals summary */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: "12px",
-        }}
-      >
-        <TotalCard
-          label="Cards only (net)"
-          value={applyDiscount(ev.totals.cards_only.net)}
-          gross={applyDiscount(ev.totals.cards_only.gross)}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <StatCard
+          title="Cards only (net)"
+          value={fmt(applyDiscount(ev.totals.cards_only.net))}
+          subtitle={`gross ${fmt(applyDiscount(ev.totals.cards_only.gross))}`}
+          icon={<Coins size={18} style={{ color: "var(--accent)" }} />}
         />
         {ev.totals.sealed && (
-          <TotalCard
-            label="+ Sealed boosters (net)"
-            value={applyDiscount(ev.totals.sealed.net)}
-            gross={applyDiscount(ev.totals.sealed.gross)}
+          <StatCard
+            title="Cards + sealed (net)"
+            value={fmt(applyDiscount(ev.totals.sealed.net))}
+            subtitle={`gross ${fmt(applyDiscount(ev.totals.sealed.gross))}`}
+            icon={<Box size={18} style={{ color: "var(--accent)" }} />}
           />
         )}
         {ev.totals.opened && (
-          <TotalCard
-            label="+ Opened boosters (net)"
-            value={applyDiscount(ev.totals.opened.net)}
-            gross={applyDiscount(ev.totals.opened.gross)}
+          <StatCard
+            title="Cards + opened (net)"
+            value={fmt(applyDiscount(ev.totals.opened.net))}
+            subtitle={`gross ${fmt(applyDiscount(ev.totals.opened.gross))}`}
+            icon={<BoxesIcon size={18} style={{ color: "var(--accent)" }} />}
           />
         )}
       </div>
@@ -643,47 +641,3 @@ export default function EvProductDetail({ slug }: Props) {
   );
 }
 
-function TotalCard({
-  label,
-  value,
-  gross,
-}: {
-  label: string;
-  value: number;
-  gross: number;
-}) {
-  return (
-    <div
-      className="p-4 rounded-xl"
-      style={{
-        background: "var(--surface-gradient)",
-        backdropFilter: "var(--surface-blur)",
-        border: "1px solid rgba(255, 255, 255, 0.10)",
-        boxShadow: "var(--surface-shadow)",
-      }}
-    >
-      <div
-        className="text-[11px] uppercase"
-        style={{
-          color: "var(--text-muted)",
-          letterSpacing: "0.5px",
-          fontFamily: "var(--font-mono)",
-        }}
-      >
-        {label}
-      </div>
-      <div
-        className="text-xl font-semibold mt-1"
-        style={{ color: "var(--text-primary)" }}
-      >
-        {fmt(value)}
-      </div>
-      <div
-        className="text-[11px] mt-0.5"
-        style={{ color: "var(--text-muted)" }}
-      >
-        gross {fmt(gross)}
-      </div>
-    </div>
-  );
-}
