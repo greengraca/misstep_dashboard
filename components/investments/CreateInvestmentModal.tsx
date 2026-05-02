@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Boxes, Layers, ChevronDown, Sliders, Wallet } from "lucide-react";
 import Modal from "@/components/dashboard/modal";
 import Select from "@/components/dashboard/select";
+import { Field } from "@/components/dashboard/page-shell";
+import { KindCard } from "@/components/dashboard/kind-card";
 import type {
   BoosterType,
   CreateInvestmentBody,
@@ -24,91 +26,6 @@ const fieldStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   color: "var(--text-primary)",
 };
-
-function Field({
-  label,
-  children,
-  hint,
-}: {
-  label: string;
-  children: React.ReactNode;
-  hint?: string;
-}) {
-  return (
-    <label className="block">
-      <div
-        className="text-[10px] uppercase tracking-wider mb-1"
-        style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-      >
-        {label}
-      </div>
-      {children}
-      {hint && (
-        <div className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
-          {hint}
-        </div>
-      )}
-    </label>
-  );
-}
-
-function KindCard({
-  active,
-  icon,
-  title,
-  description,
-  onClick,
-}: {
-  active: boolean;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      type="button"
-      className="flex flex-col items-start gap-3 p-4 rounded-xl text-left transition-all"
-      style={{
-        background: active ? "var(--accent-light)" : "var(--bg-card)",
-        border: active ? "1px solid var(--accent)" : "1px solid var(--border)",
-        boxShadow: active ? "0 0 0 1px var(--accent)" : "none",
-      }}
-      onMouseEnter={(e) => {
-        if (active) return;
-        e.currentTarget.style.borderColor = "var(--border-hover)";
-        e.currentTarget.style.background = "var(--bg-card-hover)";
-      }}
-      onMouseLeave={(e) => {
-        if (active) return;
-        e.currentTarget.style.borderColor = "var(--border)";
-        e.currentTarget.style.background = "var(--bg-card)";
-      }}
-    >
-      <div
-        className="p-2 rounded-lg"
-        style={{ background: active ? "rgba(63,206,229,0.20)" : "var(--accent-light)" }}
-      >
-        {icon}
-      </div>
-      <div>
-        <div
-          className="text-sm font-semibold"
-          style={{ color: active ? "var(--accent)" : "var(--text-primary)" }}
-        >
-          {title}
-        </div>
-        <div
-          className="text-[11px] mt-1 leading-relaxed"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {description}
-        </div>
-      </div>
-    </button>
-  );
-}
 
 export default function CreateInvestmentModal({
   open,

@@ -4,12 +4,8 @@ import { useState } from "react";
 import { Plus, Receipt } from "lucide-react";
 import type { SealedFlip } from "@/lib/investments/types";
 import SealedFlipModal from "./SealedFlipModal";
-
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
-};
+import { Panel, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 
 const formatEur = (n: number | null | undefined) =>
   n != null ? `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : "—";
@@ -30,27 +26,14 @@ export default function SealedFlipsSection({
   const totalUnits = flips.reduce((s, f) => s + f.unit_count, 0);
 
   return (
-    <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
-      <div
-        className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: flips.length ? "1px solid var(--border)" : "none" }}
-      >
-        <div className="flex items-center gap-2">
-          <Receipt size={14} style={{ color: "var(--accent)" }} />
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            Sealed flips
-          </h2>
+    <Panel>
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <H2 icon={<Receipt size={16} />}>Sealed flips</H2>
           {flips.length > 0 && (
-            <span
-              className="text-[10px] px-1.5 py-0.5 rounded"
-              style={{
-                background: "rgba(63,206,229,0.15)",
-                color: "var(--accent)",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
+            <StatusPill tone="accent">
               {totalUnits} unit{totalUnits === 1 ? "" : "s"} · {formatEur(totalProceeds)}
-            </span>
+            </StatusPill>
           )}
         </div>
         {canRecord && (
@@ -84,7 +67,7 @@ export default function SealedFlipsSection({
           No sealed flips yet. Record one when you sell a unit without opening it.
         </p>
       ) : (
-        <div className="px-4 pb-4 overflow-x-auto">
+        <div className="overflow-x-auto">
           <table
             className="w-full text-xs"
             style={{ borderCollapse: "separate", borderSpacing: 0 }}
@@ -134,6 +117,6 @@ export default function SealedFlipsSection({
           onChanged();
         }}
       />
-    </div>
+    </Panel>
   );
 }

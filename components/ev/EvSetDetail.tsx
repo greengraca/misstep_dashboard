@@ -12,6 +12,7 @@ import EvHistoryChart from "./EvHistoryChart";
 import EvConfigModal from "./EvConfigModal";
 import EvJumpstartThemes from "./EvJumpstartThemes";
 import DiscountToggle from "@/components/dashboard/discount-toggle";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
 import { ArrowLeft, Settings, RefreshCw, Camera } from "lucide-react";
 
 interface EvSetDetailProps {
@@ -35,6 +36,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
   const setHasMasterpieces = HAS_MASTERPIECES.includes(set.code.toLowerCase());
   const [includeMasterpieces, setIncludeMasterpieces] = useState(true);
   const [configOpen, setConfigOpen] = useState(false);
+  const [confirmSync, setConfirmSync] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ pct: number; phase: string } | null>(null);
@@ -158,7 +160,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
             {snapshotting ? "Saving..." : "Snapshot"}
           </button>
           <button
-            onClick={handleSyncCards}
+            onClick={() => (syncing ? undefined : setConfirmSync(true))}
             disabled={syncing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}
@@ -221,6 +223,19 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
           boosterLabel={boosterLabel}
         />
       )}
+
+      <ConfirmModal
+        open={confirmSync}
+        onClose={() => setConfirmSync(false)}
+        onConfirm={async () => {
+          setConfirmSync(false);
+          await handleSyncCards();
+        }}
+        title="Sync cards from Scryfall?"
+        message="This re-fetches every card in this set from Scryfall and recomputes EV. The sync streams progress live and may take 30s+ for large sets. Local price overrides are preserved."
+        confirmLabel="Sync cards"
+        variant="default"
+      />
     </div>
   );
 }

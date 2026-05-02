@@ -60,6 +60,7 @@ export default function EvSummaryCards({
           <label
             className="inline-flex items-center gap-2 text-sm select-none cursor-pointer"
             style={{ color: "var(--text-muted)" }}
+            title="Masterpieces are the rare 1-in-N premium printings (Zendikar Expeditions, Kaladesh Inventions, Amonkhet Invocations) found alongside this set's normal cards. Toggle off to compute EV without their contribution — use when you opened from a sealed box that's known to be light."
           >
             <input
               type="checkbox"

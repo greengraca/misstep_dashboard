@@ -60,7 +60,7 @@ export default function StorageDrawer({
   };
 
   return (
-    <div className="rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)]">
+    <div className="rounded-[var(--radius)] bg-[var(--bg-card)] border border-[var(--border)]">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border)]">
         <AlertTriangle size={16} className="text-yellow-500" />
         <span className="text-sm font-medium text-[var(--text-primary)]">

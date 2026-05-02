@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { Package, Coins, ListOrdered, Layers, Filter } from "lucide-react";
+import { Package, Coins, ListOrdered, Layers } from "lucide-react";
 import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import { STOCK_SORT_FIELDS } from "@/lib/stock-types";
 import StockFilters, {
@@ -13,6 +13,9 @@ import StockFilters, {
 import StockTable, { type SetMap } from "./StockTable";
 import StockChart from "./StockChart";
 import StockGhostGap from "./StockGhostGap";
+import StatCard from "@/components/dashboard/stat-card";
+import { H1 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -233,25 +236,6 @@ export default function StockContent() {
     ? search?.distinctNameSet
     : summary?.distinctNameSet;
 
-  const scopeTag = filtered ? (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        color: "var(--text-muted)",
-        textTransform: "none",
-        letterSpacing: 0,
-        padding: "2px 6px",
-        borderRadius: 4,
-        background: "rgba(255,255,255,0.05)",
-      }}
-    >
-      <Filter size={10} /> filtered
-    </span>
-  ) : null;
-
   const coverageSubtitle = (() => {
     const c = summary?.coverage;
     if (!c || filtered) return undefined;
@@ -260,30 +244,30 @@ export default function StockContent() {
     return `${c.tracked.toLocaleString()} of ${c.total.toLocaleString()} tracked (${pct})`;
   })();
 
-  const statCards = [
+  const statCards: { label: string; value: string; subtitle: string | undefined; icon: React.ReactNode }[] = [
     {
       label: "Total Stock",
       value: displayQty != null ? displaySimple(displayQty) : "—",
       subtitle: coverageSubtitle,
-      icon: <Package size={18} />,
+      icon: <Package size={18} style={{ color: "var(--accent)" }} />,
     },
     {
       label: "Value",
       value: displayValue != null ? `€${displayValue.toFixed(2)}` : "—",
-      subtitle: undefined as string | undefined,
-      icon: <Coins size={18} />,
+      subtitle: undefined,
+      icon: <Coins size={18} style={{ color: "var(--accent)" }} />,
     },
     {
       label: "Listings",
       value: displayListings != null ? displaySimple(displayListings) : "—",
-      subtitle: undefined as string | undefined,
-      icon: <ListOrdered size={18} />,
+      subtitle: undefined,
+      icon: <ListOrdered size={18} style={{ color: "var(--accent)" }} />,
     },
     {
       label: "Unique cards",
       value: displayUnique != null ? displaySimple(displayUnique) : "—",
-      subtitle: undefined as string | undefined,
-      icon: <Layers size={18} />,
+      subtitle: undefined,
+      icon: <Layers size={18} style={{ color: "var(--accent)" }} />,
     },
   ];
 
@@ -299,78 +283,91 @@ export default function StockContent() {
     setPage(1);
   }, []);
 
-  return (
-    <div>
-      <h1
-        style={{
-          fontSize: 22,
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          margin: "0 0 16px",
-        }}
-      >
-        Stock
-      </h1>
+  // Filter presets — common combinations users want with one click. Each
+  // applies a partial-filter overlay on top of the empty defaults.
+  const presets: { label: string; apply: () => void }[] = [
+    {
+      label: "All foils",
+      apply: () => setFilters({ ...emptyStockFilters, foil: "true" }),
+    },
+    {
+      label: "Overpriced > 20%",
+      apply: () => setFilters({ ...emptyStockFilters, minOverpricedPct: "20" }),
+    },
+    {
+      label: "Out of stock",
+      apply: () => setFilters({ ...emptyStockFilters, hasStock: false, minQty: "0" }),
+    },
+    {
+      label: "≥ €10",
+      apply: () => setFilters({ ...emptyStockFilters, minPrice: "10" }),
+    },
+  ];
 
-      <div
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
-        style={{ marginBottom: 16 }}
-      >
-        {statCards.map((c) => (
-          <div
-            key={c.label}
-            style={{
-              background: "var(--surface-gradient)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              borderRadius: 10,
-              padding: 16,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <H1 subtitle="Live Cardmarket inventory and trend prices">Stock</H1>
+        {filtered && (
+          <button
+            onClick={onClear}
+            className="inline-flex items-center gap-1 transition-opacity hover:opacity-80"
+            style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+            title="Clear all filters"
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                color: "var(--text-muted)",
-                fontSize: 12,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {c.icon}
-              {c.label}
-              {scopeTag}
-            </div>
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 600,
-                color: "var(--text-primary)",
-              }}
-            >
-              {c.value}
-            </div>
-            {c.subtitle && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  marginTop: -6,
-                }}
-              >
-                {c.subtitle}
-              </div>
-            )}
-          </div>
+            <StatusPill tone="accent">× Clear filters</StatusPill>
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {statCards.map((c) => (
+          <StatCard
+            key={c.label}
+            title={c.label}
+            value={c.value}
+            subtitle={c.subtitle}
+            icon={c.icon}
+          />
         ))}
       </div>
 
       <StockGhostGap />
 
       <StockChart />
+
+      {/* Quick filter presets */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="text-[10px] uppercase tracking-wider"
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+        >
+          Quick filter
+        </span>
+        {presets.map((preset) => (
+          <button
+            key={preset.label}
+            onClick={preset.apply}
+            className="px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--accent)";
+              e.currentTarget.style.color = "var(--accent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
 
       <StockFilters
         value={filters}

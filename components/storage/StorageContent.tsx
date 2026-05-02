@@ -1,13 +1,16 @@
 // components/storage/StorageContent.tsx
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import StorageHeader from "./StorageHeader";
 import StorageDrawer from "./StorageDrawer";
 import LayoutEditor from "./LayoutEditor";
 import Shelf3D from "./Shelf3D";
 import BoxContentsPanel from "./BoxContentsPanel";
+import { H1 } from "@/components/dashboard/page-shell";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
+import { MousePointerClick, X } from "lucide-react";
 import type { BoxData, BoxRowData, BoxSetRun } from "./Box3D";
 
 /** HSL → #rrggbb — three.js's Color.setStyle can't parse modern hsl() syntax. */
@@ -34,11 +37,27 @@ import {
   type PlacedCell,
 } from "./types";
 
+const HINT_DISMISSED_KEY = "misstep:storage:3d-hint-dismissed";
+
 export default function StorageContent() {
   const [search, setSearch] = useState("");
   const [isRebuilding, setIsRebuilding] = useState(false);
+  const [confirmRebuild, setConfirmRebuild] = useState(false);
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
   const [lastRebuild, setLastRebuild] = useState<RebuildResponse["data"] | null>(null);
+  const [hintDismissed, setHintDismissed] = useState(true); // Default true to avoid SSR mismatch flash
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setHintDismissed(window.localStorage.getItem(HINT_DISMISSED_KEY) === "1");
+  }, []);
+
+  function dismissHint() {
+    setHintDismissed(true);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(HINT_DISMISSED_KEY, "1");
+    }
+  }
 
   const statsSwr = useSWR<StatsResponse>("/api/storage/stats", fetcher);
   const layoutSwr = useSWR<LayoutResponse>("/api/storage/layout", fetcher);
@@ -51,6 +70,7 @@ export default function StorageContent() {
 
   const handleRebuild = async () => {
     setIsRebuilding(true);
+    setConfirmRebuild(false);
     try {
       const res = await fetch("/api/storage/rebuild", { method: "POST" });
       if (!res.ok) throw new Error(`Rebuild failed: ${res.status}`);
@@ -187,12 +207,12 @@ export default function StorageContent() {
     : undefined;
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Storage</h1>
+    <div className="flex flex-col gap-6">
+      <H1 subtitle="Shelves, boxes, and the canonical sort across the wall">Storage</H1>
 
       <StorageHeader
         stats={stats}
-        onRebuild={handleRebuild}
+        onRebuild={() => setConfirmRebuild(true)}
         isRebuilding={isRebuilding}
         search={search}
         onSearchChange={setSearch}
@@ -211,12 +231,43 @@ export default function StorageContent() {
         />
       )}
 
-      <Shelf3D
-        layout={layout}
-        selectedBoxId={selectedBoxId}
-        onBoxClick={setSelectedBoxId}
-        boxData={boxData}
-      />
+      <div className="relative">
+        <Shelf3D
+          layout={layout}
+          selectedBoxId={selectedBoxId}
+          onBoxClick={setSelectedBoxId}
+          boxData={boxData}
+        />
+        {!hintDismissed && (
+          <div
+            className="absolute top-3 left-3 right-3 sm:right-auto sm:max-w-md flex items-start gap-2 px-3 py-2 rounded-lg text-[11px]"
+            style={{
+              background: "rgba(15, 20, 25, 0.92)",
+              border: "1px solid var(--accent-border)",
+              backdropFilter: "blur(8px)",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <MousePointerClick size={14} style={{ color: "var(--accent)", marginTop: 1, flexShrink: 0 }} />
+            <div className="flex-1 min-w-0">
+              <div style={{ color: "var(--text-primary)", fontWeight: 500, marginBottom: 2 }}>
+                Interactive 3D shelf
+              </div>
+              <div>
+                Click a box for contents · drag to rotate · scroll to zoom
+              </div>
+            </div>
+            <button
+              onClick={dismissHint}
+              className="p-0.5 rounded transition-colors flex-shrink-0"
+              style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+              title="Got it"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+      </div>
 
       <LayoutEditor layout={layout} onSave={handleLayoutSave} />
 
@@ -225,6 +276,16 @@ export default function StorageContent() {
         boxLabel={selectedBoxLabel}
         slots={selectedBoxSlots}
         onClose={() => setSelectedBoxId(null)}
+      />
+
+      <ConfirmModal
+        open={confirmRebuild}
+        onClose={() => setConfirmRebuild(false)}
+        onConfirm={handleRebuild}
+        title="Rebuild storage layout?"
+        message="This recomputes the canonical sort and re-places every card across the shelves. Existing overrides may be marked stale. Snapshots and history aren't affected."
+        confirmLabel="Rebuild"
+        variant="default"
       />
     </div>
   );

@@ -7,7 +7,7 @@ import type { StorageStats } from "./types";
 
 interface StorageHeaderProps {
   stats: StorageStats | null;
-  onRebuild: () => Promise<void>;
+  onRebuild: () => void | Promise<void>;
   isRebuilding: boolean;
   search: string;
   onSearchChange: (s: string) => void;
@@ -52,7 +52,7 @@ export default function StorageHeader({
         <button
           onClick={() => onRebuild()}
           disabled={isRebuilding}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-[var(--radius)] bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-[var(--radius)] bg-[var(--accent)] text-[var(--accent-text)] text-sm font-medium hover:opacity-90 disabled:opacity-50"
         >
           {isRebuilding ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
           {isRebuilding ? "Rebuilding…" : "Rebuild"}
@@ -68,7 +68,7 @@ export default function StorageHeader({
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
             placeholder="Search by name…"
-            className="w-full pl-9 pr-3 py-2 rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+            className="appraiser-field w-full pl-9 pr-3 py-2 rounded-[var(--radius)] bg-[var(--bg-card)] border border-[var(--border)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
           />
         </div>
       </div>

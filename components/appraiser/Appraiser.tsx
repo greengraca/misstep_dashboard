@@ -6,6 +6,7 @@ import useSWR from "swr";
 import CollectionSelector from "./CollectionSelector";
 import AppraiserInput from "./AppraiserInput";
 import AppraiserCardTable from "./AppraiserCardTable";
+import { H1 } from "@/components/dashboard/page-shell";
 import type { AppraiserCard, AppraiserCollection } from "@/lib/appraiser/types";
 
 const fetcher = (url: string) => fetch(url).then((r) => {
@@ -71,7 +72,7 @@ export default function Appraiser() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Appraiser</h1>
+      <H1 subtitle="Price-check piles of cards against live Cardmarket trend">Appraiser</H1>
 
       <CollectionSelector
         collections={collections}

@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeft, RefreshCw, Activity, Layers, Radar, ChevronDown, ChevronUp } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
+import { MetricRow } from "@/components/dashboard/metric-row";
 
 interface Integrity {
   serverTotal: number;
@@ -29,25 +33,6 @@ interface Lease {
   expiresAt: string;
 }
 
-const panelClass = "p-4 sm:p-6";
-const panelStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "var(--surface-border)",
-  boxShadow: "var(--surface-shadow)",
-  borderRadius: "var(--radius)",
-};
-
-const statStyle = {
-  display: "flex",
-  flexDirection: "column" as const,
-  gap: "4px",
-  padding: "16px",
-  background: "var(--bg-card)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-};
-
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
@@ -66,6 +51,51 @@ function timeAgo(iso: string): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function SortHead({
+  label, sortKey, current, dir, onClick, align,
+}: {
+  label: string;
+  sortKey: "name" | "page" | "updated";
+  current: "name" | "page" | "updated";
+  dir: "asc" | "desc";
+  onClick: (k: "name" | "page" | "updated") => void;
+  align?: "left" | "right";
+}) {
+  const active = current === sortKey;
+  return (
+    <button
+      onClick={() => onClick(sortKey)}
+      className="inline-flex items-center gap-1 select-none transition-colors"
+      style={{
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        color: active ? "var(--accent)" : "var(--text-muted)",
+        fontSize: 10,
+        fontFamily: "var(--font-mono)",
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        justifyContent: align === "right" ? "flex-end" : "flex-start",
+      }}
+    >
+      {label}
+      {active && (dir === "asc" ? <ChevronUp size={10} /> : <ChevronDown size={10} />)}
+    </button>
+  );
+}
+
+function timeUntil(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.floor((then - now) / 1000);
+  if (diff <= 0) return "now";
+  if (diff < 60) return `in ${diff}s`;
+  if (diff < 3600) return `in ${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `in ${Math.floor(diff / 3600)}h`;
+  return `in ${Math.floor(diff / 86400)}d`;
 }
 
 export default function SeedProgressContent() {
@@ -94,8 +124,37 @@ export default function SeedProgressContent() {
   });
 
   const integrityData = integrity?.data;
-  const progressList = Array.isArray(progress?.data) ? progress!.data : [];
+  const rawProgress = Array.isArray(progress?.data) ? progress!.data : [];
   const leaseList = Array.isArray(leases?.data) ? leases!.data : [];
+
+  type ProgressSortKey = "name" | "page" | "updated";
+  const [sortKey, setSortKey] = useState<ProgressSortKey>("updated");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(k: ProgressSortKey) {
+    if (k === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      setSortDir(k === "name" ? "asc" : "desc");
+    }
+  }
+
+  const progressList = useMemo(() => {
+    const sorted = [...rawProgress].sort((a, b) => {
+      const cmp = (() => {
+        switch (sortKey) {
+          case "name": return a.memberName.localeCompare(b.memberName);
+          case "page": return a.lastPage - b.lastPage;
+          case "updated":
+          default:
+            return a.updatedAt.localeCompare(b.updatedAt);
+        }
+      })();
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [rawProgress, sortKey, sortDir]);
 
   const refreshAll = () => {
     mutateIntegrity();
@@ -105,60 +164,43 @@ export default function SeedProgressContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <Link
             href="/settings"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              color: "var(--text-secondary)",
-              textDecoration: "none",
-              fontSize: "13px",
-            }}
+            className="inline-flex items-center gap-1 mb-2 text-xs transition-colors"
+            style={{ color: "var(--text-muted)", textDecoration: "none" }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
-            <ArrowLeft size={14} /> Settings
+            <ArrowLeft size={12} /> Settings
           </Link>
-          <h1
-            className="min-w-0 truncate"
-            style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}
-          >
+          <H1 subtitle="Team-wide coverage, active leases, and per-member position">
             Seed Stock Progress
-          </h1>
+          </H1>
         </div>
         <button
           onClick={refreshAll}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           style={{
             background: "var(--bg-card)",
             color: "var(--text-secondary)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "8px 14px",
-            fontSize: "14px",
             cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
           }}
         >
-          <RefreshCw size={15} /> Refresh
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
       {/* Integrity */}
-      <div className={panelClass} style={panelStyle}>
-        <h2
-          style={{
-            fontSize: "16px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: 0,
-            marginBottom: "16px",
-          }}
-        >
-          Coverage
-        </h2>
+      <Panel>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <H2 icon={<Radar size={16} />}>Coverage</H2>
+          {integrityData?.snapshotAt && (
+            <StatusPill tone="muted">CM snapshot · {formatDate(integrityData.snapshotAt)}</StatusPill>
+          )}
+        </div>
         {integrityLoading ? (
           <div className="skeleton" style={{ height: "72px" }} />
         ) : !integrityData ? (
@@ -166,78 +208,31 @@ export default function SeedProgressContent() {
             Integrity unavailable.
           </p>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-              gap: "12px",
-            }}
-          >
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Captured
-              </span>
-              <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)" }}>
-                {integrityData.serverTotal.toLocaleString()}
-              </span>
-            </div>
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                CM reported
-              </span>
-              <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)" }}>
-                {integrityData.cmReported === null ? "—" : integrityData.cmReported.toLocaleString()}
-              </span>
-              <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                {formatDate(integrityData.snapshotAt)}
-              </span>
-            </div>
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Gap
-              </span>
-              <span
-                style={{
-                  fontSize: "22px",
-                  fontWeight: 700,
-                  color:
-                    integrityData.gap === null
-                      ? "var(--text-muted)"
-                      : integrityData.gap === 0
-                        ? "var(--success, #4caf50)"
-                        : "var(--danger, #e94560)",
-                }}
-              >
-                {integrityData.gap === null ? "—" : integrityData.gap.toLocaleString()}
-              </span>
-            </div>
-            <div style={statStyle}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase" }}>
-                Coverage
-              </span>
-              <span style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)" }}>
-                {integrityData.coveragePct === null
-                  ? "—"
-                  : integrityData.coveragePct.toFixed(2) + "%"}
-              </span>
-            </div>
-          </div>
+          <MetricRow
+            items={[
+              { label: "Captured", value: integrityData.serverTotal.toLocaleString() },
+              { label: "CM reported", value: integrityData.cmReported === null ? "—" : integrityData.cmReported.toLocaleString(), tone: "muted" },
+              {
+                label: "Gap",
+                value: integrityData.gap === null ? "—" : integrityData.gap.toLocaleString(),
+                tone: integrityData.gap === null ? "muted" : integrityData.gap === 0 ? "success" : "danger",
+              },
+              {
+                label: "Coverage",
+                value: integrityData.coveragePct === null ? "—" : integrityData.coveragePct.toFixed(2) + "%",
+                tone: integrityData.coveragePct != null && integrityData.coveragePct >= 95 ? "success" : "default",
+              },
+            ]}
+          />
         )}
-      </div>
+      </Panel>
 
       {/* Active leases */}
-      <div className={panelClass} style={panelStyle}>
-        <h2
-          style={{
-            fontSize: "16px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: 0,
-            marginBottom: "16px",
-          }}
-        >
-          Active leases ({leaseList.length})
-        </h2>
+      <Panel>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <H2 icon={<Activity size={16} />}>Active leases</H2>
+          <StatusPill tone="muted">{leaseList.length}</StatusPill>
+        </div>
         {leasesLoading ? (
           <div className="skeleton" style={{ height: "60px" }} />
         ) : !leaseList.length ? (
@@ -258,14 +253,14 @@ export default function SeedProgressContent() {
                 }}
               >
                 <div className="flex items-center justify-between sm:block">
-                  <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
+                  <span style={{ fontWeight: 600, color: "var(--accent)" }}>
                     {l.memberName}
                   </span>
                   <span
                     className="sm:hidden"
                     style={{ fontSize: "11px", color: "var(--text-muted)" }}
                   >
-                    expires {timeAgo(l.expiresAt).replace(" ago", "")}
+                    expires {timeUntil(l.expiresAt)}
                   </span>
                 </div>
                 <span
@@ -289,21 +284,11 @@ export default function SeedProgressContent() {
             ))}
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Per-member progress */}
-      <div className={panelClass} style={panelStyle}>
-        <h2
-          style={{
-            fontSize: "16px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: 0,
-            marginBottom: "16px",
-          }}
-        >
-          Last position per member
-        </h2>
+      <Panel>
+        <H2 icon={<Layers size={16} />}>Last position per member</H2>
         {progressLoading ? (
           <div className="skeleton" style={{ height: "60px" }} />
         ) : !progressList.length ? (
@@ -312,6 +297,23 @@ export default function SeedProgressContent() {
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {/* Sort header — same widths as the row grid below. */}
+            <div
+              className="hidden sm:grid items-center gap-3 px-4 pb-1"
+              style={{
+                gridTemplateColumns: "140px 1fr 70px 100px",
+                fontSize: 10,
+                color: "var(--text-muted)",
+                fontFamily: "var(--font-mono)",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              <SortHead label="Member" sortKey="name" current={sortKey} dir={sortDir} onClick={toggleSort} />
+              <span>Filter</span>
+              <SortHead label="Page" sortKey="page" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+              <SortHead label="Last seen" sortKey="updated" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+            </div>
             {progressList.map((p) => (
               <div
                 key={p.memberName}
@@ -324,7 +326,7 @@ export default function SeedProgressContent() {
                 }}
               >
                 <div className="flex items-center justify-between sm:block">
-                  <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
+                  <span style={{ fontWeight: 600, color: "var(--accent)" }}>
                     {p.memberName}
                   </span>
                   <span
@@ -362,7 +364,7 @@ export default function SeedProgressContent() {
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }

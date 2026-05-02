@@ -5,30 +5,21 @@ import useSWR from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetcher } from "@/lib/fetcher";
-import { ArrowLeft, MoreHorizontal, Archive, Lock, Trash2, Copy, Check } from "lucide-react";
+import { ArrowLeft, ChevronDown, Archive, Lock, Trash2, Copy, Check } from "lucide-react";
 import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
+import { H1 } from "@/components/dashboard/page-shell";
+import { StatusPill, type StatusPillTone } from "@/components/dashboard/status-pill";
 import InvestmentKpiRow from "./InvestmentKpiRow";
 import SealedFlipsSection from "./SealedFlipsSection";
 import InvestmentLotsTable from "./InvestmentLotsTable";
 import CloseInvestmentModal from "./CloseInvestmentModal";
 
-function StatusPill({ status }: { status: Detail["status"] }) {
-  const map: Record<Detail["status"], { bg: string; color: string; label: string }> = {
-    listing: { bg: "rgba(63,206,229,0.15)", color: "var(--accent)", label: "listing" },
-    closed: { bg: "rgba(52, 211, 153, 0.12)", color: "var(--success)", label: "closed" },
-    archived: { bg: "rgba(255,255,255,0.06)", color: "var(--text-muted)", label: "archived" },
-  };
-  const s = map[status];
-  return (
-    <span
-      className="px-2 py-0.5 rounded text-[10px] font-medium whitespace-nowrap"
-      style={{ background: s.bg, color: s.color }}
-    >
-      {s.label}
-    </span>
-  );
-}
+const STATUS_TONE: Record<Detail["status"], StatusPillTone> = {
+  listing: "accent",
+  closed: "success",
+  archived: "muted",
+};
 
 function sourceLabel(source: Detail["source"]): string {
   if (source.kind === "box") {
@@ -177,26 +168,26 @@ export default function InvestmentDetail({ id }: { id: string }) {
             >
               <ArrowLeft size={14} />
             </Link>
-            <StatusPill status={detail.status} />
+            <StatusPill tone={STATUS_TONE[detail.status]}>{detail.status}</StatusPill>
           </div>
-          <h1 className="text-xl font-bold truncate" style={{ color: "var(--text-primary)" }}>
-            {detail.name}
-          </h1>
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-            {sourceLabel(detail.source)}
-          </p>
+          <H1 subtitle={sourceLabel(detail.source)}>{detail.name}</H1>
         </div>
         <div ref={menuRef} className="relative">
           <button
             onClick={() => setMenuOpen((x) => !x)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
             style={{
               background: "var(--bg-card)",
               border: "1px solid var(--border)",
               color: "var(--text-secondary)",
             }}
           >
-            <MoreHorizontal size={14} /> Actions
+            Actions
+            <ChevronDown
+              size={12}
+              className="transition-transform"
+              style={{ transform: menuOpen ? "rotate(180deg)" : "rotate(0)" }}
+            />
           </button>
           {menuOpen && (
             <div

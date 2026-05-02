@@ -1,11 +1,17 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
-import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2 } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2, TrendingUp, Activity, Zap, Clock } from "lucide-react";
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
+import { Pagination } from "@/components/dashboard/pagination";
+import { FoilStar } from "@/components/dashboard/cm-sprite";
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const SENDER_ADDRESS = {
   name: "João Graça",
@@ -98,11 +104,32 @@ function ExpansionIcon({ pos, set }: { pos?: string; set?: string }) {
   );
 }
 
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
-};
+function BalanceTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; payload: { extractedAt: string } }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0];
+  return (
+    <div
+      style={{
+        background: "rgba(15, 20, 25, 0.95)",
+        border: "1px solid rgba(255,255,255,0.15)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        fontSize: 11,
+        color: "var(--text-primary)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+      }}
+    >
+      <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-mono)" }}>
+        € {p.value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </div>
+    </div>
+  );
+}
 
 const STATUS_TABS = [
   { key: "shopping_cart", label: "In Shopping Cart" },
@@ -116,6 +143,7 @@ export default function CardmarketContent() {
   const [activeTab, setActiveTab] = useState<string>("paid");
   const [direction, setDirection] = useState<"sale" | "purchase">("sale");
   const [orderPage, setOrderPage] = useState(1);
+  const [orderPageSize, setOrderPageSize] = useState(20);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
@@ -128,7 +156,7 @@ export default function CardmarketContent() {
     status: activeTab,
     direction,
     page: String(orderPage),
-    limit: "20",
+    limit: String(orderPageSize),
   });
   const { data: ordersData, mutate: mutateOrders } = useSWR(`/api/ext/orders?${orderParams}`, fetcher, { refreshInterval: 30000 });
 
@@ -279,28 +307,32 @@ export default function CardmarketContent() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Cardmarket
-          </h1>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Passive sync via browser extension
-          </p>
-        </div>
-        <button
-          onClick={async () => {
-            setRefreshing(true);
-            await Promise.all([mutateStatus(), mutateOrders(), mutateBalance(), mutatePipeline()]);
-            setRefreshing(false);
-          }}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: refreshing ? "var(--accent)" : "var(--text-secondary)", cursor: refreshing ? "not-allowed" : "pointer", opacity: refreshing ? 0.8 : 1 }}
-        >
-          {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          {refreshing ? "Refreshing\u2026" : "Refresh"}
-        </button>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <H1 subtitle="Passive sync via browser extension">Cardmarket</H1>
+        {(() => {
+          // SWR auto-refreshes every 15-60s for everything on this page, so a
+          // manual Refresh button is mostly noise. Only render it when the
+          // freshest sync is genuinely stale (>5 min) so the button actually
+          // means something.
+          const latestSync = Object.values(status?.lastSync ?? {})[0] as string | undefined;
+          const stale = latestSync ? Date.now() - new Date(latestSync).getTime() > 5 * 60 * 1000 : false;
+          if (!stale && !refreshing) return null;
+          return (
+            <button
+              onClick={async () => {
+                setRefreshing(true);
+                await Promise.all([mutateStatus(), mutateOrders(), mutateBalance(), mutatePipeline()]);
+                setRefreshing(false);
+              }}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: refreshing ? "var(--accent)" : "var(--warning)", cursor: refreshing ? "not-allowed" : "pointer", opacity: refreshing ? 0.8 : 1 }}
+            >
+              {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {refreshing ? "Refreshing\u2026" : "Stale \u00b7 Refresh"}
+            </button>
+          );
+        })()}
       </div>
 
       {/* Stat Cards */}
@@ -317,14 +349,24 @@ export default function CardmarketContent() {
             const r = (n: number) => `€${Math.round(n)}`;
             return (
               <>
-                {`U: ${r(u)} \u00B7 P: ${r(p)} \u00B7 S: ${r(s)}`}
-                <br className="sm:hidden" />
-                <span className="hidden sm:inline">{" \u00B7 "}</span>
-                <span style={{ color: "var(--text-secondary)" }}>{`T: ${r(t)}`}</span>
+                <span title="Unpaid orders" className="inline-flex items-center gap-1 mr-2">
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 2, background: "var(--warning)" }} />
+                  {r(u)}
+                </span>
+                <span title="Paid, awaiting shipment" className="inline-flex items-center gap-1 mr-2">
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 2, background: "var(--accent)" }} />
+                  {r(p)}
+                </span>
+                <span title="Trustee-sent" className="inline-flex items-center gap-1 mr-2">
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 2, background: "var(--success)" }} />
+                  {r(s)}
+                </span>
+                <span style={{ color: "var(--text-secondary)" }} title="Total in pipeline">{`\u03A3 ${r(t)}`}</span>
               </>
             );
           })()}
-          icon={<DollarSign size={18} style={{ color: "var(--accent)" }} />}
+          icon={<DollarSign size={18} style={{ color: "var(--success)" }} />}
+          tone="success"
         />
         <StatCard
           title="Stock Tracked"
@@ -344,41 +386,65 @@ export default function CardmarketContent() {
             : undefined}
           icon={<ShoppingCart size={18} style={{ color: "var(--accent)" }} />}
         />
-        <StatCard
-          title="Last Sync"
-          value={formatAgo(Object.values(status?.lastSync ?? {})[0] as string)}
-          subtitle={Object.keys(status?.lastSync ?? {}).length
-            ? `${Object.keys(status.lastSync).length} data types`
-            : undefined}
-          icon={<TrendingDown size={18} style={{ color: "var(--accent)" }} />}
-        />
+        {(() => {
+          const latestSync = Object.values(status?.lastSync ?? {})[0] as string | undefined;
+          const ageMs = latestSync ? Date.now() - new Date(latestSync).getTime() : null;
+          const stale = ageMs != null && ageMs > 5 * 60 * 1000;
+          const veryStale = ageMs != null && ageMs > 60 * 60 * 1000;
+          const tone = veryStale ? "danger" : stale ? "warning" : "accent";
+          const iconColor = veryStale ? "var(--error)" : stale ? "var(--warning)" : "var(--accent)";
+          return (
+            <StatCard
+              title="Last Sync"
+              value={formatAgo(latestSync)}
+              subtitle={Object.keys(status?.lastSync ?? {}).length
+                ? `${Object.keys(status.lastSync).length} data types`
+                : undefined}
+              icon={<Clock size={18} style={{ color: iconColor }} />}
+              tone={tone}
+            />
+          );
+        })()}
       </div>
 
       {/* Balance History */}
       {balance?.history?.length > 0 && (
-        <div className="p-4 rounded-xl overflow-hidden" style={surfaceStyle}>
-          <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Balance History</h2>
-          <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
-            {balance.history.map((snap: { balance: number; extractedAt: string }, i: number) => {
-              const min = Math.min(...balance.history.map((s: { balance: number }) => s.balance));
-              const max = Math.max(...balance.history.map((s: { balance: number }) => s.balance));
-              const range = max - min || 1;
-              const h = ((snap.balance - min) / range) * 60 + 20;
-              return (
-                <div
-                  key={i}
-                  className="flex-1 min-w-0 rounded-t"
-                  style={{
-                    height: `${h}%`,
-                    background: "var(--accent)",
-                    opacity: 0.6 + (i / balance.history.length) * 0.4,
-                  }}
-                  title={`${formatEur(snap.balance)} — ${new Date(snap.extractedAt).toLocaleDateString("pt-PT")}`}
+        <Panel>
+          <H2 icon={<TrendingUp size={16} />}>Balance History</H2>
+          <div style={{ width: "100%", height: 100 }}>
+            <ResponsiveContainer>
+              <AreaChart
+                data={balance.history.map((s: { balance: number; extractedAt: string }) => ({
+                  balance: s.balance,
+                  extractedAt: s.extractedAt,
+                  label: new Date(s.extractedAt).toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit" }),
+                }))}
+                margin={{ top: 4, right: 4, left: 4, bottom: 4 }}
+              >
+                <defs>
+                  <linearGradient id="balanceFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="label" hide />
+                <YAxis hide domain={["auto", "auto"]} />
+                <Tooltip
+                  content={<BalanceTooltip />}
+                  cursor={{ stroke: "var(--accent)", strokeOpacity: 0.4, strokeDasharray: "3 3" }}
                 />
-              );
-            })}
+                <Area
+                  type="monotone"
+                  dataKey="balance"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  fill="url(#balanceFill)"
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Sales Pipeline (U + P + S) */}
@@ -387,10 +453,10 @@ export default function CardmarketContent() {
       )}
 
       {/* Orders */}
-      <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
+      <Panel>
         {/* Direction toggle + Status tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-0">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Orders</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <H2 icon={<ShoppingCart size={16} />}>Orders</H2>
 
           {/* Sales / Purchases toggle */}
           <div
@@ -404,7 +470,7 @@ export default function CardmarketContent() {
                 className="px-3 py-1.5 font-medium transition-all"
                 style={{
                   background: direction === d ? "var(--accent)" : "transparent",
-                  color: direction === d ? "var(--bg-primary)" : "var(--text-muted)",
+                  color: direction === d ? "var(--accent-text)" : "var(--text-muted)",
                 }}
               >
                 {d === "sale" ? "Sales" : "Purchases"}
@@ -415,7 +481,7 @@ export default function CardmarketContent() {
 
         {/* Status tabs */}
         <div
-          className="flex gap-0 px-4 mt-3 overflow-x-auto"
+          className="flex gap-0 overflow-x-auto overflow-y-hidden"
           style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
         >
           {STATUS_TABS.map((tab) => {
@@ -451,11 +517,13 @@ export default function CardmarketContent() {
 
         {/* Print All bar (only on Paid tab with sale direction) */}
         {activeTab === "paid" && direction === "sale" && orders?.orders?.length > 0 && (
-          <div className="flex items-center justify-end gap-2 px-4 pt-2">
+          <div className="flex items-center justify-end gap-2 pt-2">
             <button
               onClick={() => printEnvelopes(orders.orders.filter((o: CmOrder) => !o.printed))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-              style={{ background: "var(--accent)", color: "var(--bg-primary)" }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{ background: "var(--accent)", color: "var(--accent-text)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
             >
               <Printer size={13} /> Print All Envelopes
             </button>
@@ -463,10 +531,10 @@ export default function CardmarketContent() {
         )}
 
         {/* Order rows */}
-        <div className="px-4 pb-4">
+        <div className="pt-2">
           {orders?.orders?.length ? (
             <>
-              <div className="overflow-x-auto -mx-4 px-4">
+              <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[680px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
@@ -481,14 +549,14 @@ export default function CardmarketContent() {
                               title={allPrinted ? "Unmark all as printed" : "Mark all as printed"}
                               className="w-4 h-4 rounded border-2 flex items-center justify-center transition-colors"
                               style={{
-                                borderColor: "#eab308",
-                                background: allPrinted ? "#eab308" : "transparent",
+                                borderColor: "var(--warning)",
+                                background: allPrinted ? "var(--warning)" : "transparent",
                                 cursor: "pointer",
                               }}
                             >
                               {allPrinted && (
                                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                  <path d="M2 6l3 3 5-6" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                  <path d="M2 6l3 3 5-6" stroke="var(--bg-page)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
                               )}
                             </button>
@@ -513,7 +581,7 @@ export default function CardmarketContent() {
                       <OrderRow
                         key={order.orderId}
                         order={order}
-                        rowNum={(orderPage - 1) * 20 + idx + 1}
+                        rowNum={(orderPage - 1) * orderPageSize + idx + 1}
                         isExpanded={isExpanded}
                         detail={detail}
                         formatEur={formatEur}
@@ -529,37 +597,16 @@ export default function CardmarketContent() {
               </div>
 
               {/* Pagination */}
-              {orders.total > 20 && (
-                <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    Page {orderPage} of {Math.ceil(orders.total / 20)}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      disabled={orderPage <= 1}
-                      onClick={() => setOrderPage((p) => p - 1)}
-                      className="px-2 py-1 rounded text-xs"
-                      style={{
-                        background: "var(--bg-card)", border: "1px solid var(--border)",
-                        color: "var(--text-primary)", opacity: orderPage <= 1 ? 0.4 : 1,
-                      }}
-                    >
-                      Prev
-                    </button>
-                    <button
-                      disabled={orderPage >= Math.ceil(orders.total / 20)}
-                      onClick={() => setOrderPage((p) => p + 1)}
-                      className="px-2 py-1 rounded text-xs"
-                      style={{
-                        background: "var(--bg-card)", border: "1px solid var(--border)",
-                        color: "var(--text-primary)", opacity: orderPage >= Math.ceil(orders.total / 20) ? 0.4 : 1,
-                      }}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination
+                page={orderPage}
+                total={orders.total}
+                pageSize={orderPageSize}
+                onChange={setOrderPage}
+                onPageSizeChange={(n) => {
+                  setOrderPageSize(n);
+                  setOrderPage(1);
+                }}
+              />
             </>
           ) : (
             <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
@@ -567,48 +614,67 @@ export default function CardmarketContent() {
             </p>
           )}
         </div>
-      </div>
+      </Panel>
 
       {/* Sync Log */}
       {status?.recentLogs?.length > 0 && (
-        <div className="p-4 rounded-xl" style={surfaceStyle}>
-          <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Sync Activity</h2>
-          <div className="flex flex-col gap-1">
-            {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => (
-              <div key={i} className="py-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                      style={{ background: "rgba(63,206,229,0.15)", color: "var(--accent)" }}
-                    >
-                      {log.dataType}
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                      {log.stats.added > 0 && `+${log.stats.added}`}
-                      {log.stats.updated > 0 && ` ~${log.stats.updated}`}
-                      {log.stats.skipped > 0 && ` =${log.stats.skipped}`}
-                      {(log.stats as Record<string, number>).removed > 0 && ` -${(log.stats as Record<string, number>).removed}`}
-                    </span>
+        <Panel>
+          <H2 icon={<Zap size={16} />}>Sync Activity</H2>
+          <div className="flex flex-col">
+            {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => {
+              // Click-through targets: stock-related logs jump to /stock,
+              // order-detail logs surface the orders panel by scrolling to it.
+              const isStock = log.dataType.toLowerCase().includes("stock");
+              const linkHref = isStock ? "/stock" : null;
+              const inner = (
+                <div
+                  className="py-2 px-2 -mx-2 transition-colors"
+                  style={{ borderBottom: "1px solid var(--border)", cursor: linkHref ? "pointer" : "default", borderRadius: 6 }}
+                  onMouseEnter={(e) => { if (linkHref) e.currentTarget.style.background = "var(--bg-card-hover)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <StatusPill tone="accent">{log.dataType}</StatusPill>
+                      {log.stats.added > 0 && (
+                        <StatusPill tone="success">+{log.stats.added} added</StatusPill>
+                      )}
+                      {log.stats.updated > 0 && (
+                        <StatusPill tone="info">~{log.stats.updated} updated</StatusPill>
+                      )}
+                      {log.stats.skipped > 0 && (
+                        <StatusPill tone="muted">={log.stats.skipped} skipped</StatusPill>
+                      )}
+                      {(log.stats as Record<string, number>).removed > 0 && (
+                        <StatusPill tone="danger">-{(log.stats as Record<string, number>).removed} removed</StatusPill>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {log.submittedBy}
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {formatAgo(log.receivedAt)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {log.submittedBy}
-                    </span>
-                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {formatAgo(log.receivedAt)}
-                    </span>
-                  </div>
+                  {log.details && (
+                    <div className="mt-0.5 text-[10px] pl-1" style={{ color: "var(--text-muted)" }}>
+                      {log.details}
+                    </div>
+                  )}
                 </div>
-                {log.details && (
-                  <div className="mt-0.5 text-[10px] pl-1" style={{ color: "var(--text-muted)" }}>
-                    {log.details}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+              return linkHref ? (
+                <Link key={i} href={linkHref} style={{ textDecoration: "none", color: "inherit" }}>
+                  {inner}
+                </Link>
+              ) : (
+                <div key={i}>{inner}</div>
+              );
+            })}
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );
@@ -642,7 +708,6 @@ function PipelineChart({
   history: PipelinePoint[];
   formatEur: (n: number | null | undefined) => string;
 }) {
-  const max = Math.max(1, ...history.map((p) => p.total));
   const latest = history[history.length - 1];
 
   function formatDay(ymd: string) {
@@ -656,15 +721,47 @@ function PipelineChart({
     );
   }
 
+  function PipelineTooltip({ active, payload }: {
+    active?: boolean;
+    payload?: Array<{ payload: PipelinePoint }>;
+  }) {
+    if (!active || !payload?.length) return null;
+    const p = payload[0].payload;
+    return (
+      <div
+        style={{
+          background: "rgba(15, 20, 25, 0.95)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          borderRadius: 8,
+          padding: "8px 10px",
+          fontSize: 11,
+          color: "var(--text-primary)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
+        <div style={{ color: "var(--text-muted)", marginBottom: 4 }}>{formatDay(p.date)}</div>
+        <div>Bal: {formatEur(p.balance)}</div>
+        <div>U: {formatEur(p.unpaid)}</div>
+        <div>P: {formatEur(p.paid)}</div>
+        <div>S: {formatEur(p.sent)}</div>
+        <div style={{ marginTop: 4, color: "var(--text-secondary)" }}>Total: {formatEur(p.total)}</div>
+        <div style={{ marginTop: 2, fontSize: 10, color: "var(--text-muted)" }}>
+          ({p.source})
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-4 rounded-xl overflow-hidden" style={surfaceStyle}>
+    <Panel>
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        <H2 icon={<Activity size={16} />}>
           Sales Pipeline
-          <span className="ml-2 text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
+          <span className="ml-1 text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
             Balance + U + P + S over the last 30 days
           </span>
-        </h2>
+        </H2>
         <div className="flex flex-wrap items-center gap-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
           <span className="inline-flex items-center gap-1" title="CM wallet balance">
             {legendDot(PIPELINE_COLORS.balance)} Bal {formatEur(latest?.balance)}
@@ -681,64 +778,31 @@ function PipelineChart({
         </div>
       </div>
 
-      <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
-        {history.map((p, i) => {
-          const totalPct = (p.total / max) * 100;
-          const balPct = (p.balance / max) * 100;
-          const uPct = (p.unpaid / max) * 100;
-          const pPct = (p.paid / max) * 100;
-          const sPct = (p.sent / max) * 100;
-          const tooltip = [
-            formatDay(p.date),
-            `Bal: ${formatEur(p.balance)}`,
-            `U: ${formatEur(p.unpaid)}`,
-            `P: ${formatEur(p.paid)}`,
-            `S: ${formatEur(p.sent)}`,
-            `Total: ${formatEur(p.total)}`,
-            p.source === "snapshot" ? "(snapshot)" : "(reconstructed)",
-          ].join(" · ");
-          return (
-            <div
-              key={`${p.date}-${i}`}
-              title={tooltip}
-              className="flex-1 min-w-0 flex flex-col justify-end"
-              style={{ height: "100%", opacity: p.total > 0 ? 0.6 + (i / history.length) * 0.4 : 0.25 }}
-            >
-              {/* Stack from BOTTOM: balance → sent → paid → unpaid. */}
-              <div
-                style={{
-                  height: `${totalPct}%`,
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "flex-end",
-                  borderTopLeftRadius: 2,
-                  borderTopRightRadius: 2,
-                  overflow: "hidden",
-                }}
-              >
-                {uPct > 0 && (
-                  <div style={{ flex: uPct, background: PIPELINE_COLORS.unpaid }} />
-                )}
-                {pPct > 0 && (
-                  <div style={{ flex: pPct, background: PIPELINE_COLORS.paid }} />
-                )}
-                {sPct > 0 && (
-                  <div style={{ flex: sPct, background: PIPELINE_COLORS.sent }} />
-                )}
-                {balPct > 0 && (
-                  <div style={{ flex: balPct, background: PIPELINE_COLORS.balance }} />
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div style={{ width: "100%", height: 140 }}>
+        <ResponsiveContainer>
+          <BarChart
+            data={history}
+            margin={{ top: 4, right: 4, left: 4, bottom: 4 }}
+            barCategoryGap={2}
+          >
+            <XAxis
+              dataKey="date"
+              tickFormatter={formatDay}
+              interval="preserveStartEnd"
+              tick={{ fontSize: 9, fill: "var(--text-muted)" }}
+              axisLine={{ stroke: "var(--border)" }}
+              tickLine={false}
+            />
+            <YAxis hide domain={[0, "auto"]} />
+            <Tooltip content={<PipelineTooltip />} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
+            <Bar dataKey="balance" stackId="pipeline" fill={PIPELINE_COLORS.balance} isAnimationActive={false} />
+            <Bar dataKey="sent"    stackId="pipeline" fill={PIPELINE_COLORS.sent}    isAnimationActive={false} />
+            <Bar dataKey="paid"    stackId="pipeline" fill={PIPELINE_COLORS.paid}    isAnimationActive={false} />
+            <Bar dataKey="unpaid"  stackId="pipeline" fill={PIPELINE_COLORS.unpaid}  isAnimationActive={false} radius={[2, 2, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
-
-      <div className="flex justify-between mt-1 text-[9px]" style={{ color: "var(--text-muted)" }}>
-        <span>{formatDay(history[0].date)}</span>
-        <span>{formatDay(history[history.length - 1].date)}</span>
-      </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -796,8 +860,8 @@ function OrderRow({
     syncState === "green"
       ? "var(--success)"
       : syncState === "yellow"
-        ? "var(--warning, #f59e0b)"
-        : "#f44336";
+        ? "var(--warning)"
+        : "var(--error)";
   const syncTitle =
     syncState === "green"
       ? "Detail synced"
@@ -814,7 +878,7 @@ function OrderRow({
           borderBottom: isExpanded ? "none" : "1px solid var(--border)",
           opacity: showPrint && order.printed ? 0.75 : 1,
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
       >
         <td className="py-2 px-1 text-center" style={{ color: "var(--text-muted)" }}>
@@ -883,10 +947,8 @@ function OrderRow({
       {isExpanded && (
         <tr>
           <td colSpan={showPrint ? 9 : 8} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
-            <div
-              className="px-4 py-3 mx-2 mb-2 rounded-lg"
-              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}
-            >
+            <div className="px-2 pb-2">
+              <Panel inset>
               {items.length > 0 ? (
                 <>
                   {/* Shipping & summary */}
@@ -940,7 +1002,7 @@ function OrderRow({
                         <tr key={item.articleId} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                           <td className="py-1" style={{ color: "var(--text-primary)" }}>
                             {item.name}
-                            {item.foil && <span className="ml-1 text-[9px]" style={{ color: "var(--accent)" }}>FOIL</span>}
+                            {item.foil && <span className="ml-1 inline-flex align-middle"><FoilStar size={11} /></span>}
                           </td>
                           <td className="py-1">
                             <span className="inline-flex items-center gap-1">
@@ -967,6 +1029,7 @@ function OrderRow({
                   No item details yet — visit this order on Cardmarket to sync.
                 </p>
               )}
+              </Panel>
             </div>
           </td>
         </tr>

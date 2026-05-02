@@ -1,19 +1,40 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import { TrendingUp, Plus, Package, Boxes } from "lucide-react";
+import { TrendingUp, Plus, Package, Boxes, Briefcase, ChevronDown, ChevronUp } from "lucide-react";
+
+function SortableHeader({
+  label, sortKey, align, current, dir, onClick, className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  align: "left" | "right";
+  current: SortKey;
+  dir: "asc" | "desc";
+  onClick: (k: SortKey) => void;
+  className?: string;
+}) {
+  const active = current === sortKey;
+  return (
+    <th
+      onClick={() => onClick(sortKey)}
+      className={`py-2 px-2 font-medium select-none cursor-pointer transition-colors ${align === "right" ? "text-right" : "text-left"} ${className ?? ""}`}
+      style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}
+    >
+      <span className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end" : ""}`}>
+        {label}
+        {active && (dir === "asc" ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+      </span>
+    </th>
+  );
+}
 import StatCard from "@/components/dashboard/stat-card";
 import CreateInvestmentModal from "./CreateInvestmentModal";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import type { InvestmentListItem, InvestmentStatus } from "@/lib/investments/types";
-
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
-};
 
 const formatEur = (n: number | null | undefined) =>
   n != null ? `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : "—";
@@ -55,9 +76,23 @@ function statusBadge(status: InvestmentStatus) {
   );
 }
 
+type SortKey = "name" | "cost" | "listed" | "realized" | "breakeven" | "created";
+
 export default function InvestmentsContent() {
+  const router = useRouter();
   const [tab, setTab] = useState<InvestmentStatus | "all">("listing");
   const [showCreate, setShowCreate] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("created");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
 
   // Fetch all investments once. Filter/count client-side — volume is low (tens).
   const { data, mutate, isLoading } = useSWR<{ investments: InvestmentListItem[] }>(
@@ -77,10 +112,31 @@ export default function InvestmentsContent() {
     return counts;
   }, [allRows]);
 
-  const rows = useMemo(
-    () => (tab === "all" ? allRows : allRows.filter((r) => r.status === tab)),
-    [allRows, tab]
-  );
+  const rows = useMemo(() => {
+    const filtered = tab === "all" ? allRows : allRows.filter((r) => r.status === tab);
+    const sorted = [...filtered].sort((a, b) => {
+      const ar = a.realized_eur + a.sealed_flips_total_eur;
+      const br = b.realized_eur + b.sealed_flips_total_eur;
+      const cmp = (() => {
+        switch (sortKey) {
+          case "name": return a.name.localeCompare(b.name);
+          case "cost": return a.cost_total_eur - b.cost_total_eur;
+          case "listed": return a.listed_value_eur - b.listed_value_eur;
+          case "realized": return ar - br;
+          case "breakeven": {
+            const aRatio = a.cost_total_eur > 0 ? ar / a.cost_total_eur : 0;
+            const bRatio = b.cost_total_eur > 0 ? br / b.cost_total_eur : 0;
+            return aRatio - bRatio;
+          }
+          case "created":
+          default:
+            return a.created_at.localeCompare(b.created_at);
+        }
+      })();
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [allRows, tab, sortKey, sortDir]);
 
   const { deployed, realized, listed, plBlended } = useMemo(() => {
     let deployed = 0, realized = 0, listed = 0;
@@ -95,21 +151,20 @@ export default function InvestmentsContent() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Investments
-          </h1>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Sealed purchases + their attributed singles
-          </p>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <H1 subtitle="Sealed purchases and their attributed singles">Investments</H1>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-          style={{ background: "var(--accent)", color: "var(--accent-text)" }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={{
+            background: "var(--accent)",
+            color: "var(--accent-text)",
+            border: "1px solid var(--accent)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
         >
-          <Plus size={14} /> New Investment
+          <Plus size={16} /> New investment
         </button>
       </div>
 
@@ -121,7 +176,8 @@ export default function InvestmentsContent() {
             const active = countsByStatus.listing + countsByStatus.closed;
             return active ? `${active} investment${active === 1 ? "" : "s"}` : undefined;
           })()}
-          icon={<Boxes size={18} style={{ color: "var(--accent)" }} />}
+          icon={<Boxes size={18} style={{ color: "var(--text-tertiary)" }} />}
+          tone="muted"
         />
         <StatCard
           title="Listed value"
@@ -133,7 +189,8 @@ export default function InvestmentsContent() {
           title="Realized net"
           value={formatEur(realized)}
           subtitle="Sold + sealed flips"
-          icon={<TrendingUp size={18} style={{ color: "var(--accent)" }} />}
+          icon={<TrendingUp size={18} style={{ color: "var(--success)" }} />}
+          tone="success"
         />
         <StatCard
           title="P/L blended"
@@ -145,12 +202,14 @@ export default function InvestmentsContent() {
               style={{ color: plBlended >= 0 ? "var(--success)" : "var(--error)" }}
             />
           }
+          tone={plBlended >= 0 ? "success" : "danger"}
         />
       </div>
 
-      <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
+      <Panel>
+        <H2 icon={<Briefcase size={16} />}>Portfolio</H2>
         <div
-          className="flex gap-0 px-4 pt-4 overflow-x-auto"
+          className="flex gap-0 overflow-x-auto overflow-y-hidden"
           style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
         >
           {STATUS_TABS.map((t) => {
@@ -188,7 +247,7 @@ export default function InvestmentsContent() {
           })}
         </div>
 
-        <div className="px-4 pb-4">
+        <div className="pt-2">
           {isLoading ? (
             <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
               Loading…
@@ -198,18 +257,18 @@ export default function InvestmentsContent() {
               {tab === "listing" ? "No active investments." : "Nothing here yet."}
             </p>
           ) : (
-            <div className="overflow-x-auto -mx-4 px-4">
+            <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
                     <th className="text-left py-2 px-2 font-medium">Status</th>
-                    <th className="text-left py-2 px-2 font-medium">Name</th>
+                    <SortableHeader label="Name" sortKey="name" align="left" current={sortKey} dir={sortDir} onClick={toggleSort} />
                     <th className="text-left py-2 px-2 font-medium">Source</th>
-                    <th className="text-right py-2 px-2 font-medium">Cost</th>
-                    <th className="text-right py-2 px-2 font-medium">Listed</th>
-                    <th className="text-right py-2 px-2 font-medium">Realized</th>
-                    <th className="text-left py-2 px-2 font-medium w-40">Break-even</th>
-                    <th className="text-right py-2 px-2 font-medium">Created</th>
+                    <SortableHeader label="Cost" sortKey="cost" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader label="Listed" sortKey="listed" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader label="Realized" sortKey="realized" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader label="Break-even" sortKey="breakeven" align="left" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" />
+                    <SortableHeader label="Created" sortKey="created" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -221,21 +280,15 @@ export default function InvestmentsContent() {
                     return (
                       <tr
                         key={r.id}
-                        className="transition-all"
+                        className="transition-all cursor-pointer"
                         style={{ borderBottom: "1px solid var(--border)" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+                        onClick={() => router.push(`/investments/${r.id}`)}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                       >
                         <td className="py-2 px-2">{statusBadge(r.status)}</td>
-                        <td className="py-2 px-2">
-                          <Link
-                            href={`/investments/${r.id}`}
-                            style={{ color: "var(--accent)", textDecoration: "none" }}
-                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
-                          >
-                            {r.name}
-                          </Link>
+                        <td className="py-2 px-2" style={{ color: "var(--accent)" }}>
+                          {r.name}
                         </td>
                         <td className="py-2 px-2" style={{ color: "var(--text-muted)" }}>
                           {sourceLabel(r.source)}
@@ -292,7 +345,7 @@ export default function InvestmentsContent() {
             </div>
           )}
         </div>
-      </div>
+      </Panel>
 
       <CreateInvestmentModal
         open={showCreate}

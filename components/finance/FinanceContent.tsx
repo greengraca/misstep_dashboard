@@ -9,6 +9,11 @@ import DataTable, { type Column } from "@/components/dashboard/data-table";
 import Modal from "@/components/dashboard/modal";
 import MonthPicker from "@/components/dashboard/month-picker";
 import Select from "@/components/dashboard/select";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
+import { Panel, H1, H2, Field } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
+import { KindCard } from "@/components/dashboard/kind-card";
+import { MetricRow } from "@/components/dashboard/metric-row";
 import {
   Wallet,
   TrendingUp,
@@ -22,6 +27,8 @@ import {
   CheckCircle,
   Pencil,
   Trash2,
+  Receipt,
+  ArrowDownRight,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -30,54 +37,24 @@ const CATEGORIES = [
   { value: "direct", label: "Direct Transaction" },
   { value: "other", label: "Other" },
 ];
-const TYPE_OPTIONS = [
-  { value: "expense", label: "Expense" },
-  { value: "income", label: "Income" },
-  { value: "withdrawal", label: "Withdrawal" },
-];
-
 function getCurrentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function todayParts() {
+function isoToday(): string {
   const d = new Date();
-  return {
-    day: String(d.getDate()),
-    month: String(d.getMonth() + 1),
-    year: String(d.getFullYear()),
-  };
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function daysInMonth(month: number, year: number) {
-  return new Date(year, month, 0).getDate();
-}
-
-function buildDateStr(day: string, month: string, year: string) {
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
-
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
-  value: String(i + 1),
-  label: new Date(2000, i).toLocaleDateString("en-US", { month: "short" }),
-}));
-
-function getYearOptions() {
-  const current = new Date().getFullYear();
-  return Array.from({ length: 5 }, (_, i) => {
-    const y = String(current - i);
-    return { value: y, label: y };
-  });
-}
-
-const inputStyle = {
+const fieldStyle: React.CSSProperties = {
   background: "var(--bg-card)",
-  borderColor: "var(--border)",
+  border: "1px solid var(--border)",
   color: "var(--text-primary)",
 };
-
-const labelClass = "block text-xs font-medium uppercase tracking-wider mb-1.5";
 
 export default function FinanceContent() {
   const [month, setMonth] = useState(getCurrentMonth);
@@ -109,11 +86,10 @@ export default function FinanceContent() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
 
   // Form state
-  const [formDay, setFormDay] = useState(todayParts().day);
-  const [formMonth, setFormMonth] = useState(todayParts().month);
-  const [formYear, setFormYear] = useState(todayParts().year);
+  const [formDate, setFormDate] = useState(isoToday());
   const [formType, setFormType] = useState("expense");
   const [formCategory, setFormCategory] = useState("shipping");
   const [formDescription, setFormDescription] = useState("");
@@ -156,10 +132,7 @@ export default function FinanceContent() {
 
   function openAdd() {
     setEditingTx(null);
-    const t = todayParts();
-    setFormDay(t.day);
-    setFormMonth(t.month);
-    setFormYear(t.year);
+    setFormDate(isoToday());
     setFormType("expense");
     setFormCategory("shipping");
     setFormDescription("");
@@ -170,10 +143,7 @@ export default function FinanceContent() {
 
   function openEdit(tx: Transaction) {
     setEditingTx(tx);
-    const [y, m, d] = tx.date.split("-");
-    setFormDay(String(parseInt(d)));
-    setFormMonth(String(parseInt(m)));
-    setFormYear(y);
+    setFormDate(tx.date);
     setFormType(tx.type);
     setFormCategory(tx.category);
     setFormDescription(tx.description);
@@ -188,7 +158,7 @@ export default function FinanceContent() {
     setSubmitting(true);
 
     const payload = {
-      date: buildDateStr(formDay, formMonth, formYear),
+      date: formDate,
       type: formType,
       category: formType === "withdrawal" ? "withdrawal" : formCategory,
       description: formDescription,
@@ -218,13 +188,19 @@ export default function FinanceContent() {
     }
   }
 
-  async function handleDelete(tx: Transaction) {
-    if (!confirm(`Delete "${tx.description}"?`)) return;
+  function requestDelete(tx: Transaction) {
+    setDeletingTx(tx);
+  }
+
+  async function confirmDelete() {
+    const tx = deletingTx;
+    if (!tx) return;
     await fetch("/api/finance", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: tx._id }),
     });
+    setDeletingTx(null);
     mutate();
     globalMutate("/api/finance/pending-reimbursements");
   }
@@ -274,7 +250,7 @@ export default function FinanceContent() {
       render: (t) => (
         <span
           style={{
-            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-muted)" : "var(--error, #ef4444)",
+            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-muted)" : "var(--error)",
             fontFamily: "var(--font-mono)",
             fontWeight: 500,
           }}
@@ -285,7 +261,7 @@ export default function FinanceContent() {
     },
     {
       key: "reimbursed",
-      label: "Reimb.",
+      label: "Reimbursed",
       className: "text-center",
       render: (t) => {
         if (t.type !== "expense" || !t.paid_by) return null;
@@ -299,7 +275,7 @@ export default function FinanceContent() {
             {t.reimbursed ? (
               <CheckCircle size={16} style={{ color: "var(--success)" }} />
             ) : (
-              <Clock size={16} style={{ color: "var(--warning, #f59e0b)" }} />
+              <Clock size={16} style={{ color: "var(--warning)" }} />
             )}
           </button>
         );
@@ -320,10 +296,10 @@ export default function FinanceContent() {
             <Pencil size={14} />
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
+            onClick={(e) => { e.stopPropagation(); requestDelete(t); }}
             className="p-1 rounded-lg transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--error, #ef4444)"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--error)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             <Trash2 size={14} />
@@ -336,10 +312,8 @@ export default function FinanceContent() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Finance
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <H1 subtitle="Income, expenses, and reimbursements">Finance</H1>
         <div className="flex items-center gap-3">
           <MonthPicker
             value={month}
@@ -348,22 +322,16 @@ export default function FinanceContent() {
           />
           <button
             onClick={openAdd}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
             style={{
-              background: "rgba(251, 191, 36, 0.15)",
-              color: "var(--accent)",
-              border: "1px solid rgba(251, 191, 36, 0.35)",
+              background: "var(--accent)",
+              color: "var(--accent-text)",
+              border: "1px solid var(--accent)",
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(251, 191, 36, 0.25)";
-              e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.50)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(251, 191, 36, 0.15)";
-              e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.35)";
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
           >
-            <PlusCircle size={16} /> Add
+            <PlusCircle size={16} /> Add transaction
           </button>
         </div>
       </div>
@@ -373,111 +341,69 @@ export default function FinanceContent() {
         <StatCard
           title="Income"
           value={isLoading ? "..." : `€${totalIncome.toFixed(2)}`}
-          icon={<TrendingUp size={20} style={{ color: "var(--accent)" }} />}
+          icon={<TrendingUp size={20} style={{ color: "var(--success)" }} />}
+          tone="success"
           tooltip="Manual income + Cardmarket net revenue"
         />
         <StatCard
           title="Expenses"
           value={isLoading ? "..." : `€${totalExpenses.toFixed(2)}`}
-          icon={<TrendingDown size={20} style={{ color: "var(--accent)" }} />}
+          icon={<TrendingDown size={20} style={{ color: "var(--error)" }} />}
+          tone="danger"
           tooltip="All expenses: shipping, operational, direct, and other"
         />
         <StatCard
           title="Withdrawals"
           value={isLoading ? "..." : `€${totalWithdrawals.toFixed(2)}`}
-          icon={<Banknote size={20} style={{ color: "var(--accent)" }} />}
+          icon={<Banknote size={20} style={{ color: "var(--text-tertiary)" }} />}
+          tone="muted"
           tooltip="Money withdrawn from Cardmarket balance"
         />
         <StatCard
           title="Shipping Profit"
           value={isLoading ? "..." : `${shippingProfit >= 0 ? "" : "-"}€${Math.abs(shippingProfit).toFixed(2)}`}
-          icon={<Package size={20} style={{ color: "var(--accent)" }} />}
+          icon={<Package size={20} style={{ color: shippingProfit >= 0 ? "var(--success)" : "var(--error)" }} />}
+          tone={shippingProfit >= 0 ? "success" : "danger"}
           tooltip="Cardmarket shipping collected minus actual postage costs"
         />
         <StatCard
           title="Treasury Account"
           value={isLoading ? "..." : `${treasuryAccount >= 0 ? "" : "-"}€${Math.abs(treasuryAccount).toFixed(2)}`}
-          icon={<Landmark size={20} style={{ color: "var(--accent)" }} />}
+          icon={<Landmark size={20} style={{ color: "var(--text-tertiary)" }} />}
+          tone="muted"
           tooltip="Withdrawals - Reimbursements paid + Direct Transactions net"
         />
         <StatCard
           title="Net Balance"
           value={isLoading ? "..." : `${netBalance >= 0 ? "" : "-"}€${Math.abs(netBalance).toFixed(2)}`}
-          icon={<Wallet size={20} style={{ color: "var(--accent)" }} />}
-          active={netBalance > 0}
-          tooltip="Income - Expenses + Shipping Profit"
+          icon={<Wallet size={20} style={{ color: netBalance >= 0 ? "var(--success)" : "var(--error)" }} />}
+          tone={netBalance >= 0 ? "success" : "danger"}
+          tooltip={isLoading ? "Income - Expenses + Shipping Profit" : `€${totalIncome.toFixed(2)} − €${totalExpenses.toFixed(2)} + €${shippingProfit.toFixed(2)} = €${netBalance.toFixed(2)}`}
         />
       </div>
 
       {/* CM Revenue breakdown */}
       {cmRev && cmRev.orderCount > 0 && (
-        <div
-          className="p-4 rounded-xl"
-          style={{
-            background: "var(--surface-gradient)",
-            backdropFilter: "var(--surface-blur)",
-            border: "var(--surface-border)",
-            boxShadow: "var(--surface-shadow)",
-          }}
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <ShoppingBag size={16} style={{ color: "var(--accent)" }} />
-            <h2 style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-              Cardmarket Revenue
-            </h2>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              {cmRev.orderCount} orders
-            </span>
+        <Panel>
+          <div className="flex items-center justify-between mb-3">
+            <H2 icon={<ShoppingBag size={16} />}>Cardmarket Revenue</H2>
+            <StatusPill tone="muted">{cmRev.orderCount} orders</StatusPill>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Total Sales</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.totalSales.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Gross</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.grossArticleValue.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Fees</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--error, #ef4444)", fontFamily: "var(--font-mono)" }}>
-                -€{(cmRev.sellingFees + cmRev.trusteeFees).toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Shipping Costs</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.shippingCosts.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Net Revenue</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--success)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.netRevenue.toFixed(2)}
-              </p>
-            </div>
-          </div>
-        </div>
+          <MetricRow
+            items={[
+              { label: "Total Sales", value: `€${cmRev.totalSales.toFixed(2)}` },
+              { label: "Gross",       value: `€${cmRev.grossArticleValue.toFixed(2)}` },
+              { label: "Fees",        value: `-€${(cmRev.sellingFees + cmRev.trusteeFees).toFixed(2)}`, tone: "danger" },
+              { label: "Shipping",    value: `€${cmRev.shippingCosts.toFixed(2)}`, tone: "muted" },
+              { label: "Net Revenue", value: `€${cmRev.netRevenue.toFixed(2)}`, tone: "success" },
+            ]}
+          />
+        </Panel>
       )}
 
       {/* Transaction table */}
-      <div
-        className="p-4 sm:p-6"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "var(--surface-border)",
-          boxShadow: "var(--surface-shadow)",
-          borderRadius: "var(--radius)",
-        }}
-      >
-        <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
-          Transactions
-        </h2>
+      <Panel>
+        <H2 icon={<Receipt size={16} />}>Transactions</H2>
         <DataTable
           columns={columns}
           data={transactions}
@@ -518,14 +444,14 @@ export default function FinanceContent() {
                     {t.reimbursed ? (
                       <CheckCircle size={14} style={{ color: "var(--success)" }} />
                     ) : (
-                      <Clock size={14} style={{ color: "var(--warning, #f59e0b)" }} />
+                      <Clock size={14} style={{ color: "var(--warning)" }} />
                     )}
                   </button>
                 )}
                 <span
                   className="text-sm font-medium"
                   style={{
-                    color: t.type === "income" ? "var(--success)" : "var(--error, #ef4444)",
+                    color: t.type === "income" ? "var(--success)" : "var(--error)",
                     fontFamily: "var(--font-mono)",
                   }}
                 >
@@ -545,178 +471,145 @@ export default function FinanceContent() {
             </div>
           )}
         />
-      </div>
+      </Panel>
 
       {/* Add/Edit modal */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editingTx ? "Edit Transaction" : "Add Transaction"}
+        title={editingTx ? "Edit transaction" : "Add transaction"}
+        maxWidth="max-w-2xl"
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Date */}
-          <div>
-            <label className={labelClass} style={{ color: "var(--text-muted)" }}>Date</label>
-            <div className="flex gap-2">
-              <Select
-                value={formDay}
-                onChange={setFormDay}
-                options={Array.from(
-                  { length: daysInMonth(parseInt(formMonth), parseInt(formYear)) },
-                  (_, i) => ({ value: String(i + 1), label: String(i + 1) })
-                )}
-                className="flex-1"
-                placeholder="Day"
-              />
-              <Select
-                value={formMonth}
-                onChange={(m) => {
-                  setFormMonth(m);
-                  const maxDay = daysInMonth(parseInt(m), parseInt(formYear));
-                  if (parseInt(formDay) > maxDay) setFormDay(String(maxDay));
-                }}
-                options={MONTH_OPTIONS}
-                className="flex-1"
-                placeholder="Month"
-              />
-              <Select
-                value={formYear}
-                onChange={setFormYear}
-                options={getYearOptions()}
-                className="flex-1"
-                placeholder="Year"
-              />
-            </div>
-          </div>
-
-          {/* Type toggle */}
-          <div>
-            <label className={labelClass} style={{ color: "var(--text-muted)" }}>Type</label>
-            <div className="flex gap-2">
-              {TYPE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setFormType(opt.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-colors"
-                  style={{
-                    background: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error-light, rgba(239,68,68,0.1))"
-                        : opt.value === "withdrawal" ? "rgba(251,191,36,0.1)"
-                        : "var(--success-light, rgba(34,197,94,0.1))"
-                      : "var(--bg-card)",
-                    borderColor: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error, #ef4444)"
-                        : opt.value === "withdrawal" ? "#fbbf24"
-                        : "var(--success)"
-                      : "var(--border)",
-                    color: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error, #ef4444)"
-                        : opt.value === "withdrawal" ? "#fbbf24"
-                        : "var(--success)"
-                      : "var(--text-secondary)",
-                  }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Category (not for withdrawals) */}
-          {formType !== "withdrawal" && (
-            <div>
-              <label className={labelClass} style={{ color: "var(--text-muted)" }}>Category</label>
-              <Select
-                value={formCategory}
-                onChange={setFormCategory}
-                options={CATEGORIES}
-                className="w-full"
-              />
-            </div>
-          )}
-
-          {/* Description */}
-          <div>
-            <label className={labelClass} style={{ color: "var(--text-muted)" }}>Description</label>
-            <input
-              type="text"
-              value={formDescription}
-              onChange={(e) => setFormDescription(e.target.value)}
-              required
-              placeholder="e.g. Shipping order #1234"
-              className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:border-[var(--accent)]"
-              style={inputStyle}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          {/* Kind picker */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <KindCard
+              active={formType === "expense"}
+              onClick={() => setFormType("expense")}
+              tone="danger"
+              icon={<ArrowDownRight size={22} style={{ color: formType === "expense" ? "var(--error)" : "var(--text-secondary)" }} />}
+              title="Expense"
+              description="Money out — shipping, supplies, fees, or anything you paid for."
+            />
+            <KindCard
+              active={formType === "income"}
+              onClick={() => setFormType("income")}
+              tone="success"
+              icon={<TrendingUp size={22} style={{ color: formType === "income" ? "var(--success)" : "var(--text-secondary)" }} />}
+              title="Income"
+              description="Manual income — direct sales, refunds, or anything not coming from Cardmarket."
+            />
+            <KindCard
+              active={formType === "withdrawal"}
+              onClick={() => setFormType("withdrawal")}
+              tone="neutral"
+              icon={<Banknote size={22} style={{ color: formType === "withdrawal" ? "var(--text-primary)" : "var(--text-secondary)" }} />}
+              title="Withdrawal"
+              description="Money pulled out of the Cardmarket balance into your own account."
             />
           </div>
 
-          {/* Amount */}
-          <div>
-            <label className={labelClass} style={{ color: "var(--text-muted)" }}>Amount (€)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={formAmount}
-              onChange={(e) => setFormAmount(e.target.value)}
-              required
-              placeholder="0.00"
-              className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:border-[var(--accent)]"
-              style={inputStyle}
-            />
-          </div>
-
-          {/* Paid By (expenses only) */}
-          {formType === "expense" && (
-            <div>
-              <label className={labelClass} style={{ color: "var(--text-muted)" }}>Paid By</label>
-              <Select
-                value={formPaidBy}
-                onChange={setFormPaidBy}
-                options={paidByOptions}
-                className="w-full"
-                placeholder="Select member..."
-              />
+          {/* Form body */}
+          <div className="flex flex-col gap-3 animate-[fadeIn_0.2s_ease]">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date">
+                <input
+                  type="date"
+                  required
+                  value={formDate}
+                  onChange={(e) => setFormDate(e.target.value)}
+                  className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+                />
+              </Field>
+              <Field label="Amount (€)">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={formAmount}
+                  onChange={(e) => setFormAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
+                  style={{ ...fieldStyle, fontFamily: "var(--font-mono)" }}
+                />
+              </Field>
             </div>
-          )}
+
+            {formType !== "withdrawal" && (
+              <Field label="Category">
+                <Select
+                  value={formCategory}
+                  onChange={setFormCategory}
+                  options={CATEGORIES}
+                  className="w-full"
+                />
+              </Field>
+            )}
+
+            <Field label="Description">
+              <input
+                type="text"
+                required
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="e.g. Shipping order #1234"
+                className="appraiser-field w-full px-3 py-2 rounded-lg text-sm"
+                style={fieldStyle}
+              />
+            </Field>
+
+            {formType === "expense" && (
+              <Field label="Paid by" hint="Set this if a team member fronted the cost — used for reimbursements.">
+                <Select
+                  value={formPaidBy}
+                  onChange={setFormPaidBy}
+                  options={paidByOptions}
+                  className="w-full"
+                  placeholder="Select member..."
+                />
+              </Field>
+            )}
+          </div>
 
           {/* Actions */}
-          <div className="flex gap-3 pt-2">
+          <div className="flex justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={() => setModalOpen(false)}
-              className="flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors"
-              style={{
-                background: "transparent",
-                borderColor: "var(--border)",
-                color: "var(--text-secondary)",
-              }}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !formDescription || !formAmount}
-              className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
               style={{
-                background: "rgba(251, 191, 36, 0.15)",
-                color: "var(--accent)",
-                border: "1px solid rgba(251, 191, 36, 0.35)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(251, 191, 36, 0.25)";
-                e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.50)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(251, 191, 36, 0.15)";
-                e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.35)";
+                background: submitting || !formDescription || !formAmount ? "var(--bg-card)" : "var(--accent)",
+                color: submitting || !formDescription || !formAmount ? "var(--text-muted)" : "var(--accent-text)",
+                border: "1px solid var(--accent)",
+                opacity: submitting || !formDescription || !formAmount ? 0.6 : 1,
+                cursor: submitting || !formDescription || !formAmount ? "not-allowed" : "pointer",
               }}
             >
-              {submitting ? "Saving..." : editingTx ? "Update" : "Add"}
+              {submitting ? "Saving…" : editingTx ? "Update transaction" : "Add transaction"}
             </button>
           </div>
         </form>
       </Modal>
+
+      <ConfirmModal
+        open={!!deletingTx}
+        onClose={() => setDeletingTx(null)}
+        onConfirm={confirmDelete}
+        title="Delete transaction"
+        message={deletingTx ? `Delete "${deletingTx.description}"? This cannot be undone.` : ""}
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

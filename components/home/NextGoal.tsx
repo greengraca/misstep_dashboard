@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { Target } from "lucide-react";
+import { Panel } from "@/components/dashboard/page-shell";
 
 interface GoalData {
   name: string;
@@ -15,35 +16,32 @@ interface GoalData {
   };
 }
 
+function GoalHeader() {
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <div className="p-2 rounded-lg" style={{ background: "var(--accent-light)" }}>
+        <Target size={16} style={{ color: "var(--accent)" }} />
+      </div>
+      <span
+        className="text-xs font-medium uppercase tracking-wider"
+        style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+      >
+        Next Goal
+      </span>
+    </div>
+  );
+}
+
 export default function NextGoal() {
   const { data, isLoading } = useSWR<{ data: GoalData }>("/api/home/goal", fetcher);
   const goal = data?.data;
 
   if (isLoading) {
     return (
-      <div
-        className="rounded-xl p-4 sm:p-6"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "var(--surface-border)",
-          boxShadow: "var(--surface-shadow)",
-          minHeight: "120px",
-        }}
-      >
-        <div className="flex items-center gap-2 mb-4">
-          <div className="p-2 rounded-lg" style={{ background: "var(--accent-light)" }}>
-            <Target size={16} style={{ color: "var(--accent)" }} />
-          </div>
-          <span
-            className="text-xs font-medium uppercase tracking-wider"
-            style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-          >
-            Next Goal
-          </span>
-        </div>
+      <Panel style={{ minHeight: 120 }}>
+        <GoalHeader />
         <div className="h-3 rounded-full" style={{ background: "rgba(255,255,255,0.05)" }} />
-      </div>
+      </Panel>
     );
   }
 
@@ -52,27 +50,8 @@ export default function NextGoal() {
   const pct = Math.min((goal.current / goal.target) * 100, 100);
 
   return (
-    <div
-      className="rounded-xl p-4 sm:p-6"
-      style={{
-        background: "var(--surface-gradient)",
-        backdropFilter: "var(--surface-blur)",
-        border: "var(--surface-border)",
-        boxShadow: "var(--surface-shadow)",
-      }}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-2 mb-4">
-        <div className="p-2 rounded-lg" style={{ background: "var(--accent-light)" }}>
-          <Target size={16} style={{ color: "var(--accent)" }} />
-        </div>
-        <span
-          className="text-xs font-medium uppercase tracking-wider"
-          style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-        >
-          Next Goal
-        </span>
-      </div>
+    <Panel>
+      <GoalHeader />
 
       {/* Title row */}
       <div className="flex items-baseline justify-between gap-3 mb-1 flex-wrap">
@@ -142,6 +121,6 @@ export default function NextGoal() {
           </span>
         </span>
       </div>
-    </div>
+    </Panel>
   );
 }
