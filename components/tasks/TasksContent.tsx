@@ -5,7 +5,8 @@ import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
 import Modal from "@/components/dashboard/modal";
-import { CheckSquare, Clock, CheckCheck, PlusCircle } from "lucide-react";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { CheckSquare, Clock, CheckCheck, PlusCircle, ListChecks } from "lucide-react";
 
 type TaskStatus = "todo" | "in-progress" | "done";
 type TaskPriority = "high" | "medium" | "low";
@@ -28,13 +29,13 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
   "todo": "var(--text-muted)",
-  "in-progress": "var(--warning, #f59e0b)",
+  "in-progress": "var(--warning)",
   "done": "var(--success)",
 };
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
-  "high": "var(--danger, #ef4444)",
-  "medium": "var(--warning, #f59e0b)",
+  "high": "var(--error)",
+  "medium": "var(--warning)",
   "low": "var(--success)",
 };
 
@@ -106,59 +107,55 @@ export default function TasksContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Tasks
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <H1 subtitle="Workload, priorities, and assignees">Tasks</H1>
         <button
           onClick={() => setModalOpen(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
           style={{
             background: "var(--accent)",
             color: "var(--accent-text)",
-            border: "none",
-            borderRadius: "var(--radius)",
-            padding: "8px 16px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
+            border: "1px solid var(--accent)",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
         >
           <PlusCircle size={16} /> Add Task
         </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-        <StatCard title="Total Tasks" value={isLoading ? "..." : tasks.length} icon={<CheckSquare size={20} />} />
-        <StatCard title="In Progress" value={isLoading ? "..." : inProgress} icon={<Clock size={20} />} active />
-        <StatCard title="Completed" value={isLoading ? "..." : completed} icon={<CheckCheck size={20} />} />
+        <StatCard title="Total Tasks" value={isLoading ? "..." : tasks.length} icon={<CheckSquare size={20} style={{ color: "var(--accent)" }} />} />
+        <StatCard title="In Progress" value={isLoading ? "..." : inProgress} icon={<Clock size={20} style={{ color: "var(--accent)" }} />} active />
+        <StatCard title="Completed" value={isLoading ? "..." : completed} icon={<CheckCheck size={20} style={{ color: "var(--accent)" }} />} />
       </div>
 
-      {/* Status filter pills */}
-      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        {STATUS_FILTERS.map(f => (
-          <button
-            key={f.value}
-            onClick={() => setStatusFilter(f.value)}
-            style={{
-              background: statusFilter === f.value ? "var(--accent)" : "var(--bg-card)",
-              color: statusFilter === f.value ? "var(--accent-text)" : "var(--text-secondary)",
-              border: `1px solid ${statusFilter === f.value ? "var(--accent)" : "var(--border)"}`,
-              borderRadius: "999px",
-              padding: "6px 16px",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      <Panel>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <H2 icon={<ListChecks size={16} />}>Tasks</H2>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            {STATUS_FILTERS.map(f => (
+              <button
+                key={f.value}
+                onClick={() => setStatusFilter(f.value)}
+                style={{
+                  background: statusFilter === f.value ? "var(--accent)" : "var(--bg-card)",
+                  color: statusFilter === f.value ? "var(--accent-text)" : "var(--text-secondary)",
+                  border: `1px solid ${statusFilter === f.value ? "var(--accent)" : "var(--border)"}`,
+                  borderRadius: "999px",
+                  padding: "4px 12px",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-      <DataTable
+        <DataTable
         columns={columns}
         data={filtered}
         keyField="_id"
@@ -206,7 +203,8 @@ export default function TasksContent() {
             </div>
           </div>
         )}
-      />
+        />
+      </Panel>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Add Task">
         <p style={{ color: "var(--text-secondary)" }}>Task form — customize this for your domain.</p>

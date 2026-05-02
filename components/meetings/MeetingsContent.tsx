@@ -5,7 +5,8 @@ import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
 import Modal from "@/components/dashboard/modal";
-import { MessageCircle, CalendarCheck, Users, PlusCircle, ChevronDown, ChevronRight } from "lucide-react";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { MessageCircle, CalendarCheck, Users, PlusCircle, ChevronDown, ChevronRight, Calendar } from "lucide-react";
 
 interface Meeting {
   _id: string;
@@ -93,37 +94,32 @@ export default function MeetingsContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Meetings
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <H1 subtitle="Schedule, attendees, and meeting notes">Meetings</H1>
         <button
           onClick={() => setModalOpen(true)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
           style={{
             background: "var(--accent)",
             color: "var(--accent-text)",
-            border: "none",
-            borderRadius: "var(--radius)",
-            padding: "8px 16px",
-            fontSize: "14px",
-            fontWeight: 600,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
+            border: "1px solid var(--accent)",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
         >
           <PlusCircle size={16} /> Schedule
         </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-        <StatCard title="Total Meetings" value={isLoading ? "..." : meetings.length} icon={<MessageCircle size={20} />} />
-        <StatCard title="This Month" value={isLoading ? "..." : thisMonth} icon={<CalendarCheck size={20} />} active />
-        <StatCard title="Attendees" value={isLoading ? "..." : totalAttendees} icon={<Users size={20} />} />
+        <StatCard title="Total Meetings" value={isLoading ? "..." : meetings.length} icon={<MessageCircle size={20} style={{ color: "var(--accent)" }} />} />
+        <StatCard title="This Month" value={isLoading ? "..." : thisMonth} icon={<CalendarCheck size={20} style={{ color: "var(--accent)" }} />} active />
+        <StatCard title="Attendees" value={isLoading ? "..." : totalAttendees} icon={<Users size={20} style={{ color: "var(--accent)" }} />} />
       </div>
 
-      <DataTable
+      <Panel>
+        <H2 icon={<Calendar size={16} />}>Recent meetings</H2>
+        <DataTable
         columns={columns}
         data={meetings}
         keyField="_id"
@@ -185,7 +181,8 @@ export default function MeetingsContent() {
             </div>
           );
         }}
-      />
+        />
+      </Panel>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Schedule Meeting">
         <p style={{ color: "var(--text-secondary)" }}>Meeting form — customize this for your domain.</p>
