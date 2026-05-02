@@ -4,16 +4,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import { TrendingUp, Plus, Package, Boxes } from "lucide-react";
+import { TrendingUp, Plus, Package, Boxes, Briefcase } from "lucide-react";
 import StatCard from "@/components/dashboard/stat-card";
 import CreateInvestmentModal from "./CreateInvestmentModal";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import type { InvestmentListItem, InvestmentStatus } from "@/lib/investments/types";
-
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
-};
 
 const formatEur = (n: number | null | undefined) =>
   n != null ? `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : "—";
@@ -95,21 +90,20 @@ export default function InvestmentsContent() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Investments
-          </h1>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Sealed purchases + their attributed singles
-          </p>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <H1 subtitle="Sealed purchases and their attributed singles">Investments</H1>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-          style={{ background: "var(--accent)", color: "var(--accent-text)" }}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={{
+            background: "var(--accent)",
+            color: "var(--accent-text)",
+            border: "1px solid var(--accent)",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
         >
-          <Plus size={14} /> New Investment
+          <Plus size={16} /> New investment
         </button>
       </div>
 
@@ -148,9 +142,10 @@ export default function InvestmentsContent() {
         />
       </div>
 
-      <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
+      <Panel>
+        <H2 icon={<Briefcase size={16} />}>Portfolio</H2>
         <div
-          className="flex gap-0 px-4 pt-4 overflow-x-auto"
+          className="flex gap-0 overflow-x-auto overflow-y-hidden"
           style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
         >
           {STATUS_TABS.map((t) => {
@@ -188,7 +183,7 @@ export default function InvestmentsContent() {
           })}
         </div>
 
-        <div className="px-4 pb-4">
+        <div className="pt-2">
           {isLoading ? (
             <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
               Loading…
@@ -198,7 +193,7 @@ export default function InvestmentsContent() {
               {tab === "listing" ? "No active investments." : "Nothing here yet."}
             </p>
           ) : (
-            <div className="overflow-x-auto -mx-4 px-4">
+            <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
@@ -223,7 +218,7 @@ export default function InvestmentsContent() {
                         key={r.id}
                         className="transition-all"
                         style={{ borderBottom: "1px solid var(--border)" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                       >
                         <td className="py-2 px-2">{statusBadge(r.status)}</td>
@@ -292,7 +287,7 @@ export default function InvestmentsContent() {
             </div>
           )}
         </div>
-      </div>
+      </Panel>
 
       <CreateInvestmentModal
         open={showCreate}
