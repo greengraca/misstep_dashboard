@@ -348,6 +348,17 @@ export default function SettingsContent() {
         confirmLabel="Remove"
         variant="danger"
       />
+
+      <footer
+        className="text-[11px] mt-4 pt-4 flex items-center justify-center gap-3 flex-wrap"
+        style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border)", fontFamily: "var(--font-mono)" }}
+      >
+        <span>misstep dashboard</span>
+        <span style={{ opacity: 0.4 }}>·</span>
+        <span>build {process.env.NEXT_PUBLIC_COMMIT_SHA || "dev"}</span>
+        <span style={{ opacity: 0.4 }}>·</span>
+        <span>ext v{LATEST_EXT_VERSION}</span>
+      </footer>
     </div>
   );
 }
