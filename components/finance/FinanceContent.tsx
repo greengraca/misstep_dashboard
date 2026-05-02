@@ -13,6 +13,7 @@ import ConfirmModal from "@/components/dashboard/confirm-modal";
 import { Panel, H1, H2, Field } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
 import { KindCard } from "@/components/dashboard/kind-card";
+import { MetricRow } from "@/components/dashboard/metric-row";
 import {
   Wallet,
   TrendingUp,
@@ -383,39 +384,15 @@ export default function FinanceContent() {
             <H2 icon={<ShoppingBag size={16} />}>Cardmarket Revenue</H2>
             <StatusPill tone="muted">{cmRev.orderCount} orders</StatusPill>
           </div>
-          {/* Replaced by MetricRow in Task 6. */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Total Sales</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.totalSales.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Gross</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.grossArticleValue.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Fees</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--error)", fontFamily: "var(--font-mono)" }}>
-                -€{(cmRev.sellingFees + cmRev.trusteeFees).toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Shipping Costs</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.shippingCosts.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <span style={{ color: "var(--text-muted)" }}>Net Revenue</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--success)", fontFamily: "var(--font-mono)" }}>
-                €{cmRev.netRevenue.toFixed(2)}
-              </p>
-            </div>
-          </div>
+          <MetricRow
+            items={[
+              { label: "Total Sales", value: `€${cmRev.totalSales.toFixed(2)}` },
+              { label: "Gross",       value: `€${cmRev.grossArticleValue.toFixed(2)}` },
+              { label: "Fees",        value: `-€${(cmRev.sellingFees + cmRev.trusteeFees).toFixed(2)}`, tone: "danger" },
+              { label: "Shipping",    value: `€${cmRev.shippingCosts.toFixed(2)}`, tone: "muted" },
+              { label: "Net Revenue", value: `€${cmRev.netRevenue.toFixed(2)}`, tone: "success" },
+            ]}
+          />
         </Panel>
       )}
 
