@@ -2092,11 +2092,35 @@ export async function getOrders(filters: {
   const limit = filters.limit || 20;
   const skip = ((filters.page || 1) - 1) * limit;
 
-  // Arrived and shopping_cart: newest first. All other tabs: oldest first (most urgent on top).
+  // Arrived and shopping_cart: newest first. All other tabs: oldest first (most urgent on top,
+  // most recent on bottom — print/work-through flow).
+  //
+  // orderDate is a "DD.MM.YYYY" string scraped from CM, so we can't sort it as a Date directly.
+  // A naive string sort scrambles cross-month order ("31.05.2026" sorts AFTER "01.06.2026"
+  // because '3' > '0' lexicographically). Derive a real Date via $dateFromString in an
+  // aggregation stage so the sort is chronological.
   const sortDir = filters.status === "arrived" || filters.status === "shopping_cart" ? -1 : 1;
 
   const [docs, total, valueResult] = await Promise.all([
-    col.find(query).sort({ orderDate: sortDir, orderTime: sortDir, _id: sortDir }).skip(skip).limit(limit).toArray(),
+    col.aggregate([
+      { $match: query },
+      {
+        $addFields: {
+          _orderDateTs: {
+            $dateFromString: {
+              dateString: "$orderDate",
+              format: "%d.%m.%Y",
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      { $sort: { _orderDateTs: sortDir, orderTime: sortDir, _id: sortDir } },
+      { $skip: skip },
+      { $limit: limit },
+      { $project: { _orderDateTs: 0 } },
+    ]).toArray(),
     col.countDocuments(query),
     col.aggregate([
       { $match: query },
