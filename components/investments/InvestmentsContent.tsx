@@ -1,10 +1,36 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
-import { TrendingUp, Plus, Package, Boxes, Briefcase } from "lucide-react";
+import { TrendingUp, Plus, Package, Boxes, Briefcase, ChevronDown, ChevronUp } from "lucide-react";
+
+function SortableHeader({
+  label, sortKey, align, current, dir, onClick, className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  align: "left" | "right";
+  current: SortKey;
+  dir: "asc" | "desc";
+  onClick: (k: SortKey) => void;
+  className?: string;
+}) {
+  const active = current === sortKey;
+  return (
+    <th
+      onClick={() => onClick(sortKey)}
+      className={`py-2 px-2 font-medium select-none cursor-pointer transition-colors ${align === "right" ? "text-right" : "text-left"} ${className ?? ""}`}
+      style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}
+    >
+      <span className={`inline-flex items-center gap-1 ${align === "right" ? "justify-end" : ""}`}>
+        {label}
+        {active && (dir === "asc" ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+      </span>
+    </th>
+  );
+}
 import StatCard from "@/components/dashboard/stat-card";
 import CreateInvestmentModal from "./CreateInvestmentModal";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
@@ -50,9 +76,23 @@ function statusBadge(status: InvestmentStatus) {
   );
 }
 
+type SortKey = "name" | "cost" | "listed" | "realized" | "breakeven" | "created";
+
 export default function InvestmentsContent() {
+  const router = useRouter();
   const [tab, setTab] = useState<InvestmentStatus | "all">("listing");
   const [showCreate, setShowCreate] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("created");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
 
   // Fetch all investments once. Filter/count client-side — volume is low (tens).
   const { data, mutate, isLoading } = useSWR<{ investments: InvestmentListItem[] }>(
@@ -72,10 +112,31 @@ export default function InvestmentsContent() {
     return counts;
   }, [allRows]);
 
-  const rows = useMemo(
-    () => (tab === "all" ? allRows : allRows.filter((r) => r.status === tab)),
-    [allRows, tab]
-  );
+  const rows = useMemo(() => {
+    const filtered = tab === "all" ? allRows : allRows.filter((r) => r.status === tab);
+    const sorted = [...filtered].sort((a, b) => {
+      const ar = a.realized_eur + a.sealed_flips_total_eur;
+      const br = b.realized_eur + b.sealed_flips_total_eur;
+      const cmp = (() => {
+        switch (sortKey) {
+          case "name": return a.name.localeCompare(b.name);
+          case "cost": return a.cost_total_eur - b.cost_total_eur;
+          case "listed": return a.listed_value_eur - b.listed_value_eur;
+          case "realized": return ar - br;
+          case "breakeven": {
+            const aRatio = a.cost_total_eur > 0 ? ar / a.cost_total_eur : 0;
+            const bRatio = b.cost_total_eur > 0 ? br / b.cost_total_eur : 0;
+            return aRatio - bRatio;
+          }
+          case "created":
+          default:
+            return a.created_at.localeCompare(b.created_at);
+        }
+      })();
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [allRows, tab, sortKey, sortDir]);
 
   const { deployed, realized, listed, plBlended } = useMemo(() => {
     let deployed = 0, realized = 0, listed = 0;
@@ -115,7 +176,8 @@ export default function InvestmentsContent() {
             const active = countsByStatus.listing + countsByStatus.closed;
             return active ? `${active} investment${active === 1 ? "" : "s"}` : undefined;
           })()}
-          icon={<Boxes size={18} style={{ color: "var(--accent)" }} />}
+          icon={<Boxes size={18} style={{ color: "var(--text-tertiary)" }} />}
+          tone="muted"
         />
         <StatCard
           title="Listed value"
@@ -127,7 +189,8 @@ export default function InvestmentsContent() {
           title="Realized net"
           value={formatEur(realized)}
           subtitle="Sold + sealed flips"
-          icon={<TrendingUp size={18} style={{ color: "var(--accent)" }} />}
+          icon={<TrendingUp size={18} style={{ color: "var(--success)" }} />}
+          tone="success"
         />
         <StatCard
           title="P/L blended"
@@ -139,6 +202,7 @@ export default function InvestmentsContent() {
               style={{ color: plBlended >= 0 ? "var(--success)" : "var(--error)" }}
             />
           }
+          tone={plBlended >= 0 ? "success" : "danger"}
         />
       </div>
 
@@ -198,13 +262,13 @@ export default function InvestmentsContent() {
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
                     <th className="text-left py-2 px-2 font-medium">Status</th>
-                    <th className="text-left py-2 px-2 font-medium">Name</th>
+                    <SortableHeader label="Name" sortKey="name" align="left" current={sortKey} dir={sortDir} onClick={toggleSort} />
                     <th className="text-left py-2 px-2 font-medium">Source</th>
-                    <th className="text-right py-2 px-2 font-medium">Cost</th>
-                    <th className="text-right py-2 px-2 font-medium">Listed</th>
-                    <th className="text-right py-2 px-2 font-medium">Realized</th>
-                    <th className="text-left py-2 px-2 font-medium w-40">Break-even</th>
-                    <th className="text-right py-2 px-2 font-medium">Created</th>
+                    <SortableHeader label="Cost" sortKey="cost" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader label="Listed" sortKey="listed" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader label="Realized" sortKey="realized" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
+                    <SortableHeader label="Break-even" sortKey="breakeven" align="left" current={sortKey} dir={sortDir} onClick={toggleSort} className="w-40" />
+                    <SortableHeader label="Created" sortKey="created" align="right" current={sortKey} dir={sortDir} onClick={toggleSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -216,21 +280,15 @@ export default function InvestmentsContent() {
                     return (
                       <tr
                         key={r.id}
-                        className="transition-all"
+                        className="transition-all cursor-pointer"
                         style={{ borderBottom: "1px solid var(--border)" }}
+                        onClick={() => router.push(`/investments/${r.id}`)}
                         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                       >
                         <td className="py-2 px-2">{statusBadge(r.status)}</td>
-                        <td className="py-2 px-2">
-                          <Link
-                            href={`/investments/${r.id}`}
-                            style={{ color: "var(--accent)", textDecoration: "none" }}
-                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
-                          >
-                            {r.name}
-                          </Link>
+                        <td className="py-2 px-2" style={{ color: "var(--accent)" }}>
+                          {r.name}
                         </td>
                         <td className="py-2 px-2" style={{ color: "var(--text-muted)" }}>
                           {sourceLabel(r.source)}
