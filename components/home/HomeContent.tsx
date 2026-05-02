@@ -64,10 +64,8 @@ export default function HomeContent() {
         />
       </div>
 
-      {/* Sales economics — ASP/card, ship profit/pkg, by-status / method / country */}
-      <SalesEconomicsPanel />
-
-      {/* Pending Reimbursements */}
+      {/* Pending Reimbursements — actionable items first, before the
+          read-only Sales Economics drilldown. */}
       <Panel>
         <div className="flex items-center justify-between mb-3">
           <H2 icon={<Receipt size={16} />}>Pending Reimbursements</H2>
@@ -129,6 +127,9 @@ export default function HomeContent() {
           </div>
         )}
       </Panel>
+
+      {/* Sales economics — ASP/card, ship profit/pkg, by-status / method / country */}
+      <SalesEconomicsPanel />
     </div>
   );
 }
