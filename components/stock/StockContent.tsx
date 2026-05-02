@@ -287,7 +287,16 @@ export default function StockContent() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <H1 subtitle="Live Cardmarket inventory and trend prices">Stock</H1>
-        {filtered && <StatusPill tone="accent">Filtered</StatusPill>}
+        {filtered && (
+          <button
+            onClick={onClear}
+            className="inline-flex items-center gap-1 transition-opacity hover:opacity-80"
+            style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
+            title="Clear all filters"
+          >
+            <StatusPill tone="accent">× Clear filters</StatusPill>
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

@@ -43,13 +43,12 @@ interface StockFiltersProps {
 }
 
 const inputStyle: React.CSSProperties = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "var(--bg-card)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
   color: "var(--text-primary)",
-  padding: "4px 8px",
-  fontSize: 14,
+  padding: "6px 10px",
+  fontSize: 13,
   minWidth: 0,
   outline: "none",
 };
@@ -61,8 +60,11 @@ const labelCol: React.CSSProperties = {
 };
 
 const labelText: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 10,
   color: "var(--text-muted)",
+  fontFamily: "var(--font-mono)",
+  textTransform: "uppercase",
+  letterSpacing: "0.05em",
 };
 
 export default function StockFilters({
@@ -80,19 +82,21 @@ export default function StockFilters({
     <div
       style={{
         background: "var(--surface-gradient)",
-        border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 16,
+        backdropFilter: "var(--surface-blur)",
+        border: "var(--surface-border)",
+        boxShadow: "var(--surface-shadow)",
+        borderRadius: "var(--radius)",
+        padding: 14,
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-        gap: 8,
+        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+        gap: 10,
         alignItems: "end",
       }}
     >
       <label style={labelCol}>
         <span style={labelText}>Name</span>
         <input
+          className="appraiser-field"
           style={inputStyle}
           value={value.name}
           onChange={(e) => set("name", e.target.value)}
@@ -161,6 +165,7 @@ export default function StockFilters({
       <label style={labelCol}>
         <span style={labelText}>Min €</span>
         <input
+          className="appraiser-field"
           style={inputStyle}
           type="number"
           step="0.01"
@@ -172,6 +177,7 @@ export default function StockFilters({
       <label style={labelCol}>
         <span style={labelText}>Max €</span>
         <input
+          className="appraiser-field"
           style={inputStyle}
           type="number"
           step="0.01"
@@ -183,6 +189,7 @@ export default function StockFilters({
       <label style={labelCol}>
         <span style={labelText}>Min qty</span>
         <input
+          className="appraiser-field"
           style={inputStyle}
           type="number"
           min="0"
@@ -193,6 +200,7 @@ export default function StockFilters({
       <label style={labelCol} title="Only show listings priced at least this % above Scryfall trend">
         <span style={labelText}>Overpriced ≥ %</span>
         <input
+          className="appraiser-field"
           style={inputStyle}
           type="number"
           step="1"
@@ -222,16 +230,16 @@ export default function StockFilters({
       <button
         type="button"
         onClick={onClear}
+        className="transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
         style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "1px solid rgba(255,255,255,0.10)",
+          background: "var(--bg-card)",
+          border: "1px solid var(--border)",
           borderRadius: 8,
           color: "var(--text-secondary)",
-          padding: "4px 12px",
-          fontSize: 14,
+          padding: "6px 12px",
+          fontSize: 13,
           cursor: "pointer",
-          height: 30,
+          height: 32,
         }}
       >
         Clear
