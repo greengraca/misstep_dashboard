@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { PendingReimbursement } from "@/lib/types";
@@ -9,16 +9,36 @@ import NextGoal from "@/components/home/NextGoal";
 import SalesEconomicsPanel from "@/components/cardmarket/SalesEconomicsPanel";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
+import { LastUpdated } from "@/components/dashboard/last-updated";
 import { Wallet, Store, CreditCard, PackageCheck, Clock, CheckCircle, Receipt } from "lucide-react";
 
 export default function HomeContent() {
-  const { data, isLoading } = useSWR("/api/home/stats", fetcher);
+  const { data, isLoading, mutate: mutateStats } = useSWR("/api/home/stats", fetcher);
   const stats = data?.data;
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastFetched, setLastFetched] = useState<Date | null>(null);
+
+  // Track last successful fetch wall-clock time so the LastUpdated stamp
+  // can render. SWR doesn't expose this directly; we tick the timestamp
+  // every time `data` arrives (initial load + each background revalidation).
+  useEffect(() => {
+    if (data) setLastFetched(new Date());
+  }, [data]);
 
   const { data: pendingData, mutate: mutatePending } = useSWR<{ data: PendingReimbursement[] }>(
     "/api/finance/pending-reimbursements",
     fetcher
   );
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([mutateStats(), mutatePending()]);
+      setLastFetched(new Date());
+    } finally {
+      setRefreshing(false);
+    }
+  }
   // Sort by oldest first — most-stale reimbursements bubble to the top so
   // they're visible. Then derive an "outstanding days" count for each so we
   // can color-code by urgency in the row.
@@ -51,7 +71,10 @@ export default function HomeContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <H1 subtitle="Outstanding actions, balance, and today's pulse">Dashboard</H1>
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <H1 subtitle="Outstanding actions, balance, and today's pulse">Dashboard</H1>
+        <LastUpdated at={lastFetched} onRefresh={handleRefresh} refreshing={refreshing} />
+      </div>
 
       <NextGoal />
 
