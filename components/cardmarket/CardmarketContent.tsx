@@ -142,6 +142,7 @@ export default function CardmarketContent() {
   const [activeTab, setActiveTab] = useState<string>("paid");
   const [direction, setDirection] = useState<"sale" | "purchase">("sale");
   const [orderPage, setOrderPage] = useState(1);
+  const [orderPageSize, setOrderPageSize] = useState(20);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
@@ -154,7 +155,7 @@ export default function CardmarketContent() {
     status: activeTab,
     direction,
     page: String(orderPage),
-    limit: "20",
+    limit: String(orderPageSize),
   });
   const { data: ordersData, mutate: mutateOrders } = useSWR(`/api/ext/orders?${orderParams}`, fetcher, { refreshInterval: 30000 });
 
@@ -579,7 +580,7 @@ export default function CardmarketContent() {
                       <OrderRow
                         key={order.orderId}
                         order={order}
-                        rowNum={(orderPage - 1) * 20 + idx + 1}
+                        rowNum={(orderPage - 1) * orderPageSize + idx + 1}
                         isExpanded={isExpanded}
                         detail={detail}
                         formatEur={formatEur}
@@ -598,8 +599,12 @@ export default function CardmarketContent() {
               <Pagination
                 page={orderPage}
                 total={orders.total}
-                pageSize={20}
+                pageSize={orderPageSize}
                 onChange={setOrderPage}
+                onPageSizeChange={(n) => {
+                  setOrderPageSize(n);
+                  setOrderPage(1);
+                }}
               />
             </>
           ) : (
