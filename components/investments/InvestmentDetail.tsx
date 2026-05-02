@@ -5,7 +5,7 @@ import useSWR from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetcher } from "@/lib/fetcher";
-import { ArrowLeft, MoreHorizontal, Archive, Lock, Trash2, Copy, Check } from "lucide-react";
+import { ArrowLeft, ChevronDown, Archive, Lock, Trash2, Copy, Check } from "lucide-react";
 import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
 import { H1 } from "@/components/dashboard/page-shell";
@@ -175,14 +175,19 @@ export default function InvestmentDetail({ id }: { id: string }) {
         <div ref={menuRef} className="relative">
           <button
             onClick={() => setMenuOpen((x) => !x)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
             style={{
               background: "var(--bg-card)",
               border: "1px solid var(--border)",
               color: "var(--text-secondary)",
             }}
           >
-            <MoreHorizontal size={14} /> Actions
+            Actions
+            <ChevronDown
+              size={12}
+              className="transition-transform"
+              style={{ transform: menuOpen ? "rotate(180deg)" : "rotate(0)" }}
+            />
           </button>
           {menuOpen && (
             <div
