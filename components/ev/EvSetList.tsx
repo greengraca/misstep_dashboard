@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { EvSet } from "@/lib/types";
 import EvSetCard from "./EvSetCard";
+import EvComparePanel from "./EvComparePanel";
 import { RefreshCw, Search, LayoutGrid, List, Settings } from "lucide-react";
 
 const LS_VIEW_KEY = "ev-set-view";
 const LS_CONFIGURED_KEY = "ev-configured-only";
+const LS_PINNED_KEY = "ev-set-pinned";
+const MAX_PINNED = 3;
 
 interface EvSetListProps {
   sets: EvSet[];
@@ -19,6 +22,9 @@ export default function EvSetList({ sets, onSelectSet, onRefresh }: EvSetListPro
   const [syncing, setSyncing] = useState(false);
   const [view, setView] = useState<"cards" | "list">("cards");
   const [configuredOnly, setConfiguredOnly] = useState(false);
+  // Pinned set codes — persisted, capped at MAX_PINNED. Order is pin
+  // order (the first pinned becomes the baseline in the compare panel).
+  const [pinned, setPinned] = useState<string[]>([]);
 
   // Load preferences from localStorage
   useEffect(() => {
@@ -26,7 +32,43 @@ export default function EvSetList({ sets, onSelectSet, onRefresh }: EvSetListPro
     if (savedView === "list" || savedView === "cards") setView(savedView);
     const savedConfigured = localStorage.getItem(LS_CONFIGURED_KEY);
     if (savedConfigured === "true") setConfiguredOnly(true);
+    const savedPinned = localStorage.getItem(LS_PINNED_KEY);
+    if (savedPinned) {
+      try {
+        const parsed = JSON.parse(savedPinned);
+        if (Array.isArray(parsed)) setPinned(parsed.filter((s) => typeof s === "string").slice(0, MAX_PINNED));
+      } catch { /* ignore corrupted entry */ }
+    }
   }, []);
+
+  function togglePin(code: string) {
+    setPinned((prev) => {
+      let next: string[];
+      if (prev.includes(code)) {
+        next = prev.filter((c) => c !== code);
+      } else if (prev.length >= MAX_PINNED) {
+        // Eject the oldest pin to make room — most-recent stays baseline-adjacent.
+        next = [...prev.slice(1), code];
+      } else {
+        next = [...prev, code];
+      }
+      localStorage.setItem(LS_PINNED_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function clearPinned() {
+    setPinned([]);
+    localStorage.removeItem(LS_PINNED_KEY);
+  }
+
+  const pinnedSet = useMemo(() => new Set(pinned), [pinned]);
+  // Resolve pinned codes to full EvSet objects, preserving pin order. Drop
+  // any pinned codes whose set isn't in the current data (deleted/renamed).
+  const pinnedSets = useMemo(() => {
+    const byCode = new Map(sets.map((s) => [s.code, s]));
+    return pinned.map((c) => byCode.get(c)).filter((s): s is EvSet => !!s);
+  }, [pinned, sets]);
 
   function toggleView() {
     const next = view === "cards" ? "list" : "cards";
@@ -118,6 +160,18 @@ export default function EvSetList({ sets, onSelectSet, onRefresh }: EvSetListPro
         </button>
       </div>
 
+      {/* Compare panel — appears above the grid when 1+ sets are pinned. */}
+      {pinnedSets.length > 0 && (
+        <div className="mb-4">
+          <EvComparePanel
+            sets={pinnedSets}
+            onRemove={togglePin}
+            onOpen={onSelectSet}
+            onClear={clearPinned}
+          />
+        </div>
+      )}
+
       {/* Card view */}
       {view === "cards" && (
         <div
@@ -132,6 +186,8 @@ export default function EvSetList({ sets, onSelectSet, onRefresh }: EvSetListPro
               key={set.code}
               set={set}
               onClick={() => onSelectSet(set.code)}
+              pinned={pinnedSet.has(set.code)}
+              onTogglePin={() => togglePin(set.code)}
             />
           ))}
         </div>
