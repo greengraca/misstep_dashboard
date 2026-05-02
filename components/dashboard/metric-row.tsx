@@ -29,15 +29,17 @@ const TONE_COLOR: Record<MetricTone, string> = {
  *  col layouts on mid-size viewports. */
 function gridColsClass(n: number): string {
   // Each branch is a literal so Tailwind's source scanner picks up every
-  // class that could appear here.
+  // class that could appear here. Breakpoints are deliberately conservative —
+  // a phone in landscape can hit md (768+), and the sidebar eats 64–260 px
+  // of width, so md is NOT a safe place to push 5–6 cols. Wait until lg+.
   switch (n) {
     case 1: return "grid-cols-1";
     case 2: return "grid-cols-2";
     case 3: return "grid-cols-2 sm:grid-cols-3";
-    case 4: return "grid-cols-2 sm:grid-cols-2 md:grid-cols-4";
-    case 5: return "grid-cols-2 sm:grid-cols-3 md:grid-cols-5";
-    case 6: return "grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-6";
-    default: return "grid-cols-2 sm:grid-cols-3 md:grid-cols-4";
+    case 4: return "grid-cols-2 lg:grid-cols-4";
+    case 5: return "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5";
+    case 6: return "grid-cols-2 sm:grid-cols-3 xl:grid-cols-6";
+    default: return "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4";
   }
 }
 
