@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
-import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2, TrendingUp, Activity, Zap } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2, TrendingUp, Activity, Zap, Clock } from "lucide-react";
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
@@ -307,19 +307,30 @@ export default function CardmarketContent() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <H1 subtitle="Passive sync via browser extension">Cardmarket</H1>
-        <button
-          onClick={async () => {
-            setRefreshing(true);
-            await Promise.all([mutateStatus(), mutateOrders(), mutateBalance(), mutatePipeline()]);
-            setRefreshing(false);
-          }}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: refreshing ? "var(--accent)" : "var(--text-secondary)", cursor: refreshing ? "not-allowed" : "pointer", opacity: refreshing ? 0.8 : 1 }}
-        >
-          {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          {refreshing ? "Refreshing\u2026" : "Refresh"}
-        </button>
+        {(() => {
+          // SWR auto-refreshes every 15-60s for everything on this page, so a
+          // manual Refresh button is mostly noise. Only render it when the
+          // freshest sync is genuinely stale (>5 min) so the button actually
+          // means something.
+          const latestSync = Object.values(status?.lastSync ?? {})[0] as string | undefined;
+          const stale = latestSync ? Date.now() - new Date(latestSync).getTime() > 5 * 60 * 1000 : false;
+          if (!stale && !refreshing) return null;
+          return (
+            <button
+              onClick={async () => {
+                setRefreshing(true);
+                await Promise.all([mutateStatus(), mutateOrders(), mutateBalance(), mutatePipeline()]);
+                setRefreshing(false);
+              }}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: refreshing ? "var(--accent)" : "var(--warning)", cursor: refreshing ? "not-allowed" : "pointer", opacity: refreshing ? 0.8 : 1 }}
+            >
+              {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {refreshing ? "Refreshing\u2026" : "Stale \u00b7 Refresh"}
+            </button>
+          );
+        })()}
       </div>
 
       {/* Stat Cards */}
@@ -336,14 +347,24 @@ export default function CardmarketContent() {
             const r = (n: number) => `€${Math.round(n)}`;
             return (
               <>
-                {`U: ${r(u)} \u00B7 P: ${r(p)} \u00B7 S: ${r(s)}`}
-                <br className="sm:hidden" />
-                <span className="hidden sm:inline">{" \u00B7 "}</span>
-                <span style={{ color: "var(--text-secondary)" }}>{`T: ${r(t)}`}</span>
+                <span title="Unpaid orders" className="inline-flex items-center gap-1 mr-2">
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 2, background: "var(--warning)" }} />
+                  {r(u)}
+                </span>
+                <span title="Paid, awaiting shipment" className="inline-flex items-center gap-1 mr-2">
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 2, background: "var(--accent)" }} />
+                  {r(p)}
+                </span>
+                <span title="Trustee-sent" className="inline-flex items-center gap-1 mr-2">
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: 2, background: "var(--success)" }} />
+                  {r(s)}
+                </span>
+                <span style={{ color: "var(--text-secondary)" }} title="Total in pipeline">{`\u03A3 ${r(t)}`}</span>
               </>
             );
           })()}
-          icon={<DollarSign size={18} style={{ color: "var(--accent)" }} />}
+          icon={<DollarSign size={18} style={{ color: "var(--success)" }} />}
+          tone="success"
         />
         <StatCard
           title="Stock Tracked"
@@ -363,14 +384,25 @@ export default function CardmarketContent() {
             : undefined}
           icon={<ShoppingCart size={18} style={{ color: "var(--accent)" }} />}
         />
-        <StatCard
-          title="Last Sync"
-          value={formatAgo(Object.values(status?.lastSync ?? {})[0] as string)}
-          subtitle={Object.keys(status?.lastSync ?? {}).length
-            ? `${Object.keys(status.lastSync).length} data types`
-            : undefined}
-          icon={<TrendingDown size={18} style={{ color: "var(--accent)" }} />}
-        />
+        {(() => {
+          const latestSync = Object.values(status?.lastSync ?? {})[0] as string | undefined;
+          const ageMs = latestSync ? Date.now() - new Date(latestSync).getTime() : null;
+          const stale = ageMs != null && ageMs > 5 * 60 * 1000;
+          const veryStale = ageMs != null && ageMs > 60 * 60 * 1000;
+          const tone = veryStale ? "danger" : stale ? "warning" : "accent";
+          const iconColor = veryStale ? "var(--error)" : stale ? "var(--warning)" : "var(--accent)";
+          return (
+            <StatCard
+              title="Last Sync"
+              value={formatAgo(latestSync)}
+              subtitle={Object.keys(status?.lastSync ?? {}).length
+                ? `${Object.keys(status.lastSync).length} data types`
+                : undefined}
+              icon={<Clock size={18} style={{ color: iconColor }} />}
+              tone={tone}
+            />
+          );
+        })()}
       </div>
 
       {/* Balance History */}
