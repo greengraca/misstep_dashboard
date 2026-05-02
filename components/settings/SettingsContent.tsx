@@ -4,7 +4,7 @@ import { useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import { CheckCircle, XCircle, RefreshCw, Radar, Download, PlusCircle, Pencil, Trash2, Users, Server } from "lucide-react";
 import { LATEST_EXT_VERSION } from "@/lib/constants";
-import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { Panel, H1, H2, H3 } from "@/components/dashboard/page-shell";
 import { LinkCard } from "@/components/dashboard/link-card";
 import { StatusPill } from "@/components/dashboard/status-pill";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
@@ -122,7 +122,9 @@ export default function SettingsContent() {
       </div>
 
       {/* Tools */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section className="flex flex-col gap-3">
+        <H3>Tools</H3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <LinkCard
           href="/settings/seed-progress"
           icon={<Radar size={20} />}
@@ -136,7 +138,8 @@ export default function SettingsContent() {
           title={`Download Extension (v${LATEST_EXT_VERSION})`}
           description="Unzip over your existing misstep-ext folder, then hit Reload in chrome://extensions."
         />
-      </div>
+        </div>
+      </section>
 
       {/* Team Members */}
       <Panel>
