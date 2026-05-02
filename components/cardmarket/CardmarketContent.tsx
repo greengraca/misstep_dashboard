@@ -8,6 +8,7 @@ import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
+import { Pagination } from "@/components/dashboard/pagination";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
@@ -562,37 +563,12 @@ export default function CardmarketContent() {
               </div>
 
               {/* Pagination */}
-              {orders.total > 20 && (
-                <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    Page {orderPage} of {Math.ceil(orders.total / 20)}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      disabled={orderPage <= 1}
-                      onClick={() => setOrderPage((p) => p - 1)}
-                      className="px-2 py-1 rounded text-xs"
-                      style={{
-                        background: "var(--bg-card)", border: "1px solid var(--border)",
-                        color: "var(--text-primary)", opacity: orderPage <= 1 ? 0.4 : 1,
-                      }}
-                    >
-                      Prev
-                    </button>
-                    <button
-                      disabled={orderPage >= Math.ceil(orders.total / 20)}
-                      onClick={() => setOrderPage((p) => p + 1)}
-                      className="px-2 py-1 rounded text-xs"
-                      style={{
-                        background: "var(--bg-card)", border: "1px solid var(--border)",
-                        color: "var(--text-primary)", opacity: orderPage >= Math.ceil(orders.total / 20) ? 0.4 : 1,
-                      }}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Pagination
+                page={orderPage}
+                total={orders.total}
+                pageSize={20}
+                onChange={setOrderPage}
+              />
             </>
           ) : (
             <p className="text-xs py-6 text-center" style={{ color: "var(--text-muted)" }}>
@@ -609,17 +585,23 @@ export default function CardmarketContent() {
           <div className="flex flex-col gap-1">
             {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => (
               <div key={i} className="py-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <StatusPill tone="accent">{log.dataType}</StatusPill>
-                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                      {log.stats.added > 0 && `+${log.stats.added}`}
-                      {log.stats.updated > 0 && ` ~${log.stats.updated}`}
-                      {log.stats.skipped > 0 && ` =${log.stats.skipped}`}
-                      {(log.stats as Record<string, number>).removed > 0 && ` -${(log.stats as Record<string, number>).removed}`}
-                    </span>
+                    {log.stats.added > 0 && (
+                      <StatusPill tone="success">+{log.stats.added} added</StatusPill>
+                    )}
+                    {log.stats.updated > 0 && (
+                      <StatusPill tone="info">~{log.stats.updated} updated</StatusPill>
+                    )}
+                    {log.stats.skipped > 0 && (
+                      <StatusPill tone="muted">={log.stats.skipped} skipped</StatusPill>
+                    )}
+                    {(log.stats as Record<string, number>).removed > 0 && (
+                      <StatusPill tone="danger">-{(log.stats as Record<string, number>).removed} removed</StatusPill>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
                       {log.submittedBy}
                     </span>
@@ -840,7 +822,7 @@ function OrderRow({
           borderBottom: isExpanded ? "none" : "1px solid var(--border)",
           opacity: showPrint && order.printed ? 0.75 : 1,
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
       >
         <td className="py-2 px-1 text-center" style={{ color: "var(--text-muted)" }}>
@@ -909,10 +891,8 @@ function OrderRow({
       {isExpanded && (
         <tr>
           <td colSpan={showPrint ? 9 : 8} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
-            <div
-              className="px-4 py-3 mx-2 mb-2 rounded-lg"
-              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}
-            >
+            <div className="px-2 pb-2">
+              <Panel inset>
               {items.length > 0 ? (
                 <>
                   {/* Shipping & summary */}
@@ -993,6 +973,7 @@ function OrderRow({
                   No item details yet — visit this order on Cardmarket to sync.
                 </p>
               )}
+              </Panel>
             </div>
           </td>
         </tr>
