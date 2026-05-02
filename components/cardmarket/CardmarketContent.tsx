@@ -4,8 +4,11 @@ import { useState, useRef, useCallback } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
-import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2 } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, TrendingDown, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2, TrendingUp, Activity, Zap } from "lucide-react";
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
+import { FoilStar } from "@/components/dashboard/cm-sprite";
 
 const SENDER_ADDRESS = {
   name: "João Graça",
@@ -97,12 +100,6 @@ function ExpansionIcon({ pos, set }: { pos?: string; set?: string }) {
     </span>
   );
 }
-
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
-};
 
 const STATUS_TABS = [
   { key: "shopping_cart", label: "In Shopping Cart" },
@@ -279,15 +276,8 @@ export default function CardmarketContent() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Cardmarket
-          </h1>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Passive sync via browser extension
-          </p>
-        </div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <H1 subtitle="Passive sync via browser extension">Cardmarket</H1>
         <button
           onClick={async () => {
             setRefreshing(true);
@@ -356,8 +346,8 @@ export default function CardmarketContent() {
 
       {/* Balance History */}
       {balance?.history?.length > 0 && (
-        <div className="p-4 rounded-xl overflow-hidden" style={surfaceStyle}>
-          <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Balance History</h2>
+        <Panel>
+          <H2 icon={<TrendingUp size={16} />}>Balance History</H2>
           <div className="flex items-end gap-1 w-full" style={{ height: "80px" }}>
             {balance.history.map((snap: { balance: number; extractedAt: string }, i: number) => {
               const min = Math.min(...balance.history.map((s: { balance: number }) => s.balance));
@@ -378,7 +368,7 @@ export default function CardmarketContent() {
               );
             })}
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Sales Pipeline (U + P + S) */}
@@ -387,10 +377,10 @@ export default function CardmarketContent() {
       )}
 
       {/* Orders */}
-      <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
+      <Panel>
         {/* Direction toggle + Status tabs */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-0">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Orders</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <H2 icon={<ShoppingCart size={16} />}>Orders</H2>
 
           {/* Sales / Purchases toggle */}
           <div
@@ -404,7 +394,7 @@ export default function CardmarketContent() {
                 className="px-3 py-1.5 font-medium transition-all"
                 style={{
                   background: direction === d ? "var(--accent)" : "transparent",
-                  color: direction === d ? "var(--bg-primary)" : "var(--text-muted)",
+                  color: direction === d ? "var(--accent-text)" : "var(--text-muted)",
                 }}
               >
                 {d === "sale" ? "Sales" : "Purchases"}
@@ -415,7 +405,7 @@ export default function CardmarketContent() {
 
         {/* Status tabs */}
         <div
-          className="flex gap-0 px-4 mt-3 overflow-x-auto"
+          className="flex gap-0 overflow-x-auto"
           style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
         >
           {STATUS_TABS.map((tab) => {
@@ -451,11 +441,13 @@ export default function CardmarketContent() {
 
         {/* Print All bar (only on Paid tab with sale direction) */}
         {activeTab === "paid" && direction === "sale" && orders?.orders?.length > 0 && (
-          <div className="flex items-center justify-end gap-2 px-4 pt-2">
+          <div className="flex items-center justify-end gap-2 pt-2">
             <button
               onClick={() => printEnvelopes(orders.orders.filter((o: CmOrder) => !o.printed))}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-              style={{ background: "var(--accent)", color: "var(--bg-primary)" }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={{ background: "var(--accent)", color: "var(--accent-text)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
             >
               <Printer size={13} /> Print All Envelopes
             </button>
@@ -463,10 +455,10 @@ export default function CardmarketContent() {
         )}
 
         {/* Order rows */}
-        <div className="px-4 pb-4">
+        <div className="pt-2">
           {orders?.orders?.length ? (
             <>
-              <div className="overflow-x-auto -mx-4 px-4">
+              <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[680px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
@@ -481,14 +473,14 @@ export default function CardmarketContent() {
                               title={allPrinted ? "Unmark all as printed" : "Mark all as printed"}
                               className="w-4 h-4 rounded border-2 flex items-center justify-center transition-colors"
                               style={{
-                                borderColor: "#eab308",
-                                background: allPrinted ? "#eab308" : "transparent",
+                                borderColor: "var(--warning)",
+                                background: allPrinted ? "var(--warning)" : "transparent",
                                 cursor: "pointer",
                               }}
                             >
                               {allPrinted && (
                                 <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                  <path d="M2 6l3 3 5-6" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                  <path d="M2 6l3 3 5-6" stroke="var(--bg-page)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
                               )}
                             </button>
@@ -567,23 +559,18 @@ export default function CardmarketContent() {
             </p>
           )}
         </div>
-      </div>
+      </Panel>
 
       {/* Sync Log */}
       {status?.recentLogs?.length > 0 && (
-        <div className="p-4 rounded-xl" style={surfaceStyle}>
-          <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>Sync Activity</h2>
+        <Panel>
+          <H2 icon={<Zap size={16} />}>Sync Activity</H2>
           <div className="flex flex-col gap-1">
             {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => (
               <div key={i} className="py-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span
-                      className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                      style={{ background: "rgba(63,206,229,0.15)", color: "var(--accent)" }}
-                    >
-                      {log.dataType}
-                    </span>
+                    <StatusPill tone="accent">{log.dataType}</StatusPill>
                     <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
                       {log.stats.added > 0 && `+${log.stats.added}`}
                       {log.stats.updated > 0 && ` ~${log.stats.updated}`}
@@ -608,7 +595,7 @@ export default function CardmarketContent() {
               </div>
             ))}
           </div>
-        </div>
+        </Panel>
       )}
     </div>
   );
@@ -657,14 +644,14 @@ function PipelineChart({
   }
 
   return (
-    <div className="p-4 rounded-xl overflow-hidden" style={surfaceStyle}>
+    <Panel>
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        <H2 icon={<Activity size={16} />}>
           Sales Pipeline
-          <span className="ml-2 text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
+          <span className="ml-1 text-[10px] font-normal" style={{ color: "var(--text-muted)" }}>
             Balance + U + P + S over the last 30 days
           </span>
-        </h2>
+        </H2>
         <div className="flex flex-wrap items-center gap-3 text-[10px]" style={{ color: "var(--text-muted)" }}>
           <span className="inline-flex items-center gap-1" title="CM wallet balance">
             {legendDot(PIPELINE_COLORS.balance)} Bal {formatEur(latest?.balance)}
@@ -738,7 +725,7 @@ function PipelineChart({
         <span>{formatDay(history[0].date)}</span>
         <span>{formatDay(history[history.length - 1].date)}</span>
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -796,8 +783,8 @@ function OrderRow({
     syncState === "green"
       ? "var(--success)"
       : syncState === "yellow"
-        ? "var(--warning, #f59e0b)"
-        : "#f44336";
+        ? "var(--warning)"
+        : "var(--error)";
   const syncTitle =
     syncState === "green"
       ? "Detail synced"
@@ -940,7 +927,7 @@ function OrderRow({
                         <tr key={item.articleId} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                           <td className="py-1" style={{ color: "var(--text-primary)" }}>
                             {item.name}
-                            {item.foil && <span className="ml-1 text-[9px]" style={{ color: "var(--accent)" }}>FOIL</span>}
+                            {item.foil && <span className="ml-1 inline-flex align-middle"><FoilStar size={11} /></span>}
                           </td>
                           <td className="py-1">
                             <span className="inline-flex items-center gap-1">
