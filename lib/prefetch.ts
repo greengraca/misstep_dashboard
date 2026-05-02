@@ -4,8 +4,6 @@ import { fetcher } from "@/lib/fetcher";
 const ROUTE_PREFETCH_MAP: Record<string, string[]> = {
   "/": ["/api/home/stats"],
   "/finance": ["/api/finance"],
-  "/meetings": ["/api/meetings"],
-  "/tasks": ["/api/tasks"],
   "/activity": ["/api/activity"],
   "/cardmarket": ["/api/ext/status", "/api/ext/orders?page=1&limit=20"],
   "/ev": ["/api/ev/sets"],
