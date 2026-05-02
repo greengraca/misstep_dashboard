@@ -1,5 +1,7 @@
 "use client";
 
+export type StatCardTitleTone = "muted" | "primary" | "accent";
+
 interface StatCardProps {
   title: string;
   value: React.ReactNode;
@@ -11,7 +13,18 @@ interface StatCardProps {
     value: number;
     label: string;
   };
+  /** Color of the small uppercase mono label at the top of the card.
+   *  Default 'muted' (current page-level look). Use 'accent' when the card
+   *  is nested inside a Panel — the brighter header pops against the
+   *  doubled-glass surface so each card reads as its own thing. */
+  titleTone?: StatCardTitleTone;
 }
+
+const TITLE_COLOR: Record<StatCardTitleTone, string> = {
+  muted: "var(--text-muted)",
+  primary: "var(--text-tertiary)",
+  accent: "var(--accent)",
+};
 
 export default function StatCard({
   title,
@@ -21,7 +34,9 @@ export default function StatCard({
   active,
   tooltip,
   trend,
+  titleTone = "muted",
 }: StatCardProps) {
+  const titleColor = TITLE_COLOR[titleTone];
   return (
     <div
       className="h-full p-3 sm:p-5 rounded-xl transition-all duration-200 hover:-translate-y-0.5"
@@ -41,7 +56,7 @@ export default function StatCard({
           <p
             className="text-[10px] sm:text-xs font-medium uppercase tracking-wider"
             style={{
-              color: "var(--text-muted)",
+              color: titleColor,
               fontFamily: "var(--font-mono)",
             }}
           >

@@ -5,7 +5,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
 import Select from "@/components/dashboard/select";
-import { H2, Note } from "@/components/dashboard/page-shell";
+import { Panel, H2, Note } from "@/components/dashboard/page-shell";
 import { AlertTriangle, Coins, Globe, Layers, Package, ShoppingBag, Trophy, Truck } from "lucide-react";
 
 // Pipeline colours, matched to CardmarketContent's PIPELINE_COLORS.
@@ -166,14 +166,14 @@ export default function SalesEconomicsPanel() {
 
   const subtitleRange = e ? rangeSubtitle(range, e) : "loading…";
 
-  // Free-standing section: H2 + range selector + child surfaces (StatCards,
-  // breakdowns, records). No outer Panel — each internal piece is already a
-  // card surface and double-wrapping makes them read as flat grey
-  // (nested-cards anti-pattern).
+  // Wrapped in a Panel so the section reads as one unit on the Home page.
+  // Internal StatCards opt into titleTone="accent" so their headers pop
+  // against the doubled-glass surface — keeps the cards visually distinct
+  // even though they're nested.
   return (
-    <div className="flex flex-col gap-4">
+    <Panel>
       {/* Header + range selector */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div className="min-w-0">
           <H2 icon={<Coins size={16} />}>Sales economics</H2>
           <p className="text-[11px] -mt-2" style={{ color: "var(--text-muted)" }}>
@@ -211,9 +211,12 @@ export default function SalesEconomicsPanel() {
           )}
 
           {/* Headline KPI grid — totals folded into subtitles, summary
-              strip removed. Each KPI tells a complete story by itself. */}
+              strip removed. Each KPI tells a complete story by itself.
+              titleTone="accent" because these cards are nested in a
+              Panel and the muted-header default reads as flat grey. */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatCard
+              titleTone="accent"
               title="Packages"
               value={e.packages.toLocaleString()}
               subtitle={`${e.avgPackagesPerDay.toFixed(1)} / day · ${e.avgCardsPerPackage} cards/pkg`}
@@ -221,6 +224,7 @@ export default function SalesEconomicsPanel() {
               icon={<Package size={18} style={{ color: "var(--accent)" }} />}
             />
             <StatCard
+              titleTone="accent"
               title="Cards Sold"
               value={e.cards.toLocaleString()}
               subtitle={`${e.avgCardsPerDay.toFixed(1)} / day · ${eurPkg(e.totalReceived)} received`}
@@ -228,6 +232,7 @@ export default function SalesEconomicsPanel() {
               icon={<ShoppingBag size={18} style={{ color: "var(--accent)" }} />}
             />
             <StatCard
+              titleTone="accent"
               title="ASP / card (net)"
               value={eurCard(e.avgArticleNetPerCard)}
               subtitle={`+ ${eurCard(e.avgShipProfitPerCard)} ship → ${eurCard(e.fullPerCardNet)} / card`}
@@ -235,6 +240,7 @@ export default function SalesEconomicsPanel() {
               icon={<Coins size={18} style={{ color: "var(--accent)" }} />}
             />
             <StatCard
+              titleTone="accent"
               title="Ship profit / pkg"
               value={eurPkg(e.avgShipProfitPerPackage)}
               subtitle={`${eurPkg(e.shippingProfit)} total · ${eurPkg(e.shippingIncome)} in − ${eurPkg(e.shippingExpense)} cost`}
@@ -337,7 +343,7 @@ export default function SalesEconomicsPanel() {
           )}
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 
