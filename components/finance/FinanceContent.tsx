@@ -349,7 +349,7 @@ export default function FinanceContent() {
       render: (t) => (
         <span
           style={{
-            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-muted)" : "var(--error)",
+            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-tertiary)" : "var(--error)",
             fontFamily: "var(--font-mono)",
             fontWeight: 500,
           }}
@@ -642,7 +642,7 @@ export default function FinanceContent() {
                 <span
                   className="text-sm font-medium"
                   style={{
-                    color: t.type === "income" ? "var(--success)" : "var(--error)",
+                    color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-tertiary)" : "var(--error)",
                     fontFamily: "var(--font-mono)",
                   }}
                 >
