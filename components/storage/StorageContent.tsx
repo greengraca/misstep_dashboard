@@ -8,6 +8,7 @@ import StorageDrawer from "./StorageDrawer";
 import LayoutEditor from "./LayoutEditor";
 import Shelf3D from "./Shelf3D";
 import BoxContentsPanel from "./BoxContentsPanel";
+import { H1 } from "@/components/dashboard/page-shell";
 import type { BoxData, BoxRowData, BoxSetRun } from "./Box3D";
 
 /** HSL → #rrggbb — three.js's Color.setStyle can't parse modern hsl() syntax. */
@@ -187,8 +188,8 @@ export default function StorageContent() {
     : undefined;
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Storage</h1>
+    <div className="flex flex-col gap-6">
+      <H1 subtitle="Shelves, boxes, and the canonical sort across the wall">Storage</H1>
 
       <StorageHeader
         stats={stats}
