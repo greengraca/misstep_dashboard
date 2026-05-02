@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowLeft, RefreshCw, Activity, Layers, Radar } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeft, RefreshCw, Activity, Layers, Radar, ChevronDown, ChevronUp } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
@@ -52,6 +53,51 @@ function timeAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function SortHead({
+  label, sortKey, current, dir, onClick, align,
+}: {
+  label: string;
+  sortKey: "name" | "page" | "updated";
+  current: "name" | "page" | "updated";
+  dir: "asc" | "desc";
+  onClick: (k: "name" | "page" | "updated") => void;
+  align?: "left" | "right";
+}) {
+  const active = current === sortKey;
+  return (
+    <button
+      onClick={() => onClick(sortKey)}
+      className="inline-flex items-center gap-1 select-none transition-colors"
+      style={{
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        color: active ? "var(--accent)" : "var(--text-muted)",
+        fontSize: 10,
+        fontFamily: "var(--font-mono)",
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        justifyContent: align === "right" ? "flex-end" : "flex-start",
+      }}
+    >
+      {label}
+      {active && (dir === "asc" ? <ChevronUp size={10} /> : <ChevronDown size={10} />)}
+    </button>
+  );
+}
+
+function timeUntil(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.floor((then - now) / 1000);
+  if (diff <= 0) return "now";
+  if (diff < 60) return `in ${diff}s`;
+  if (diff < 3600) return `in ${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `in ${Math.floor(diff / 3600)}h`;
+  return `in ${Math.floor(diff / 86400)}d`;
+}
+
 export default function SeedProgressContent() {
   const {
     data: integrity,
@@ -78,8 +124,37 @@ export default function SeedProgressContent() {
   });
 
   const integrityData = integrity?.data;
-  const progressList = Array.isArray(progress?.data) ? progress!.data : [];
+  const rawProgress = Array.isArray(progress?.data) ? progress!.data : [];
   const leaseList = Array.isArray(leases?.data) ? leases!.data : [];
+
+  type ProgressSortKey = "name" | "page" | "updated";
+  const [sortKey, setSortKey] = useState<ProgressSortKey>("updated");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(k: ProgressSortKey) {
+    if (k === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      setSortDir(k === "name" ? "asc" : "desc");
+    }
+  }
+
+  const progressList = useMemo(() => {
+    const sorted = [...rawProgress].sort((a, b) => {
+      const cmp = (() => {
+        switch (sortKey) {
+          case "name": return a.memberName.localeCompare(b.memberName);
+          case "page": return a.lastPage - b.lastPage;
+          case "updated":
+          default:
+            return a.updatedAt.localeCompare(b.updatedAt);
+        }
+      })();
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [rawProgress, sortKey, sortDir]);
 
   const refreshAll = () => {
     mutateIntegrity();
@@ -185,7 +260,7 @@ export default function SeedProgressContent() {
                     className="sm:hidden"
                     style={{ fontSize: "11px", color: "var(--text-muted)" }}
                   >
-                    expires {timeAgo(l.expiresAt).replace(" ago", "")}
+                    expires {timeUntil(l.expiresAt)}
                   </span>
                 </div>
                 <span
@@ -222,6 +297,23 @@ export default function SeedProgressContent() {
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {/* Sort header — same widths as the row grid below. */}
+            <div
+              className="hidden sm:grid items-center gap-3 px-4 pb-1"
+              style={{
+                gridTemplateColumns: "140px 1fr 70px 100px",
+                fontSize: 10,
+                color: "var(--text-muted)",
+                fontFamily: "var(--font-mono)",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              <SortHead label="Member" sortKey="name" current={sortKey} dir={sortDir} onClick={toggleSort} />
+              <span>Filter</span>
+              <SortHead label="Page" sortKey="page" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+              <SortHead label="Last seen" sortKey="updated" current={sortKey} dir={sortDir} onClick={toggleSort} align="right" />
+            </div>
             {progressList.map((p) => (
               <div
                 key={p.memberName}
