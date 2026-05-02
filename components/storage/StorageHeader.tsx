@@ -7,7 +7,7 @@ import type { StorageStats } from "./types";
 
 interface StorageHeaderProps {
   stats: StorageStats | null;
-  onRebuild: () => Promise<void>;
+  onRebuild: () => void | Promise<void>;
   isRebuilding: boolean;
   search: string;
   onSearchChange: (s: string) => void;
