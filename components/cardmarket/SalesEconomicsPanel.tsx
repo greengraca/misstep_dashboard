@@ -5,7 +5,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
 import Select from "@/components/dashboard/select";
-import { Panel, H2, Note } from "@/components/dashboard/page-shell";
+import { H2, Note } from "@/components/dashboard/page-shell";
 import { AlertTriangle, Coins, Globe, Layers, Package, ShoppingBag, Trophy, Truck } from "lucide-react";
 
 // Pipeline colours, matched to CardmarketContent's PIPELINE_COLORS.
@@ -166,13 +166,14 @@ export default function SalesEconomicsPanel() {
 
   const subtitleRange = e ? rangeSubtitle(range, e) : "loading…";
 
-  // No `overflow-hidden` on the root: StatCard tooltips position
-  // absolutely above the icon and would otherwise clip at this panel's
-  // rounded edge.
+  // Free-standing section: H2 + range selector + child surfaces (StatCards,
+  // breakdowns, records). No outer Panel — each internal piece is already a
+  // card surface and double-wrapping makes them read as flat grey
+  // (nested-cards anti-pattern).
   return (
-    <Panel>
+    <div className="flex flex-col gap-4">
       {/* Header + range selector */}
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <H2 icon={<Coins size={16} />}>Sales economics</H2>
           <p className="text-[11px] -mt-2" style={{ color: "var(--text-muted)" }}>
@@ -336,7 +337,7 @@ export default function SalesEconomicsPanel() {
           )}
         </div>
       )}
-    </Panel>
+    </div>
   );
 }
 
