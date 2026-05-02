@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw, Activity, Layers, Radar } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 
 interface Integrity {
   serverTotal: number;
@@ -28,15 +30,6 @@ interface Lease {
   claimedAt: string;
   expiresAt: string;
 }
-
-const panelClass = "p-4 sm:p-6";
-const panelStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "var(--surface-border)",
-  boxShadow: "var(--surface-shadow)",
-  borderRadius: "var(--radius)",
-};
 
 const statStyle = {
   display: "flex",
@@ -105,60 +98,38 @@ export default function SeedProgressContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <Link
             href="/settings"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              color: "var(--text-secondary)",
-              textDecoration: "none",
-              fontSize: "13px",
-            }}
+            className="inline-flex items-center gap-1 mb-2 text-xs transition-colors"
+            style={{ color: "var(--text-muted)", textDecoration: "none" }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
-            <ArrowLeft size={14} /> Settings
+            <ArrowLeft size={12} /> Settings
           </Link>
-          <h1
-            className="min-w-0 truncate"
-            style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}
-          >
+          <H1 subtitle="Team-wide coverage, active leases, and per-member position">
             Seed Stock Progress
-          </h1>
+          </H1>
         </div>
         <button
           onClick={refreshAll}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           style={{
             background: "var(--bg-card)",
             color: "var(--text-secondary)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "8px 14px",
-            fontSize: "14px",
             cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
           }}
         >
-          <RefreshCw size={15} /> Refresh
+          <RefreshCw size={14} /> Refresh
         </button>
       </div>
 
       {/* Integrity */}
-      <div className={panelClass} style={panelStyle}>
-        <h2
-          style={{
-            fontSize: "16px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: 0,
-            marginBottom: "16px",
-          }}
-        >
-          Coverage
-        </h2>
+      <Panel>
+        <H2 icon={<Radar size={16} />}>Coverage</H2>
         {integrityLoading ? (
           <div className="skeleton" style={{ height: "72px" }} />
         ) : !integrityData ? (
@@ -204,8 +175,8 @@ export default function SeedProgressContent() {
                     integrityData.gap === null
                       ? "var(--text-muted)"
                       : integrityData.gap === 0
-                        ? "var(--success, #4caf50)"
-                        : "var(--danger, #e94560)",
+                        ? "var(--success)"
+                        : "var(--error)",
                 }}
               >
                 {integrityData.gap === null ? "—" : integrityData.gap.toLocaleString()}
@@ -223,21 +194,14 @@ export default function SeedProgressContent() {
             </div>
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Active leases */}
-      <div className={panelClass} style={panelStyle}>
-        <h2
-          style={{
-            fontSize: "16px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: 0,
-            marginBottom: "16px",
-          }}
-        >
-          Active leases ({leaseList.length})
-        </h2>
+      <Panel>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <H2 icon={<Activity size={16} />}>Active leases</H2>
+          <StatusPill tone="muted">{leaseList.length}</StatusPill>
+        </div>
         {leasesLoading ? (
           <div className="skeleton" style={{ height: "60px" }} />
         ) : !leaseList.length ? (
@@ -258,7 +222,7 @@ export default function SeedProgressContent() {
                 }}
               >
                 <div className="flex items-center justify-between sm:block">
-                  <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
+                  <span style={{ fontWeight: 600, color: "var(--accent)" }}>
                     {l.memberName}
                   </span>
                   <span
@@ -289,21 +253,11 @@ export default function SeedProgressContent() {
             ))}
           </div>
         )}
-      </div>
+      </Panel>
 
       {/* Per-member progress */}
-      <div className={panelClass} style={panelStyle}>
-        <h2
-          style={{
-            fontSize: "16px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: 0,
-            marginBottom: "16px",
-          }}
-        >
-          Last position per member
-        </h2>
+      <Panel>
+        <H2 icon={<Layers size={16} />}>Last position per member</H2>
         {progressLoading ? (
           <div className="skeleton" style={{ height: "60px" }} />
         ) : !progressList.length ? (
@@ -324,7 +278,7 @@ export default function SeedProgressContent() {
                 }}
               >
                 <div className="flex items-center justify-between sm:block">
-                  <span style={{ fontWeight: 600, color: "var(--accent, #3fcee5)" }}>
+                  <span style={{ fontWeight: 600, color: "var(--accent)" }}>
                     {p.memberName}
                   </span>
                   <span
@@ -362,7 +316,7 @@ export default function SeedProgressContent() {
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }
