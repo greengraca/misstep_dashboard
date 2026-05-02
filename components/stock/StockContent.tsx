@@ -283,6 +283,27 @@ export default function StockContent() {
     setPage(1);
   }, []);
 
+  // Filter presets — common combinations users want with one click. Each
+  // applies a partial-filter overlay on top of the empty defaults.
+  const presets: { label: string; apply: () => void }[] = [
+    {
+      label: "All foils",
+      apply: () => setFilters({ ...emptyStockFilters, foil: "true" }),
+    },
+    {
+      label: "Overpriced > 20%",
+      apply: () => setFilters({ ...emptyStockFilters, minOverpricedPct: "20" }),
+    },
+    {
+      label: "Out of stock",
+      apply: () => setFilters({ ...emptyStockFilters, hasStock: false, minQty: "0" }),
+    },
+    {
+      label: "≥ €10",
+      apply: () => setFilters({ ...emptyStockFilters, minPrice: "10" }),
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -314,6 +335,39 @@ export default function StockContent() {
       <StockGhostGap />
 
       <StockChart />
+
+      {/* Quick filter presets */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="text-[10px] uppercase tracking-wider"
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+        >
+          Quick filter
+        </span>
+        {presets.map((preset) => (
+          <button
+            key={preset.label}
+            onClick={preset.apply}
+            className="px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "var(--accent)";
+              e.currentTarget.style.color = "var(--accent)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
 
       <StockFilters
         value={filters}
