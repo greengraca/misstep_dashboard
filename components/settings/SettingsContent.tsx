@@ -1,11 +1,12 @@
 "use client";
-import Link from "next/link";
 import useSWR, { mutate as globalMutate } from "swr";
 import { useState } from "react";
 import { fetcher } from "@/lib/fetcher";
-import { CheckCircle, XCircle, RefreshCw, ChevronRight, Radar, Download, PlusCircle, Pencil, Trash2, Users, Server } from "lucide-react";
+import { CheckCircle, XCircle, RefreshCw, Radar, Download, PlusCircle, Pencil, Trash2, Users, Server } from "lucide-react";
 import { LATEST_EXT_VERSION } from "@/lib/constants";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { LinkCard } from "@/components/dashboard/link-card";
+import { StatusPill } from "@/components/dashboard/status-pill";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
 
 interface EnvVar {
@@ -120,86 +121,22 @@ export default function SettingsContent() {
         </button>
       </div>
 
-      {/* Seed Stock progress link */}
-      <Panel>
-        <Link
+      {/* Tools */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <LinkCard
           href="/settings/seed-progress"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            textDecoration: "none",
-            color: "inherit",
-            cursor: "pointer",
-          }}
-        >
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "10px",
-              background: "var(--accent-light)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--accent)",
-              flexShrink: 0,
-            }}
-          >
-            <Radar size={20} />
-          </div>
-          <div className="min-w-0" style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
-              Seed Stock Progress
-            </div>
-            <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-              Team-wide coverage, active leases, and per-member last position.
-            </div>
-          </div>
-          <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
-        </Link>
-      </Panel>
-
-      {/* Extension download (plain <a>, not next/link — must trigger a real download, not client-side navigation) */}
-      <Panel>
-        <a
+          icon={<Radar size={20} />}
+          title="Seed Stock Progress"
+          description="Team-wide coverage, active leases, and per-member last position."
+        />
+        <LinkCard
           href="/api/ext/download"
           download
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            textDecoration: "none",
-            color: "inherit",
-            cursor: "pointer",
-          }}
-        >
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              borderRadius: "10px",
-              background: "var(--accent-light)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--accent)",
-              flexShrink: 0,
-            }}
-          >
-            <Download size={20} />
-          </div>
-          <div className="min-w-0" style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "15px" }}>
-              Download Extension (v{LATEST_EXT_VERSION})
-            </div>
-            <div style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-              Unzip over your existing misstep-ext folder, then hit Reload in chrome://extensions.
-            </div>
-          </div>
-          <ChevronRight size={18} style={{ color: "var(--text-muted)" }} />
-        </a>
-      </Panel>
+          icon={<Download size={20} />}
+          title={`Download Extension (v${LATEST_EXT_VERSION})`}
+          description="Unzip over your existing misstep-ext folder, then hit Reload in chrome://extensions."
+        />
+      </div>
 
       {/* Team Members */}
       <Panel>
@@ -295,18 +232,7 @@ export default function SettingsContent() {
                       </div>
                     )}
                   </div>
-                  <span
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--text-muted)",
-                      background: "var(--bg-page, var(--bg-card))",
-                      padding: "2px 8px",
-                      borderRadius: "999px",
-                      border: "1px solid var(--border)",
-                    }}
-                  >
-                    {member.role}
-                  </span>
+                  <StatusPill tone="muted">{member.role}</StatusPill>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => beginEdit(member)}
