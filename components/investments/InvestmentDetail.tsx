@@ -15,6 +15,8 @@ import SealedFlipsSection from "./SealedFlipsSection";
 import InvestmentLotsTable from "./InvestmentLotsTable";
 import CloseInvestmentModal from "./CloseInvestmentModal";
 import UntaggedListingsModal from "./UntaggedListingsModal";
+import InvestmentTimeline from "./InvestmentTimeline";
+import SalesHistoryChart from "./SalesHistoryChart";
 
 const STATUS_TONE: Record<Detail["status"], StatusPillTone> = {
   listing: "accent",
@@ -267,9 +269,13 @@ export default function InvestmentDetail({ id }: { id: string }) {
         </div>
       </div>
 
+      <InvestmentTimeline investmentId={detail.id} />
+
       <CodeStrip detail={detail} onAuditClick={() => setShowUntagged(true)} />
 
       <InvestmentKpiRow kpis={detail.kpis} />
+
+      <SalesHistoryChart investmentId={detail.id} />
 
       <InvestmentLotsTable investmentId={detail.id} />
 

@@ -553,6 +553,132 @@ export async function findUntaggedListings(investmentId: string): Promise<Untagg
   return out;
 }
 
+export interface SalesHistoryEvent {
+  date: string;        // YYYY-MM-DD
+  kind: "sale" | "flip";
+  amount: number;      // EUR proceeds (always positive)
+}
+
+export interface SalesHistoryDailyPoint {
+  date: string;        // YYYY-MM-DD, every day in [first event, today] inclusive
+  cumulative: number;  // running EUR realized through end of this day
+}
+
+export interface SalesHistory {
+  /** Investment cost — for the cost reference line on the chart. */
+  cost: number;
+  created_at: string;
+  closed_at: string | null;
+  /** Sorted ascending. Empty when no sales/flips yet. */
+  events: SalesHistoryEvent[];
+  /** Day-by-day cumulative — gaps filled with the previous day's value
+   *  so the area chart stays continuous. Empty when no events yet. */
+  daily: SalesHistoryDailyPoint[];
+  /** Convenience: first/last event dates and total event count. */
+  summary: {
+    first_event_at: string | null;
+    last_event_at: string | null;
+    sale_count: number;
+    flip_count: number;
+  };
+}
+
+/**
+ * Sales + sealed-flip history for the per-investment timeline + sparkline.
+ *
+ * Merges per-card sales (from investment_sale_log) with sealed-flip records
+ * (stored on the investment doc). Returns:
+ *   - raw events sorted by date (for the timeline strip)
+ *   - daily-cumulative series (for the sparkline area chart)
+ *   - cost + created_at + closed_at (so the chart can draw the cost
+ *     reference line and the timeline knows its bounds)
+ */
+export async function getSalesHistory(investmentId: string): Promise<SalesHistory | null> {
+  const db = await getDb();
+  const inv = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne({ _id: new ObjectId(investmentId) });
+  if (!inv) return null;
+
+  const saleDocs = await db
+    .collection(COL_INVESTMENT_SALE_LOG)
+    .find({ investment_id: inv._id })
+    .project({ attributed_at: 1, qty: 1, net_per_unit_eur: 1 })
+    .toArray();
+
+  const events: SalesHistoryEvent[] = [];
+  for (const s of saleDocs) {
+    const ts = s.attributed_at instanceof Date ? s.attributed_at : new Date(s.attributed_at as string);
+    if (Number.isNaN(ts.getTime())) continue;
+    const date = ts.toISOString().slice(0, 10);
+    const amount = (s.qty as number) * (s.net_per_unit_eur as number);
+    if (!Number.isFinite(amount)) continue;
+    events.push({ date, kind: "sale", amount });
+  }
+  for (const f of inv.sealed_flips ?? []) {
+    const ts = f.recorded_at instanceof Date ? f.recorded_at : new Date(f.recorded_at as unknown as string);
+    if (Number.isNaN(ts.getTime())) continue;
+    events.push({
+      date: ts.toISOString().slice(0, 10),
+      kind: "flip",
+      amount: f.proceeds_eur,
+    });
+  }
+
+  events.sort((a, b) => a.date.localeCompare(b.date));
+
+  const created_at_iso = inv.created_at instanceof Date
+    ? inv.created_at.toISOString()
+    : new Date(inv.created_at as unknown as string).toISOString();
+  const closed_at_iso = inv.closed_at
+    ? (inv.closed_at instanceof Date ? inv.closed_at.toISOString() : new Date(inv.closed_at as unknown as string).toISOString())
+    : null;
+
+  let saleCount = 0;
+  let flipCount = 0;
+  for (const e of events) {
+    if (e.kind === "sale") saleCount += 1;
+    else flipCount += 1;
+  }
+
+  // Build the day-by-day cumulative series. Spans first event → today (or
+  // closed_at, whichever is earlier). Empty events list returns empty daily.
+  const daily: SalesHistoryDailyPoint[] = [];
+  if (events.length > 0) {
+    const start = events[0].date;
+    const endIso = closed_at_iso ?? new Date().toISOString();
+    const end = endIso.slice(0, 10);
+    // Aggregate amounts by date first.
+    const byDay = new Map<string, number>();
+    for (const e of events) {
+      byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.amount);
+    }
+    let cum = 0;
+    let cursor = new Date(`${start}T00:00:00Z`);
+    const endDate = new Date(`${end}T00:00:00Z`);
+    while (cursor.getTime() <= endDate.getTime()) {
+      const key = cursor.toISOString().slice(0, 10);
+      cum += byDay.get(key) ?? 0;
+      daily.push({ date: key, cumulative: Math.round(cum * 100) / 100 });
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  return {
+    cost: inv.cost_total_eur,
+    created_at: created_at_iso,
+    closed_at: closed_at_iso,
+    events,
+    daily,
+    summary: {
+      first_event_at: events[0]?.date ?? null,
+      last_event_at: events[events.length - 1]?.date ?? null,
+      sale_count: saleCount,
+      flip_count: flipCount,
+    },
+  };
+}
+
 /** Expected EV for display. Best-effort; returns null if unavailable. */
 export async function computeExpectedEv(investment: Investment): Promise<number | null> {
   const db = await getDb();
