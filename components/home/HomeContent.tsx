@@ -6,7 +6,9 @@ import type { PendingReimbursement } from "@/lib/types";
 import StatCard from "@/components/dashboard/stat-card";
 import NextGoal from "@/components/home/NextGoal";
 import SalesEconomicsPanel from "@/components/cardmarket/SalesEconomicsPanel";
-import { Wallet, Store, CreditCard, PackageCheck, Clock, CheckCircle } from "lucide-react";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
+import { Wallet, Store, CreditCard, PackageCheck, Clock, CheckCircle, Receipt } from "lucide-react";
 
 export default function HomeContent() {
   const { data, isLoading } = useSWR("/api/home/stats", fetcher);
@@ -31,9 +33,7 @@ export default function HomeContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-        Dashboard
-      </h1>
+      <H1 subtitle="Your trading business at a glance">Dashboard</H1>
 
       <NextGoal />
 
@@ -68,27 +68,11 @@ export default function HomeContent() {
       <SalesEconomicsPanel />
 
       {/* Pending Reimbursements */}
-      <div
-        className="p-4 sm:p-6"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "var(--surface-border)",
-          boxShadow: "var(--surface-shadow)",
-          borderRadius: "var(--radius)",
-        }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-            Pending Reimbursements
-          </h2>
+      <Panel>
+        <div className="flex items-center justify-between mb-3">
+          <H2 icon={<Receipt size={16} />}>Pending Reimbursements</H2>
           {pending.length > 0 && (
-            <span
-              className="text-sm font-medium"
-              style={{ color: "var(--error, #ef4444)", fontFamily: "var(--font-mono)" }}
-            >
-              €{pendingTotal.toFixed(2)}
-            </span>
+            <StatusPill tone="danger">€{pendingTotal.toFixed(2)} owed</StatusPill>
           )}
         </div>
 
@@ -103,11 +87,11 @@ export default function HomeContent() {
                 key={item.id}
                 className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors"
                 style={{ background: "transparent" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <Clock size={16} style={{ color: "var(--warning, #f59e0b)", flexShrink: 0 }} />
+                  <Clock size={16} style={{ color: "var(--warning)", flexShrink: 0 }} />
                   <div className="min-w-0">
                     <p className="text-sm truncate" style={{ color: "var(--text-primary)", margin: 0 }}>
                       {item.description}
@@ -120,7 +104,7 @@ export default function HomeContent() {
                 <div className="flex items-center gap-3 flex-shrink-0">
                   <span
                     className="text-sm font-medium"
-                    style={{ color: "var(--error, #ef4444)", fontFamily: "var(--font-mono)" }}
+                    style={{ color: "var(--error)", fontFamily: "var(--font-mono)" }}
                   >
                     €{item.amount.toFixed(2)}
                   </span>
@@ -133,7 +117,7 @@ export default function HomeContent() {
                       cursor: "pointer",
                       color: "var(--success)",
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(34,197,94,0.1)"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--success-light)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                     title="Mark as reimbursed"
                   >
@@ -144,7 +128,7 @@ export default function HomeContent() {
             ))}
           </div>
         )}
-      </div>
+      </Panel>
     </div>
   );
 }
