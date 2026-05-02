@@ -5,7 +5,9 @@ import DataTable, { type Column } from "@/components/dashboard/data-table";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
 import { buildCardmarketUrl } from "@/lib/cardmarket-url";
 import type { EvTopCard } from "@/lib/types";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Sparkles } from "lucide-react";
+import { Panel } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 
 interface EvCardTableProps {
   cards: EvTopCard[];
@@ -194,18 +196,20 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
   const data = cards.map((c) => ({ ...c } as EvTopCard & Record<string, unknown>));
 
   return (
-    <div>
+    <Panel>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left mb-3"
-        style={{ color: "var(--text-primary)" }}
+        className="flex items-center gap-2 w-full text-left"
+        style={{ color: "var(--text-primary)", background: "transparent", border: "none", padding: 0, cursor: "pointer" }}
       >
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          {cards.length} cards
-        </span>
+        {expanded ? <ChevronDown size={16} style={{ color: "var(--accent)" }} /> : <ChevronRight size={16} style={{ color: "var(--accent)" }} />}
+        <Sparkles size={16} style={{ color: "var(--accent)" }} />
+        <h2 style={{ fontSize: 18, fontWeight: 600, color: "var(--text-primary)", margin: 0, letterSpacing: "-0.01em" }}>
+          {title}
+        </h2>
+        <StatusPill tone="muted">{cards.length} cards</StatusPill>
       </button>
+      {expanded && <div className="mt-3" />}
       {!expanded ? null : <DataTable
         columns={columns}
         data={data}
@@ -262,6 +266,6 @@ export default function EvCardTable({ cards, isLoading, title = "Top EV Cards", 
           </div>
         )}
       />}
-    </div>
+    </Panel>
   );
 }

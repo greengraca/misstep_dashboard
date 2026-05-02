@@ -1,6 +1,8 @@
 "use client";
 
 import type { EvCalculationResult } from "@/lib/types";
+import { Panel, H2 } from "@/components/dashboard/page-shell";
+import { Layers } from "lucide-react";
 
 interface EvSlotBreakdownProps {
   slots: EvCalculationResult["slot_breakdown"];
@@ -14,15 +16,13 @@ export default function EvSlotBreakdown({ slots, boxEvGross }: EvSlotBreakdownPr
   const maxEv = Math.max(...activeSlots.map((s) => s.slot_ev));
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-primary)" }}>
-        EV by Slot
-      </h3>
+    <Panel>
+      <H2 icon={<Layers size={16} />}>EV by slot</H2>
       <div
-        className="rounded-xl p-4"
+        className="rounded-lg p-3"
         style={{
           background: "rgba(255, 255, 255, 0.015)",
-          border: "1px solid var(--border)",
+          border: "1px solid var(--border-subtle)",
         }}
       >
         <div className="flex flex-col gap-2">
@@ -63,6 +63,6 @@ export default function EvSlotBreakdown({ slots, boxEvGross }: EvSlotBreakdownPr
           })}
         </div>
       </div>
-    </div>
+    </Panel>
   );
 }
