@@ -79,7 +79,7 @@ export default function BoxContentsPanel({
         onClick={onClose}
       />
       {/* Panel */}
-      <aside className="fixed top-0 right-0 z-50 h-full w-full max-w-[460px] bg-[var(--card-bg)] border-l border-[var(--border)] shadow-2xl flex flex-col">
+      <aside className="fixed top-0 right-0 z-50 h-full w-full max-w-[460px] bg-[var(--bg-card)] border-l border-[var(--border)] shadow-2xl flex flex-col">
         <header className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div>
             <h2 className="text-base font-semibold text-[var(--text-primary)]">

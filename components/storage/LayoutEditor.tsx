@@ -134,13 +134,13 @@ export default function LayoutEditor({ layout, onSave }: LayoutEditorProps) {
   };
 
   return (
-    <div className="rounded-[var(--radius)] bg-[var(--card-bg)] border border-[var(--border)] p-4">
+    <div className="rounded-[var(--radius)] bg-[var(--bg-card)] border border-[var(--border)] p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">Layout</h2>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius)] bg-[var(--accent)] text-white text-sm hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius)] bg-[var(--accent)] text-[var(--accent-text)] text-sm hover:opacity-90 disabled:opacity-50"
         >
           <Save size={14} />
           {saving ? "Saving…" : "Save layout"}
