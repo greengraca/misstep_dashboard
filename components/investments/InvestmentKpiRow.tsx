@@ -9,22 +9,30 @@ const formatEur = (n: number | null | undefined) =>
 
 export default function InvestmentKpiRow({ kpis }: { kpis: InvestmentDetail["kpis"] }) {
   const ratio = kpis.break_even_pct;
-  const clamped = Math.min(Math.max(ratio, 0), 2);
   const past = ratio >= 1;
-  const realizedTone = kpis.realized_net_eur >= 0 ? "var(--text-primary)" : "var(--error)";
+
+  // Realized: success when positive, danger when negative, muted when zero.
+  const realizedTone =
+    kpis.realized_net_eur > 0 ? "success" : kpis.realized_net_eur < 0 ? "danger" : "muted";
+  const realizedIconColor =
+    kpis.realized_net_eur > 0 ? "var(--success)" : kpis.realized_net_eur < 0 ? "var(--error)" : "var(--text-tertiary)";
+
+  // P/L: same logic.
   const plTone =
-    kpis.net_pl_blended_eur > 0
-      ? "var(--success)"
-      : kpis.net_pl_blended_eur < 0
-        ? "var(--error)"
-        : "var(--text-primary)";
+    kpis.net_pl_blended_eur > 0 ? "success" : kpis.net_pl_blended_eur < 0 ? "danger" : "muted";
+  const plIconColor =
+    kpis.net_pl_blended_eur > 0 ? "var(--success)" : kpis.net_pl_blended_eur < 0 ? "var(--error)" : "var(--text-tertiary)";
+
+  // Break-even: success at/past 100%, accent below.
+  const breakevenTone = past ? "success" : "accent";
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
       <StatCard
         title="Cost"
         value={formatEur(kpis.cost_eur)}
-        icon={<Wallet size={18} style={{ color: "var(--accent)" }} />}
+        icon={<Wallet size={18} style={{ color: "var(--text-tertiary)" }} />}
+        tone="muted"
       />
       <StatCard
         title="Expected EV"
@@ -38,105 +46,59 @@ export default function InvestmentKpiRow({ kpis }: { kpis: InvestmentDetail["kpi
         subtitle="Qty remaining × live price"
         icon={<Package size={18} style={{ color: "var(--accent)" }} />}
       />
-      <div
-        className="h-full p-3 sm:p-5 rounded-xl"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "1px solid rgba(255, 255, 255, 0.10)",
-          boxShadow: "var(--surface-shadow)",
-        }}
-      >
-        <div className="flex items-start justify-between mb-1.5 sm:mb-3">
-          <p
-            className="text-[10px] sm:text-xs font-medium uppercase tracking-wider"
-            style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-          >
-            Realized net
-          </p>
-          <div className="hidden sm:block p-2 rounded-lg" style={{ background: "var(--accent-light)" }}>
-            <TrendingUp size={18} style={{ color: "var(--accent)" }} />
-          </div>
-        </div>
-        <p
-          className="text-lg sm:text-2xl font-bold"
-          style={{ color: realizedTone, fontFamily: "var(--font-mono)" }}
-        >
-          {formatEur(kpis.realized_net_eur)}
-        </p>
-        <p className="mt-0.5 sm:mt-1 text-[10px] sm:text-xs" style={{ color: "var(--text-muted)" }}>
-          Sold cards + sealed flips
-        </p>
-      </div>
-      <div
-        className="h-full p-3 sm:p-5 rounded-xl"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "1px solid rgba(255, 255, 255, 0.10)",
-          boxShadow: "var(--surface-shadow)",
-        }}
-      >
-        <div className="flex items-start justify-between mb-1.5 sm:mb-3">
-          <p
-            className="text-[10px] sm:text-xs font-medium uppercase tracking-wider"
-            style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-          >
-            P/L blended
-          </p>
-          <div className="hidden sm:block p-2 rounded-lg" style={{ background: "var(--accent-light)" }}>
-            <TrendingUp size={18} style={{ color: plTone }} />
-          </div>
-        </div>
-        <p
-          className="text-lg sm:text-2xl font-bold"
-          style={{ color: plTone, fontFamily: "var(--font-mono)" }}
-        >
-          {formatEur(kpis.net_pl_blended_eur)}
-        </p>
-        <p className="mt-0.5 sm:mt-1 text-[10px] sm:text-xs" style={{ color: "var(--text-muted)" }}>
-          Realized + listed − cost
-        </p>
-      </div>
-      <div
-        className="h-full p-3 sm:p-5 rounded-xl flex flex-col"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: past ? "1px solid var(--success)" : "1px solid rgba(255, 255, 255, 0.10)",
-          boxShadow: "var(--surface-shadow)",
-        }}
-      >
-        <div className="flex items-start justify-between mb-1.5 sm:mb-3">
-          <p
-            className="text-[10px] sm:text-xs font-medium uppercase tracking-wider"
-            style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-          >
-            Break-even
-          </p>
-          <div className="hidden sm:block p-2 rounded-lg" style={{ background: past ? "rgba(52,211,153,0.12)" : "var(--accent-light)" }}>
-            <Target size={18} style={{ color: past ? "var(--success)" : "var(--accent)" }} />
-          </div>
-        </div>
-        <p
-          className="text-lg sm:text-2xl font-bold"
-          style={{
-            color: past ? "var(--success)" : "var(--text-primary)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {Math.round(ratio * 100)}%
-        </p>
-        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${(clamped / 2) * 100}%`,
-              background: past ? "var(--success)" : "var(--accent)",
-            }}
-          />
-        </div>
-      </div>
+      <StatCard
+        title="Realized net"
+        value={formatEur(kpis.realized_net_eur)}
+        subtitle="Sold cards + sealed flips"
+        icon={<TrendingUp size={18} style={{ color: realizedIconColor }} />}
+        tone={realizedTone}
+      />
+      <StatCard
+        title="P/L blended"
+        value={formatEur(kpis.net_pl_blended_eur)}
+        subtitle="Realized + listed − cost"
+        icon={<TrendingUp size={18} style={{ color: plIconColor }} />}
+        tone={plTone}
+      />
+      <StatCard
+        title="Break-even"
+        value={`${Math.round(ratio * 100)}%`}
+        subtitle={
+          /* Inline progress bar in the subtitle slot — past breakeven turns
+             solid success and the bar caps at the 100% marker. */
+          (() => {
+            const trackPct = Math.min(ratio, 2) / 2; // 100% trackPct == 200% recovery
+            const breakevenMarker = 50; // 100% = halfway across (since track maxes at 200%)
+            return (
+              <span className="block w-full">
+                <span
+                  className="block h-1.5 rounded-full overflow-hidden relative"
+                  style={{ background: "rgba(255,255,255,0.06)" }}
+                >
+                  <span
+                    className="block h-full rounded-full transition-all"
+                    style={{
+                      width: `${trackPct * 100}%`,
+                      background: past ? "var(--success)" : "var(--accent)",
+                    }}
+                  />
+                  <span
+                    className="absolute top-0 bottom-0"
+                    style={{
+                      left: `${breakevenMarker}%`,
+                      width: 1,
+                      background: "rgba(255,255,255,0.25)",
+                    }}
+                    title="100% break-even marker"
+                  />
+                </span>
+              </span>
+            );
+          })()
+        }
+        icon={<Target size={18} style={{ color: past ? "var(--success)" : "var(--accent)" }} />}
+        tone={breakevenTone}
+      />
     </div>
   );
 }
