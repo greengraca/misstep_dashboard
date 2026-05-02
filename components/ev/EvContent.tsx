@@ -9,6 +9,7 @@ import EvSetList from "./EvSetList";
 import EvSetDetail from "./EvSetDetail";
 import EvProductList from "./EvProductList";
 import DiscountToggle from "@/components/dashboard/discount-toggle";
+import { H1 } from "@/components/dashboard/page-shell";
 
 type TabKey = "sets" | "products";
 
@@ -54,6 +55,12 @@ export default function EvContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      {!selectedSet && (
+        <H1 subtitle="Expected value per booster, per product, per set">
+          Expected value
+        </H1>
+      )}
+
       {/* Tab strip — hidden when a set detail is open. Undercut toggle
           lives inline on the right side so it doesn't add a new row. */}
       {!selectedSet && (
