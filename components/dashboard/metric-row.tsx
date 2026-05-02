@@ -21,12 +21,16 @@ const TONE_COLOR: Record<MetricTone, string> = {
 
 /** Inline row of 4–6 small numeric stats. Each tile is label-above /
  *  mono-value-below. Used for breakdown strips that don't deserve full
- *  StatCards (Cardmarket Revenue, EV per-rarity contributions, etc.). */
+ *  StatCards (Cardmarket Revenue, EV per-rarity contributions, etc.).
+ *
+ *  Mobile: tiles wrap onto multiple rows via auto-fit so labels and mono
+ *  values keep enough room to read. The minmax is generous (140px) because
+ *  €-formatted numbers like "1,234.56 €" need ~110px to not truncate. */
 export function MetricRow({ items }: MetricRowProps) {
   return (
     <div
       className="grid gap-3"
-      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}
     >
       {items.map((m) => (
         <div

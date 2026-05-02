@@ -80,7 +80,8 @@ export default function MonthPicker({
       <button
         onClick={prev}
         disabled={!canPrev}
-        className="p-1.5 transition-colors disabled:opacity-30"
+        aria-label="Previous month"
+        className="inline-flex items-center justify-center w-8 h-8 transition-colors disabled:opacity-30"
         style={{
           color: "var(--text-secondary)",
           background: "transparent",
@@ -101,7 +102,8 @@ export default function MonthPicker({
       <button
         onClick={next}
         disabled={!canNext}
-        className="p-1.5 transition-colors disabled:opacity-30"
+        aria-label="Next month"
+        className="inline-flex items-center justify-center w-8 h-8 transition-colors disabled:opacity-30"
         style={{
           color: "var(--text-secondary)",
           background: "transparent",

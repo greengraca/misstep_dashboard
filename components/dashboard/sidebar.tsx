@@ -46,7 +46,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <>
       {/* Mobile header */}
       <header
-        className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-12"
+        className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between pl-4 pr-2 h-12"
         style={{ background: "var(--header-bg)", backdropFilter: "var(--surface-blur)", borderBottom: "1px solid var(--border)" }}
       >
         <img
@@ -54,8 +54,13 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           alt="MISSTEP"
           style={{ height: "22px", width: "auto" }}
         />
-        <button onClick={onToggle} style={{ color: "var(--text-secondary)" }}>
-          <Menu size={20} />
+        <button
+          onClick={onToggle}
+          aria-label="Open menu"
+          className="inline-flex items-center justify-center w-10 h-10 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <Menu size={22} />
         </button>
       </header>
 
@@ -111,10 +116,11 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           )}
           <button
             onClick={onToggle}
-            className="md:hidden flex items-center justify-center"
+            aria-label="Close menu"
+            className="md:hidden inline-flex items-center justify-center w-10 h-10 -mr-1 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
             style={{ color: "var(--text-secondary)" }}
           >
-            <X size={18} />
+            <X size={20} />
           </button>
         </div>
 
@@ -149,7 +155,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       className={`flex items-center rounded-[var(--radius)] transition-all duration-150 ${collapsed ? "justify-center" : ""}`}
                       style={{
                         gap: "10px",
-                        padding: collapsed ? "8px" : "8px 12px",
+                        padding: collapsed ? "10px" : "10px 12px",
                         background: active ? "rgba(255, 255, 255, 0.03)" : "transparent",
                         color: active ? "var(--text-primary)" : "var(--text-secondary)",
                         textDecoration: "none",
@@ -190,7 +196,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 className={`flex items-center rounded-[var(--radius)] transition-all duration-150 ${collapsed ? "justify-center" : ""}`}
                 style={{
                   gap: "10px",
-                  padding: collapsed ? "8px" : "8px 12px",
+                  padding: collapsed ? "10px" : "10px 12px",
                   background: active ? "rgba(255, 255, 255, 0.03)" : "transparent",
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
                   textDecoration: "none",
@@ -220,7 +226,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             className={`flex items-center rounded-[var(--radius)] w-full transition-all duration-150 ${collapsed ? "justify-center" : ""}`}
             style={{
               gap: "10px",
-              padding: collapsed ? "8px" : "8px 12px",
+              padding: collapsed ? "10px" : "10px 12px",
               background: "transparent",
               color: "var(--text-secondary)",
               border: "none",

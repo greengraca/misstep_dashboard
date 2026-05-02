@@ -28,6 +28,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Panel, H1, H2, H3, Note } from "@/components/dashboard/page-shell";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
 
 function Code({ children }: { children: React.ReactNode }) {
   return (
@@ -935,10 +936,11 @@ function StickyNav() {
   const { done, total } = useCheckProgress();
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const allDone = total > 0 && done === total;
+  const [confirmReset, setConfirmReset] = useState(false);
 
-  function resetAllChecks() {
+  function performReset() {
     if (typeof window === "undefined") return;
-    if (!confirm(`Reset all ${total} check marks? This can't be undone.`)) return;
+    setConfirmReset(false);
     for (const id of checkItemRegistry) {
       window.localStorage.removeItem(checkItemKey(id));
     }
@@ -1029,7 +1031,7 @@ function StickyNav() {
             {done} / {total} · {pct}%
           </span>
           <button
-            onClick={resetAllChecks}
+            onClick={() => setConfirmReset(true)}
             style={{
               fontSize: 10,
               fontFamily: "var(--font-mono)",
@@ -1037,7 +1039,7 @@ function StickyNav() {
               background: "transparent",
               border: "1px solid var(--border)",
               borderRadius: 4,
-              padding: "2px 8px",
+              padding: "4px 10px",
               cursor: "pointer",
               transition: "color 120ms, border-color 120ms",
             }}
@@ -1055,6 +1057,15 @@ function StickyNav() {
           </button>
         </div>
       )}
+      <ConfirmModal
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        onConfirm={performReset}
+        title="Reset all checks?"
+        message={`Reset all ${total} check marks on this page? This can't be undone — you'll lose every progress mark.`}
+        confirmLabel="Reset"
+        variant="danger"
+      />
     </div>
   );
 }

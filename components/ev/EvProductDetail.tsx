@@ -403,7 +403,58 @@ export default function EvProductDetail({ slug }: Props) {
       {ev.booster_breakdown.length > 0 && (
         <Panel>
           <H2 icon={<Package size={16} />}>Included boosters</H2>
-          <div style={{ overflowX: "auto" }}>
+
+          {/* Mobile cards */}
+          <div className="sm:hidden flex flex-col gap-2">
+            {ev.booster_breakdown.map((b, i) => (
+              <div
+                key={b.set_code + i}
+                className="flex flex-col gap-1.5 rounded-lg p-3"
+                style={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Link
+                    href={`/ev?view=sets&set=${b.set_code}`}
+                    className="text-sm font-semibold"
+                    style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}
+                  >
+                    {b.set_code.toUpperCase()}
+                  </Link>
+                  <span className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    ×{b.count}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      Sealed (each)
+                    </div>
+                    <SealedPriceInput
+                      product={product}
+                      boosterIndex={i}
+                      value={b.sealed_price_eur}
+                      setName={data.data.set_names?.[b.set_code]}
+                      onChanged={() => mutate(`/api/ev/products/${slug}${siftParam}`)}
+                    />
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                      Opened EV (each)
+                    </div>
+                    <div style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                      {fmt(applyDiscount(b.opened_unit_ev))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block" style={{ overflowX: "auto" }}>
             <table
               style={{
                 width: "100%",
@@ -507,7 +558,97 @@ export default function EvProductDetail({ slug }: Props) {
             Sift floor (€0.25)
           </label>
         </div>
-        <div style={{ overflowX: "auto" }}>
+        {/* Mobile cards. */}
+        <div className="sm:hidden flex flex-col gap-1.5">
+          {ev.card_breakdown.map((c) => {
+            const cmUrl = buildCardmarketUrl(
+              data.data.set_names?.[c.set_code],
+              c.name,
+              c.is_foil,
+              c.cardmarket_id
+            );
+            return (
+              <div
+                key={c.scryfall_id + (c.is_foil ? "-f" : "")}
+                className="flex items-start gap-2 px-2 py-1.5"
+                style={{
+                  borderBottom: "1px solid var(--border-subtle)",
+                  opacity: c.excluded_reason ? 0.55 : 1,
+                }}
+              >
+                <span
+                  className="text-xs shrink-0"
+                  style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", minWidth: 20 }}
+                >
+                  {c.count}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-1.5">
+                    {cmUrl ? (
+                      <a
+                        href={cmUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs no-underline truncate min-w-0"
+                        style={{
+                          color: "var(--text-primary)",
+                          textDecoration: c.excluded_reason ? "line-through" : undefined,
+                        }}
+                      >
+                        {c.name}
+                      </a>
+                    ) : (
+                      <span
+                        className="text-xs truncate min-w-0"
+                        style={{
+                          color: "var(--text-primary)",
+                          textDecoration: c.excluded_reason ? "line-through" : undefined,
+                        }}
+                      >
+                        {c.name}
+                      </span>
+                    )}
+                    {c.is_foil && <FoilStar size={11} />}
+                  </div>
+                  <div
+                    className="text-[10px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      {c.set_code.toUpperCase()}
+                    </span>
+                    {c.role && (
+                      <span style={{ color: "var(--accent)" }}>
+                        {" · "}{c.role.replace(/_/g, " ")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div
+                    className="text-xs"
+                    style={{
+                      color: c.excluded_reason ? "var(--text-muted)" : "var(--text-primary)",
+                      fontFamily: "var(--font-mono)",
+                      textDecoration: c.excluded_reason ? "line-through" : undefined,
+                    }}
+                  >
+                    {fmt(applyDiscount(c.line_total))}
+                  </div>
+                  <div
+                    className="text-[10px]"
+                    style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+                  >
+                    {fmt(applyDiscount(c.unit_price))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden sm:block" style={{ overflowX: "auto" }}>
           <table
             style={{
               width: "100%",

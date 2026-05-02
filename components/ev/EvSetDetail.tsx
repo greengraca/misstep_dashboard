@@ -148,7 +148,8 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
       <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={onBack}
-          className="p-2 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+          aria-label="Back to set list"
+          className="inline-flex items-center justify-center w-10 h-10 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
           style={{ color: "var(--text-muted)" }}
         >
           <ArrowLeft size={18} />
@@ -167,7 +168,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
           <button
             onClick={handleGenerateSnapshot}
             disabled={snapshotting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]"
             style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)", opacity: snapshotting ? 0.6 : 1 }}
           >
             <Camera size={12} className={snapshotting ? "animate-spin" : ""} />
@@ -176,7 +177,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
           <button
             onClick={() => (syncing ? undefined : setConfirmSync(true))}
             disabled={syncing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]"
             style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-secondary)" }}
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
@@ -184,7 +185,7 @@ export default function EvSetDetail({ set, onBack }: EvSetDetailProps) {
           </button>
           <button
             onClick={() => setConfigOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]"
             style={{ background: "var(--accent-light)", color: "var(--accent)" }}
           >
             <Settings size={12} />

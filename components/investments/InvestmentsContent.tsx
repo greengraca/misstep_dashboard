@@ -323,7 +323,92 @@ export default function InvestmentsContent() {
               {tab === "listing" ? "No active investments." : "Nothing here yet."}
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* Mobile: card list. */}
+              <div className="sm:hidden flex flex-col gap-2">
+                {rows.map((r) => {
+                  const totalRealized = r.realized_eur + r.sealed_flips_total_eur;
+                  const ratio = r.cost_total_eur > 0 ? totalRealized / r.cost_total_eur : 0;
+                  const past = ratio >= 1;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => router.push(`/investments/${r.id}`)}
+                      className="text-left rounded-lg p-3 transition-colors"
+                      style={{
+                        background: "var(--bg-card)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            {statusBadge(r.status)}
+                            <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                              {new Date(r.created_at).toLocaleDateString("pt-PT")}
+                            </span>
+                          </div>
+                          <div
+                            className="text-sm font-medium truncate"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            {r.name}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+                        <SourceCell src={r.source} productMap={productMap} />
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-3" style={{ color: "var(--text-muted)" }}>
+                          <span>
+                            cost{" "}
+                            <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                              {formatEur(r.cost_total_eur)}
+                            </span>
+                          </span>
+                          <span>
+                            real.{" "}
+                            <span
+                              style={{
+                                color: past ? "var(--success)" : "var(--text-secondary)",
+                                fontFamily: "var(--font-mono)",
+                              }}
+                            >
+                              {formatEur(totalRealized)}
+                            </span>
+                          </span>
+                        </div>
+                        <span
+                          className="text-[11px]"
+                          style={{
+                            color: past ? "var(--success)" : "var(--accent)",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          {Math.round(ratio * 100)}%
+                        </span>
+                      </div>
+                      <div
+                        className="mt-2 h-1.5 rounded-full overflow-hidden"
+                        style={{ background: "rgba(255,255,255,0.06)" }}
+                      >
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${(Math.min(Math.max(ratio, 0), 2) / 2) * 100}%`,
+                            background: past ? "var(--success)" : "var(--accent)",
+                          }}
+                        />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Desktop: table. */}
+              <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-xs min-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
@@ -408,7 +493,8 @@ export default function InvestmentsContent() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </Panel>

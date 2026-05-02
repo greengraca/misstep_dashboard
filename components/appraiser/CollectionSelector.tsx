@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw, TrendingUp } from "lucide-react";
 import Select from "@/components/dashboard/select";
 import Modal from "@/components/dashboard/modal";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
 import type { AppraiserCollection } from "@/lib/appraiser/types";
 import {
   card,
@@ -45,6 +46,7 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
 
   // "Convert to Investment" modal state
   const [convertOpen, setConvertOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [convertName, setConvertName] = useState("");
   const [convertCost, setConvertCost] = useState<string>("");
   const [convertNotes, setConvertNotes] = useState("");
@@ -142,9 +144,14 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
     onChanged();
   }
 
-  async function handleDelete() {
+  function requestDelete() {
     if (!current) return;
-    if (!confirm(`Delete "${current.name}" and all its cards?`)) return;
+    setConfirmDelete(true);
+  }
+
+  async function performDelete() {
+    if (!current) return;
+    setConfirmDelete(false);
     await fetch(`/api/appraiser/collections/${selectedId}`, { method: "DELETE" });
     onSelect("");
     onChanged();
@@ -243,7 +250,7 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
               <TrendingUp size={12} />
               Convert to Investment
             </button>
-            <button onClick={handleDelete} className={btnDangerClass} style={btnDanger}>
+            <button onClick={requestDelete} className={btnDangerClass} style={btnDanger}>
               Delete
             </button>
           </>
@@ -394,6 +401,16 @@ export default function CollectionSelector({ collections, selectedId, onSelect, 
           </div>
         )}
       </Modal>
+
+      <ConfirmModal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={performDelete}
+        title="Delete collection"
+        message={current ? `Delete "${current.name}" and all ${current.cardCount} card${current.cardCount === 1 ? "" : "s"}? This can't be undone.` : ""}
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

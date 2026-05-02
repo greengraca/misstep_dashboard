@@ -367,7 +367,8 @@ export default function FinanceContent() {
         return (
           <button
             onClick={(e) => { e.stopPropagation(); toggleReimburse(t); }}
-            className="p-1 rounded-lg transition-colors"
+            aria-label={t.reimbursed ? "Mark as not reimbursed" : "Mark as reimbursed"}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer" }}
             title={t.reimbursed ? "Mark as not reimbursed" : "Mark as reimbursed"}
           >
@@ -387,7 +388,7 @@ export default function FinanceContent() {
         <div className="flex items-center gap-1 justify-end">
           <button
             onClick={(e) => { e.stopPropagation(); openEdit(t); }}
-            className="p-1 rounded-lg transition-colors"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
@@ -396,7 +397,7 @@ export default function FinanceContent() {
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); requestDelete(t); }}
-            className="p-1 rounded-lg transition-colors"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--error)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useTransition } from "react";
 import Select from "@/components/dashboard/select";
 import Modal from "@/components/dashboard/modal";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
 import { FoilStar, LanguageFlag } from "@/components/dashboard/cm-sprite";
 import { SetSymbol } from "@/components/dashboard/set-symbol";
 import { cleanCardmarketUrl, isCardmarketProductUrl } from "@/lib/appraiser/scryfall-resolve";
@@ -106,6 +107,8 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
   // the "edit ID" button when the user explicitly enables this. Per-session
   // (no persistence) — it's a transient repair tool, not a default-on view.
   const [editIdsEnabled, setEditIdsEnabled] = useState<boolean>(false);
+  const [deleteCardTarget, setDeleteCardTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteOverrideTarget, setDeleteOverrideTarget] = useState<{ set: string; collectorNumber: string } | null>(null);
   // useTransition lets React schedule the table re-render as a non-urgent
   // update — the chevron flips instantly, the (expensive) per-row reconciliation
   // happens during idle frames instead of blocking the click. Without this,
@@ -183,9 +186,15 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     if (res.ok) onCardChanged();
   };
 
-  const deleteCard = async (cardId: string, name: string) => {
-    if (!confirm(`Remove "${name}" from this collection?`)) return;
-    await fetch(`/api/appraiser/collections/${collectionId}/cards/${cardId}`, { method: "DELETE" });
+  const requestDeleteCard = (cardId: string, name: string) => {
+    setDeleteCardTarget({ id: cardId, name });
+  };
+
+  const confirmDeleteCard = async () => {
+    const target = deleteCardTarget;
+    if (!target) return;
+    setDeleteCardTarget(null);
+    await fetch(`/api/appraiser/collections/${collectionId}/cards/${target.id}`, { method: "DELETE" });
     onCardChanged();
   };
 
@@ -222,10 +231,17 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
     setOverrideManagerOpen(false);
     setOverrideManagerList(null);
   };
-  const deleteOverride = async (set: string, collectorNumber: string) => {
-    const key = `${set}:${collectorNumber}`;
+  const requestDeleteOverride = (set: string, collectorNumber: string) => {
     if (deletingOverrideKey) return;
-    if (!confirm(`Remove the manual Cardmarket-ID override for ${set.toUpperCase()} #${collectorNumber}?\n\nThis clears the ID from every card with this set + collector number, so the "set ID" button reappears and you can re-add the override.`)) return;
+    setDeleteOverrideTarget({ set, collectorNumber });
+  };
+
+  const confirmDeleteOverride = async () => {
+    const target = deleteOverrideTarget;
+    if (!target) return;
+    const { set, collectorNumber } = target;
+    const key = `${set}:${collectorNumber}`;
+    setDeleteOverrideTarget(null);
     setDeletingOverrideKey(key);
     try {
       const res = await fetch("/api/appraiser/cm-overrides", {
@@ -618,7 +634,87 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
         </div>
       )}
 
-      <div style={{ overflowX: "auto" }}>
+      {/* Mobile cards — simplified view: image, name, qty/foil, From/Trend/Offer.
+          Velocity / Set ID / override editing stay on desktop. */}
+      <div className="sm:hidden flex flex-col">
+        {displayCards.map((c) => {
+          const dim = excludedIds.has(c._id) ? 0.4 : bulkIds.has(c._id) ? 0.55 : 1;
+          const offerEach = c.fromPrice != null ? c.fromPrice * (1 - offerPct / 100) : null;
+          return (
+            <div
+              key={c._id}
+              className="flex items-start gap-2 px-3 py-2"
+              style={{ borderBottom: "1px solid var(--border-subtle)", opacity: dim }}
+            >
+              {c.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={c.imageUrl} alt="" className="shrink-0" style={{ width: 28, height: 38, objectFit: "cover", borderRadius: 3 }} />
+              ) : (
+                <div className="shrink-0" style={{ width: 28, height: 38, background: "var(--bg-card)", borderRadius: 3 }} />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline justify-between gap-2">
+                  {c.cardmarketUrl ? (
+                    <a
+                      href={c.cardmarketUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium truncate min-w-0"
+                      style={{ color: "var(--text-primary)", textDecoration: "none" }}
+                    >
+                      {c.name}
+                    </a>
+                  ) : (
+                    <span className="text-xs font-medium truncate min-w-0" style={{ color: "var(--text-primary)" }}>
+                      {c.name}
+                    </span>
+                  )}
+                  <span className="shrink-0 text-xs" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                    {eur(c.fromPrice)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  <span style={{ fontFamily: "var(--font-mono)" }}>
+                    {c.set?.toUpperCase()}{c.collectorNumber ? ` #${c.collectorNumber}` : ""}
+                  </span>
+                  {c.foil && <FoilStar size={10} />}
+                  {(c.qty ?? 1) > 1 && (
+                    <span style={{ fontFamily: "var(--font-mono)" }}>×{c.qty}</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[10px] mt-1">
+                  <div className="flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+                    <span>
+                      Trend{" "}
+                      <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                        {eur(c.trendPrice)}
+                      </span>
+                    </span>
+                    <span style={{ opacity: 0.4 }}>·</span>
+                    <span>
+                      −{offerPct}%{" "}
+                      <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)" }}>
+                        {eur(offerEach)}
+                      </span>
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => requestDeleteCard(c._id, c.name)}
+                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded transition-colors"
+                    style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+                    title="Remove"
+                    aria-label={`Remove ${c.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden sm:block" style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -963,7 +1059,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                     {c.excluded ? "↑" : "↓"}
                   </button>
                   <button
-                    onClick={() => deleteCard(c._id, c.name)}
+                    onClick={() => requestDeleteCard(c._id, c.name)}
                     title="Remove card"
                     className="hover:text-[var(--error)] transition-colors"
                     style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "2px 4px" }}
@@ -1145,7 +1241,7 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
                       </div>
                     </div>
                     <button
-                      onClick={() => deleteOverride(o.set, o.collectorNumber)}
+                      onClick={() => requestDeleteOverride(o.set, o.collectorNumber)}
                       disabled={isDeleting}
                       title="Remove this override"
                       className="hover:text-[var(--error)] transition-colors"
@@ -1161,6 +1257,29 @@ export default function AppraiserCardTable({ collectionId, collection, cards, on
         )}
       </Modal>
 
+      <ConfirmModal
+        open={!!deleteCardTarget}
+        onClose={() => setDeleteCardTarget(null)}
+        onConfirm={confirmDeleteCard}
+        title="Remove card"
+        message={deleteCardTarget ? `Remove "${deleteCardTarget.name}" from this collection? This can't be undone.` : ""}
+        confirmLabel="Remove"
+        variant="danger"
+      />
+
+      <ConfirmModal
+        open={!!deleteOverrideTarget}
+        onClose={() => setDeleteOverrideTarget(null)}
+        onConfirm={confirmDeleteOverride}
+        title="Remove override"
+        message={
+          deleteOverrideTarget
+            ? `Remove the manual Cardmarket-ID override for ${deleteOverrideTarget.set.toUpperCase()} #${deleteOverrideTarget.collectorNumber}? This clears the ID from every card with this set + collector number, so the "set ID" button reappears and you can re-add the override.`
+            : ""
+        }
+        confirmLabel="Remove"
+        variant="danger"
+      />
     </div>
   );
 }
