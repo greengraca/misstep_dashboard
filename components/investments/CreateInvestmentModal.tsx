@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Boxes, Layers, ChevronDown, Sliders, Wallet } from "lucide-react";
 import Modal from "@/components/dashboard/modal";
 import Select from "@/components/dashboard/select";
+import { Field } from "@/components/dashboard/page-shell";
 import type {
   BoosterType,
   CreateInvestmentBody,
@@ -24,33 +25,6 @@ const fieldStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   color: "var(--text-primary)",
 };
-
-function Field({
-  label,
-  children,
-  hint,
-}: {
-  label: string;
-  children: React.ReactNode;
-  hint?: string;
-}) {
-  return (
-    <label className="block">
-      <div
-        className="text-[10px] uppercase tracking-wider mb-1"
-        style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
-      >
-        {label}
-      </div>
-      {children}
-      {hint && (
-        <div className="mt-1 text-[10px]" style={{ color: "var(--text-muted)" }}>
-          {hint}
-        </div>
-      )}
-    </label>
-  );
-}
 
 function KindCard({
   active,
