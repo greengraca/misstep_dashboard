@@ -3,11 +3,12 @@
 import { useState } from "react";
 import useSWR, { mutate } from "swr";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Package, ListChecks } from "lucide-react";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
 import DiscountToggle from "@/components/dashboard/discount-toggle";
 import { useDiscount } from "@/lib/discount";
 import { fetcher } from "@/lib/fetcher";
+import { Panel, H1, H2, Note } from "@/components/dashboard/page-shell";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
 function SealedPriceInput({
@@ -270,16 +271,7 @@ export default function EvProductDetail({ slug }: Props) {
         >
           <ArrowLeft size={14} /> Products
         </Link>
-        <div
-          className="p-3 rounded-lg text-sm"
-          style={{
-            border: "1px solid var(--error-border)",
-            background: "var(--error-light)",
-            color: "var(--error)",
-          }}
-        >
-          Product not found or failed to load.
-        </div>
+        <Note tone="danger">Product not found or failed to load.</Note>
       </div>
     );
   }
@@ -290,13 +282,15 @@ export default function EvProductDetail({ slug }: Props) {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div>
-        <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           <Link
             href="/ev?view=products"
-            className="inline-flex items-center gap-1.5 text-sm"
-            style={{ color: "var(--accent)" }}
+            className="inline-flex items-center gap-1.5 text-xs transition-colors"
+            style={{ color: "var(--text-muted)", textDecoration: "none" }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
-            <ArrowLeft size={14} /> Products
+            <ArrowLeft size={12} /> Products
           </Link>
           <DiscountToggle />
         </div>
@@ -310,30 +304,27 @@ export default function EvProductDetail({ slug }: Props) {
             />
           )}
           <div className="min-w-0">
-            <h1
-              className="text-2xl font-semibold"
-              style={{ color: "var(--text-primary)" }}
+            <H1
+              subtitle={
+                <>
+                  {TYPE_LABEL[product.product_type]} · {product.release_year}
+                  {product.parent_set_code && (
+                    <>
+                      {" "}·{" "}
+                      <Link
+                        href={`/ev?view=sets&set=${product.parent_set_code}`}
+                        className="no-underline hover:underline transition-colors"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        parent set: {product.parent_set_code.toUpperCase()}
+                      </Link>
+                    </>
+                  )}
+                </>
+              }
             >
               {product.name}
-            </h1>
-            <div
-              className="text-[13px] mt-1"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {TYPE_LABEL[product.product_type]} &middot; {product.release_year}
-              {product.parent_set_code && (
-                <>
-                  {" "}&middot;{" "}
-                  <Link
-                    href={`/ev?view=sets&set=${product.parent_set_code}`}
-                    className="no-underline hover:underline transition-colors"
-                    style={{ color: "var(--accent)" }}
-                  >
-                    parent set: {product.parent_set_code.toUpperCase()}
-                  </Link>
-                </>
-              )}
-            </div>
+            </H1>
           </div>
         </div>
       </div>
@@ -369,38 +360,16 @@ export default function EvProductDetail({ slug }: Props) {
 
       {/* Missing cards warning */}
       {ev.missing_scryfall_ids.length > 0 && (
-        <div
-          className="p-3 rounded-lg text-[13px]"
-          style={{
-            border: "1px solid var(--error-border)",
-            background: "var(--error-light)",
-            color: "var(--error)",
-          }}
-        >
-          <strong>{ev.missing_scryfall_ids.length}</strong> card(s) not found in
-          the ev_cards cache — parent set may not be synced. IDs:{" "}
-          {ev.missing_scryfall_ids.slice(0, 5).join(", ")}
+        <Note tone="danger" title={`${ev.missing_scryfall_ids.length} card(s) not found in the ev_cards cache`}>
+          Parent set may not be synced. IDs: {ev.missing_scryfall_ids.slice(0, 5).join(", ")}
           {ev.missing_scryfall_ids.length > 5 && "…"}
-        </div>
+        </Note>
       )}
 
       {/* Included boosters — shown above decklist */}
       {ev.booster_breakdown.length > 0 && (
-        <section
-          className="p-4 rounded-xl"
-          style={{
-            background: "var(--surface-gradient)",
-            backdropFilter: "var(--surface-blur)",
-            border: "1px solid rgba(255, 255, 255, 0.10)",
-            boxShadow: "var(--surface-shadow)",
-          }}
-        >
-          <h2
-            className="text-base font-semibold mb-3"
-            style={{ color: "var(--text-primary)" }}
-          >
-            Included boosters
-          </h2>
+        <Panel>
+          <H2 icon={<Package size={16} />}>Included boosters</H2>
           <div style={{ overflowX: "auto" }}>
             <table
               style={{
@@ -475,23 +444,12 @@ export default function EvProductDetail({ slug }: Props) {
               </tbody>
             </table>
           </div>
-        </section>
+        </Panel>
       )}
 
       {/* Decklist */}
-      <section
-        className="p-4 rounded-xl"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "1px solid rgba(255, 255, 255, 0.10)",
-          boxShadow: "var(--surface-shadow)",
-        }}
-      >
-        <h2
-          className="text-base font-semibold mb-3"
-          style={{ color: "var(--text-primary)" }}
-        >
+      <Panel>
+        <H2 icon={<ListChecks size={16} />}>
           Decklist{" "}
           <span
             className="text-sm font-normal"
@@ -499,7 +457,7 @@ export default function EvProductDetail({ slug }: Props) {
           >
             ({ev.card_count_total} cards)
           </span>
-        </h2>
+        </H2>
         <div className="flex items-center gap-4 mb-3 flex-wrap">
           <BasicLandToggle product={product} onChanged={() => mutate(`/api/ev/products/${slug}${siftParam}`)} />
           <label
@@ -679,7 +637,7 @@ export default function EvProductDetail({ slug }: Props) {
             </tbody>
           </table>
         </div>
-      </section>
+      </Panel>
 
     </div>
   );
