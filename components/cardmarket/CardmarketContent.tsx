@@ -447,7 +447,7 @@ export default function CardmarketContent() {
 
         {/* Status tabs */}
         <div
-          className="flex gap-0 overflow-x-auto"
+          className="flex gap-0 overflow-x-auto overflow-y-hidden"
           style={{ borderBottom: "1px solid var(--border)", scrollbarWidth: "thin" }}
         >
           {STATUS_TABS.map((tab) => {
