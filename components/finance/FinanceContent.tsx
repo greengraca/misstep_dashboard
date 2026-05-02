@@ -481,21 +481,24 @@ export default function FinanceContent() {
             <KindCard
               active={formType === "expense"}
               onClick={() => setFormType("expense")}
-              icon={<ArrowDownRight size={22} style={{ color: "var(--accent)" }} />}
+              tone="danger"
+              icon={<ArrowDownRight size={22} style={{ color: formType === "expense" ? "var(--error)" : "var(--text-secondary)" }} />}
               title="Expense"
               description="Money out — shipping, supplies, fees, or anything you paid for."
             />
             <KindCard
               active={formType === "income"}
               onClick={() => setFormType("income")}
-              icon={<TrendingUp size={22} style={{ color: "var(--accent)" }} />}
+              tone="success"
+              icon={<TrendingUp size={22} style={{ color: formType === "income" ? "var(--success)" : "var(--text-secondary)" }} />}
               title="Income"
               description="Manual income — direct sales, refunds, or anything not coming from Cardmarket."
             />
             <KindCard
               active={formType === "withdrawal"}
               onClick={() => setFormType("withdrawal")}
-              icon={<Banknote size={22} style={{ color: "var(--accent)" }} />}
+              tone="neutral"
+              icon={<Banknote size={22} style={{ color: formType === "withdrawal" ? "var(--text-primary)" : "var(--text-secondary)" }} />}
               title="Withdrawal"
               description="Money pulled out of the Cardmarket balance into your own account."
             />
