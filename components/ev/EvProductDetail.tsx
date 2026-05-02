@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR, { mutate } from "swr";
 import Link from "next/link";
-import { ArrowLeft, Package, ListChecks, Coins, Box, Boxes as BoxesIcon } from "lucide-react";
+import { ArrowLeft, Package, ListChecks, Coins, Box, Boxes as BoxesIcon, ExternalLink } from "lucide-react";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
 import DiscountToggle from "@/components/dashboard/discount-toggle";
 import { useDiscount } from "@/lib/discount";
@@ -13,15 +13,27 @@ import StatCard from "@/components/dashboard/stat-card";
 import EvProductHistoryChart from "./EvProductHistoryChart";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
+/** Build a Cardmarket sealed-products search URL for a booster set, used
+ *  by the inline 'CM' lookup link next to each SealedPriceInput. CM doesn't
+ *  publish a stable per-set booster URL we can derive from set_code alone,
+ *  so we use the search endpoint with the set name (or set_code as fallback)
+ *  + 'booster'. Category 2 = sealed products. */
+function cmBoosterSearchUrl(setCode: string, setName?: string): string {
+  const query = encodeURIComponent(`${setName ?? setCode} booster`);
+  return `https://www.cardmarket.com/en/Magic/Products/Search?idCategory=2&searchString=${query}`;
+}
+
 function SealedPriceInput({
   product,
   boosterIndex,
   value,
+  setName,
   onChanged,
 }: {
   product: EvProduct;
   boosterIndex: number;
   value: number | undefined;
+  setName?: string;
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -69,28 +81,49 @@ function SealedPriceInput({
   }
 
   if (!editing) {
+    const boosterSetCode = product.included_boosters?.[boosterIndex]?.set_code ?? "";
+    const cmHref = cmBoosterSearchUrl(boosterSetCode, setName);
     return (
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(value !== undefined ? String(value) : "");
-          setEditing(true);
-          setError(null);
-        }}
-        className="transition-colors hover:underline"
-        style={{
-          color: value === undefined ? "var(--text-muted)" : "var(--text-primary)",
-          fontFamily: "var(--font-mono)",
-          background: "none",
-          border: "none",
-          padding: 0,
-          cursor: "pointer",
-          fontSize: "inherit",
-        }}
-        title="Click to edit sealed price"
-      >
-        {value === undefined ? "set…" : `€${value.toFixed(2)}`}
-      </button>
+      <span className="inline-flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(value !== undefined ? String(value) : "");
+            setEditing(true);
+            setError(null);
+          }}
+          className="transition-colors hover:underline"
+          style={{
+            color: value === undefined ? "var(--text-muted)" : "var(--text-primary)",
+            fontFamily: "var(--font-mono)",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            fontSize: "inherit",
+          }}
+          title="Click to edit sealed price"
+        >
+          {value === undefined ? "set…" : `€${value.toFixed(2)}`}
+        </button>
+        <a
+          href={cmHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-0.5 text-[10px] transition-colors"
+          style={{
+            color: "var(--text-muted)",
+            textDecoration: "none",
+            fontFamily: "var(--font-mono)",
+          }}
+          title="Look up the current sealed price on Cardmarket"
+          onClick={(e) => e.stopPropagation()}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+        >
+          CM <ExternalLink size={9} />
+        </a>
+      </span>
     );
   }
 
@@ -427,6 +460,7 @@ export default function EvProductDetail({ slug }: Props) {
                         product={product}
                         boosterIndex={i}
                         value={b.sealed_price_eur}
+                        setName={data.data.set_names?.[b.set_code]}
                         onChanged={() => mutate(`/api/ev/products/${slug}${siftParam}`)}
                       />
                     </td>
