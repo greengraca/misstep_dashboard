@@ -23,6 +23,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: {
     signIn: "/login",
   },
+  // Trust the request's host header. Without this, NextAuth uses AUTH_URL
+  // for redirects/callbacks, which is pinned to the production hostname —
+  // so a successful login on a Vercel preview deployment bounces the user
+  // back to production instead of the preview URL they came from.
+  trustHost: true,
   callbacks: {
     authorized({ auth: session, request: { nextUrl } }) {
       const isLoggedIn = !!session?.user;
