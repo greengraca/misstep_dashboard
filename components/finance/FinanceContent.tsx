@@ -9,6 +9,9 @@ import DataTable, { type Column } from "@/components/dashboard/data-table";
 import Modal from "@/components/dashboard/modal";
 import MonthPicker from "@/components/dashboard/month-picker";
 import Select from "@/components/dashboard/select";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 import {
   Wallet,
   TrendingUp,
@@ -22,6 +25,7 @@ import {
   CheckCircle,
   Pencil,
   Trash2,
+  Receipt,
 } from "lucide-react";
 
 const CATEGORIES = [
@@ -109,6 +113,7 @@ export default function FinanceContent() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
 
   // Form state
   const [formDay, setFormDay] = useState(todayParts().day);
@@ -218,13 +223,19 @@ export default function FinanceContent() {
     }
   }
 
-  async function handleDelete(tx: Transaction) {
-    if (!confirm(`Delete "${tx.description}"?`)) return;
+  function requestDelete(tx: Transaction) {
+    setDeletingTx(tx);
+  }
+
+  async function confirmDelete() {
+    const tx = deletingTx;
+    if (!tx) return;
     await fetch("/api/finance", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: tx._id }),
     });
+    setDeletingTx(null);
     mutate();
     globalMutate("/api/finance/pending-reimbursements");
   }
@@ -274,7 +285,7 @@ export default function FinanceContent() {
       render: (t) => (
         <span
           style={{
-            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-muted)" : "var(--error, #ef4444)",
+            color: t.type === "income" ? "var(--success)" : t.type === "withdrawal" ? "var(--text-muted)" : "var(--error)",
             fontFamily: "var(--font-mono)",
             fontWeight: 500,
           }}
@@ -285,7 +296,7 @@ export default function FinanceContent() {
     },
     {
       key: "reimbursed",
-      label: "Reimb.",
+      label: "Reimbursed",
       className: "text-center",
       render: (t) => {
         if (t.type !== "expense" || !t.paid_by) return null;
@@ -299,7 +310,7 @@ export default function FinanceContent() {
             {t.reimbursed ? (
               <CheckCircle size={16} style={{ color: "var(--success)" }} />
             ) : (
-              <Clock size={16} style={{ color: "var(--warning, #f59e0b)" }} />
+              <Clock size={16} style={{ color: "var(--warning)" }} />
             )}
           </button>
         );
@@ -320,10 +331,10 @@ export default function FinanceContent() {
             <Pencil size={14} />
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); handleDelete(t); }}
+            onClick={(e) => { e.stopPropagation(); requestDelete(t); }}
             className="p-1 rounded-lg transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-muted)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--error, #ef4444)"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--error)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
           >
             <Trash2 size={14} />
@@ -336,10 +347,8 @@ export default function FinanceContent() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Finance
-        </h1>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <H1 subtitle="Income, expenses, and reimbursements">Finance</H1>
         <div className="flex items-center gap-3">
           <MonthPicker
             value={month}
@@ -348,22 +357,16 @@ export default function FinanceContent() {
           />
           <button
             onClick={openAdd}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all"
             style={{
-              background: "rgba(251, 191, 36, 0.15)",
-              color: "var(--accent)",
-              border: "1px solid rgba(251, 191, 36, 0.35)",
+              background: "var(--accent)",
+              color: "var(--accent-text)",
+              border: "1px solid var(--accent)",
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(251, 191, 36, 0.25)";
-              e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.50)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(251, 191, 36, 0.15)";
-              e.currentTarget.style.borderColor = "rgba(251, 191, 36, 0.35)";
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
           >
-            <PlusCircle size={16} /> Add
+            <PlusCircle size={16} /> Add transaction
           </button>
         </div>
       </div>
@@ -411,24 +414,12 @@ export default function FinanceContent() {
 
       {/* CM Revenue breakdown */}
       {cmRev && cmRev.orderCount > 0 && (
-        <div
-          className="p-4 rounded-xl"
-          style={{
-            background: "var(--surface-gradient)",
-            backdropFilter: "var(--surface-blur)",
-            border: "var(--surface-border)",
-            boxShadow: "var(--surface-shadow)",
-          }}
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <ShoppingBag size={16} style={{ color: "var(--accent)" }} />
-            <h2 style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-              Cardmarket Revenue
-            </h2>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              {cmRev.orderCount} orders
-            </span>
+        <Panel>
+          <div className="flex items-center justify-between mb-3">
+            <H2 icon={<ShoppingBag size={16} />}>Cardmarket Revenue</H2>
+            <StatusPill tone="muted">{cmRev.orderCount} orders</StatusPill>
           </div>
+          {/* Replaced by MetricRow in Task 6. */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div>
               <span style={{ color: "var(--text-muted)" }}>Total Sales</span>
@@ -444,7 +435,7 @@ export default function FinanceContent() {
             </div>
             <div>
               <span style={{ color: "var(--text-muted)" }}>Fees</span>
-              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--error, #ef4444)", fontFamily: "var(--font-mono)" }}>
+              <p className="text-sm font-medium mt-0.5" style={{ color: "var(--error)", fontFamily: "var(--font-mono)" }}>
                 -€{(cmRev.sellingFees + cmRev.trusteeFees).toFixed(2)}
               </p>
             </div>
@@ -461,23 +452,12 @@ export default function FinanceContent() {
               </p>
             </div>
           </div>
-        </div>
+        </Panel>
       )}
 
       {/* Transaction table */}
-      <div
-        className="p-4 sm:p-6"
-        style={{
-          background: "var(--surface-gradient)",
-          backdropFilter: "var(--surface-blur)",
-          border: "var(--surface-border)",
-          boxShadow: "var(--surface-shadow)",
-          borderRadius: "var(--radius)",
-        }}
-      >
-        <h2 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)", marginTop: 0, marginBottom: "16px" }}>
-          Transactions
-        </h2>
+      <Panel>
+        <H2 icon={<Receipt size={16} />}>Transactions</H2>
         <DataTable
           columns={columns}
           data={transactions}
@@ -518,14 +498,14 @@ export default function FinanceContent() {
                     {t.reimbursed ? (
                       <CheckCircle size={14} style={{ color: "var(--success)" }} />
                     ) : (
-                      <Clock size={14} style={{ color: "var(--warning, #f59e0b)" }} />
+                      <Clock size={14} style={{ color: "var(--warning)" }} />
                     )}
                   </button>
                 )}
                 <span
                   className="text-sm font-medium"
                   style={{
-                    color: t.type === "income" ? "var(--success)" : "var(--error, #ef4444)",
+                    color: t.type === "income" ? "var(--success)" : "var(--error)",
                     fontFamily: "var(--font-mono)",
                   }}
                 >
@@ -545,7 +525,7 @@ export default function FinanceContent() {
             </div>
           )}
         />
-      </div>
+      </Panel>
 
       {/* Add/Edit modal */}
       <Modal
@@ -601,17 +581,17 @@ export default function FinanceContent() {
                   className="flex-1 px-3 py-2 rounded-lg border text-sm font-medium capitalize transition-colors"
                   style={{
                     background: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error-light, rgba(239,68,68,0.1))"
+                      ? opt.value === "expense" ? "var(--error-light)"
                         : opt.value === "withdrawal" ? "rgba(251,191,36,0.1)"
-                        : "var(--success-light, rgba(34,197,94,0.1))"
+                        : "var(--success-light)"
                       : "var(--bg-card)",
                     borderColor: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error, #ef4444)"
+                      ? opt.value === "expense" ? "var(--error)"
                         : opt.value === "withdrawal" ? "#fbbf24"
                         : "var(--success)"
                       : "var(--border)",
                     color: formType === opt.value
-                      ? opt.value === "expense" ? "var(--error, #ef4444)"
+                      ? opt.value === "expense" ? "var(--error)"
                         : opt.value === "withdrawal" ? "#fbbf24"
                         : "var(--success)"
                       : "var(--text-secondary)",
@@ -717,6 +697,16 @@ export default function FinanceContent() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmModal
+        open={!!deletingTx}
+        onClose={() => setDeletingTx(null)}
+        onConfirm={confirmDelete}
+        title="Delete transaction"
+        message={deletingTx ? `Delete "${deletingTx.description}"? This cannot be undone.` : ""}
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </div>
   );
 }
