@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { Package, Coins, ListOrdered, Layers, Filter } from "lucide-react";
+import { Package, Coins, ListOrdered, Layers } from "lucide-react";
 import type { StockListingWithTrend, StockSortField } from "@/lib/stock-types";
 import { STOCK_SORT_FIELDS } from "@/lib/stock-types";
 import StockFilters, {
@@ -13,6 +13,9 @@ import StockFilters, {
 import StockTable, { type SetMap } from "./StockTable";
 import StockChart from "./StockChart";
 import StockGhostGap from "./StockGhostGap";
+import StatCard from "@/components/dashboard/stat-card";
+import { H1 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -233,25 +236,6 @@ export default function StockContent() {
     ? search?.distinctNameSet
     : summary?.distinctNameSet;
 
-  const scopeTag = filtered ? (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        fontSize: 10,
-        color: "var(--text-muted)",
-        textTransform: "none",
-        letterSpacing: 0,
-        padding: "2px 6px",
-        borderRadius: 4,
-        background: "rgba(255,255,255,0.05)",
-      }}
-    >
-      <Filter size={10} /> filtered
-    </span>
-  ) : null;
-
   const coverageSubtitle = (() => {
     const c = summary?.coverage;
     if (!c || filtered) return undefined;
@@ -260,30 +244,30 @@ export default function StockContent() {
     return `${c.tracked.toLocaleString()} of ${c.total.toLocaleString()} tracked (${pct})`;
   })();
 
-  const statCards = [
+  const statCards: { label: string; value: string; subtitle: string | undefined; icon: React.ReactNode }[] = [
     {
       label: "Total Stock",
       value: displayQty != null ? displaySimple(displayQty) : "—",
       subtitle: coverageSubtitle,
-      icon: <Package size={18} />,
+      icon: <Package size={18} style={{ color: "var(--accent)" }} />,
     },
     {
       label: "Value",
       value: displayValue != null ? `€${displayValue.toFixed(2)}` : "—",
-      subtitle: undefined as string | undefined,
-      icon: <Coins size={18} />,
+      subtitle: undefined,
+      icon: <Coins size={18} style={{ color: "var(--accent)" }} />,
     },
     {
       label: "Listings",
       value: displayListings != null ? displaySimple(displayListings) : "—",
-      subtitle: undefined as string | undefined,
-      icon: <ListOrdered size={18} />,
+      subtitle: undefined,
+      icon: <ListOrdered size={18} style={{ color: "var(--accent)" }} />,
     },
     {
       label: "Unique cards",
       value: displayUnique != null ? displaySimple(displayUnique) : "—",
-      subtitle: undefined as string | undefined,
-      icon: <Layers size={18} />,
+      subtitle: undefined,
+      icon: <Layers size={18} style={{ color: "var(--accent)" }} />,
     },
   ];
 
@@ -300,71 +284,21 @@ export default function StockContent() {
   }, []);
 
   return (
-    <div>
-      <h1
-        style={{
-          fontSize: 22,
-          fontWeight: 600,
-          color: "var(--text-primary)",
-          margin: "0 0 16px",
-        }}
-      >
-        Stock
-      </h1>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <H1 subtitle="Live Cardmarket inventory and trend prices">Stock</H1>
+        {filtered && <StatusPill tone="accent">Filtered</StatusPill>}
+      </div>
 
-      <div
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
-        style={{ marginBottom: 16 }}
-      >
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statCards.map((c) => (
-          <div
+          <StatCard
             key={c.label}
-            style={{
-              background: "var(--surface-gradient)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              borderRadius: 10,
-              padding: 16,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                color: "var(--text-muted)",
-                fontSize: 12,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {c.icon}
-              {c.label}
-              {scopeTag}
-            </div>
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 600,
-                color: "var(--text-primary)",
-              }}
-            >
-              {c.value}
-            </div>
-            {c.subtitle && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  marginTop: -6,
-                }}
-              >
-                {c.subtitle}
-              </div>
-            )}
-          </div>
+            title={c.label}
+            value={c.value}
+            subtitle={c.subtitle}
+            icon={c.icon}
+          />
         ))}
       </div>
 
