@@ -4,6 +4,8 @@ import { useState } from "react";
 import { fetcher } from "@/lib/fetcher";
 import DataTable, { type Column } from "@/components/dashboard/data-table";
 import Select from "@/components/dashboard/select";
+import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
+import { Activity as ActivityIcon } from "lucide-react";
 
 interface ActivityEntry {
   _id: string;
@@ -70,48 +72,50 @@ export default function ActivityContent() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-      <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-        Activity
-      </h1>
+      <H1 subtitle="Audit log of every action across the dashboard">Activity</H1>
 
-      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
-        <Select
-          value={entityFilter}
-          onChange={setEntityFilter}
-          options={[
-            { value: "", label: "All Entity Types" },
-            ...entityTypes.map((et) => ({ value: et, label: et })),
-          ]}
-          size="sm"
-        />
-        <Select
-          value={actionFilter}
-          onChange={setActionFilter}
-          options={[
-            { value: "", label: "All Actions" },
-            ...actions.map((a) => ({ value: a, label: a })),
-          ]}
-          size="sm"
-        />
-        {(entityFilter || actionFilter) && (
-          <button
-            onClick={() => { setEntityFilter(""); setActionFilter(""); }}
-            className="px-3 py-1 rounded-lg border text-xs font-medium transition-colors"
-            style={{
-              background: "transparent",
-              borderColor: "var(--border)",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-          >
-            Clear filters
-          </button>
-        )}
-      </div>
+      <Panel>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <H2 icon={<ActivityIcon size={16} />}>Recent activity</H2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select
+              value={entityFilter}
+              onChange={setEntityFilter}
+              options={[
+                { value: "", label: "All Entity Types" },
+                ...entityTypes.map((et) => ({ value: et, label: et })),
+              ]}
+              size="sm"
+            />
+            <Select
+              value={actionFilter}
+              onChange={setActionFilter}
+              options={[
+                { value: "", label: "All Actions" },
+                ...actions.map((a) => ({ value: a, label: a })),
+              ]}
+              size="sm"
+            />
+            {(entityFilter || actionFilter) && (
+              <button
+                onClick={() => { setEntityFilter(""); setActionFilter(""); }}
+                className="px-3 py-1 rounded-lg border text-xs font-medium transition-colors"
+                style={{
+                  background: "transparent",
+                  borderColor: "var(--border)",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </div>
 
-      <DataTable
+        <DataTable
         columns={columns}
         data={entries}
         keyField="_id"
@@ -149,7 +153,8 @@ export default function ActivityContent() {
             </p>
           </div>
         )}
-      />
+        />
+      </Panel>
     </div>
   );
 }
