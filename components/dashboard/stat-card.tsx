@@ -155,16 +155,22 @@ export default function StatCard({
           )}
           {delta && (
             <span
-              className="text-[10px] sm:text-xs font-medium inline-flex items-center gap-0.5"
-              style={{
-                color: delta.value >= 0 ? "var(--success)" : "var(--error)",
-                fontFamily: "var(--font-mono)",
-              }}
+              className="text-[10px] sm:text-xs inline-flex items-center gap-1"
+              style={{ color: "var(--text-muted)" }}
             >
-              {delta.value >= 0 ? "↑" : "↓"} {Math.abs(delta.value).toFixed(1)}%
-              <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-body)", fontWeight: 400 }}>
-                {" "}{delta.label}
+              <span
+                style={{
+                  color: delta.value >= 0 ? "var(--success)" : "var(--error)",
+                  opacity: 0.75,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {delta.value >= 0 ? "↑" : "↓"}
               </span>
+              <span style={{ fontFamily: "var(--font-mono)" }}>
+                {Math.abs(delta.value).toFixed(1)}%
+              </span>
+              <span>{delta.label}</span>
             </span>
           )}
           {subtitle && (
