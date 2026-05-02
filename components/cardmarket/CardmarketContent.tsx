@@ -526,7 +526,7 @@ export default function CardmarketContent() {
         {activeTab === "paid" && direction === "sale" && orders?.orders?.length > 0 && (
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
-              onClick={() => requestPrintEnvelopes(orders.orders.filter((o: CmOrder) => !o.printed))}
+              onClick={() => requestPrintEnvelopes(orders.orders)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
               style={{ background: "var(--accent)", color: "var(--accent-text)" }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
