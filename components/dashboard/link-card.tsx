@@ -16,11 +16,15 @@ interface LinkCardProps {
 
 /** Click-through tile used on Settings and similar pages. Glass surface +
  *  accent-tinted icon bubble + title + muted description + chevron-right.
- *  Hover lifts the card and brightens the chevron. */
+ *  Hover lifts the card and brightens the chevron.
+ *
+ *  Fills its grid cell vertically so siblings with different description
+ *  lengths line up — descriptions float top-anchored, the card breathes
+ *  to whatever its tallest peer needs. */
 export function LinkCard({ href, download, icon, title, description }: LinkCardProps) {
   const body = (
     <div
-      className="group flex items-center gap-4 p-4 sm:p-5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
+      className="group flex items-center gap-4 p-4 sm:p-5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 cursor-pointer h-full"
       style={{
         background: "var(--surface-gradient)",
         backdropFilter: "var(--surface-blur)",
@@ -59,16 +63,23 @@ export function LinkCard({ href, download, icon, title, description }: LinkCardP
     </div>
   );
 
+  const wrapperStyle: React.CSSProperties = {
+    textDecoration: "none",
+    color: "inherit",
+    display: "block",
+    height: "100%",
+  };
+
   if (download) {
     return (
-      <a href={href} download style={{ textDecoration: "none", color: "inherit" }}>
+      <a href={href} download style={wrapperStyle}>
         {body}
       </a>
     );
   }
 
   return (
-    <Link href={href} style={{ textDecoration: "none", color: "inherit" }}>
+    <Link href={href} style={wrapperStyle}>
       {body}
     </Link>
   );
