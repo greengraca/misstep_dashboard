@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { Transaction } from "@/lib/types";
@@ -30,6 +30,7 @@ import {
   Receipt,
   ArrowDownRight,
   PieChart as PieChartIcon,
+  ChevronDown,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartTooltip } from "recharts";
 
@@ -125,6 +126,25 @@ export default function FinanceContent() {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+
+  // Expense breakdown panel — collapsible to keep the Transactions table
+  // above the fold when the user wants to focus on it. Default open;
+  // user's preference persists in localStorage.
+  const [breakdownOpen, setBreakdownOpen] = useState(true);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("finance:expense-breakdown:open");
+    if (stored === "0") setBreakdownOpen(false);
+  }, []);
+  function toggleBreakdown() {
+    setBreakdownOpen((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("finance:expense-breakdown:open", next ? "1" : "0");
+      }
+      return next;
+    });
+  }
 
   // Form state
   const [formDate, setFormDate] = useState(isoToday());
@@ -469,14 +489,65 @@ export default function FinanceContent() {
         />
       </div>
 
-      {/* Expense category breakdown */}
+      {/* Expense category breakdown — collapsible. Header acts as the
+          toggle so the user can hide the chart and bring the Transactions
+          table back above the fold. */}
       {expensesByCategory.length > 0 && (
         <Panel>
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <H2 icon={<PieChartIcon size={16} />}>Where Expenses went</H2>
-            <StatusPill tone="muted">€{totalExpenses.toFixed(2)} total</StatusPill>
-          </div>
-          <ExpenseBreakdownChart items={expensesByCategory} total={totalExpenses} />
+          <button
+            onClick={toggleBreakdown}
+            className="w-full flex items-center justify-between gap-3 flex-wrap"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              marginBottom: breakdownOpen ? 12 : 0,
+            }}
+            title={breakdownOpen ? "Collapse" : "Expand"}
+          >
+            <div className="flex items-center gap-2">
+              <ChevronDown
+                size={14}
+                style={{
+                  color: "var(--accent)",
+                  transform: breakdownOpen ? "rotate(0)" : "rotate(-90deg)",
+                  transition: "transform 150ms",
+                }}
+              />
+              <H2 icon={<PieChartIcon size={16} />}>Where Expenses went</H2>
+            </div>
+            <div className="flex items-center gap-2">
+              {!breakdownOpen && (
+                /* Mini-summary when collapsed: top 2 categories so the user
+                   gets a glance even with the chart hidden. */
+                <span className="hidden sm:flex items-center gap-2">
+                  {expensesByCategory.slice(0, 2).map((it) => (
+                    <span
+                      key={it.category}
+                      className="text-[11px] inline-flex items-center gap-1"
+                      style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 8,
+                          height: 8,
+                          borderRadius: 2,
+                          background: categoryColor(it.category),
+                        }}
+                      />
+                      {categoryLabel(it.category)} €{it.total.toFixed(0)}
+                    </span>
+                  ))}
+                </span>
+              )}
+              <StatusPill tone="muted">€{totalExpenses.toFixed(2)} total</StatusPill>
+            </div>
+          </button>
+          {breakdownOpen && (
+            <ExpenseBreakdownChart items={expensesByCategory} total={totalExpenses} />
+          )}
         </Panel>
       )}
 
