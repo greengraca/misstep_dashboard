@@ -10,6 +10,7 @@ import { useDiscount } from "@/lib/discount";
 import { fetcher } from "@/lib/fetcher";
 import { Panel, H1, H2, Note } from "@/components/dashboard/page-shell";
 import StatCard from "@/components/dashboard/stat-card";
+import EvProductHistoryChart from "./EvProductHistoryChart";
 import type { EvProduct, EvProductResult } from "@/lib/types";
 
 function SealedPriceInput({
@@ -638,6 +639,7 @@ export default function EvProductDetail({ slug }: Props) {
         </div>
       </Panel>
 
+      <EvProductHistoryChart slug={slug} />
     </div>
   );
 }
