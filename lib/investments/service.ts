@@ -423,6 +423,136 @@ export async function computeTagAudit(investment: Investment): Promise<{
   return { tagged_listings: taggedAgg, expected_lots: expectedAgg };
 }
 
+/**
+ * Lot ↔ stock-listing match for the tag-audit drilldown. One row per
+ * (lot, listing) pair where the lot has remaining qty AND either
+ *   (a) no matching CM listing exists at all (qty_listed = 0), OR
+ *   (b) a matching listing exists but its comment doesn't carry the code.
+ *
+ * Match key: cardmarket_id + condition + language + foil.
+ *
+ * Returned in the order the user can act on:
+ *   - "no listing on CM yet" rows first (qty_listed = 0)
+ *   - then untagged-listing rows (qty_listed > 0, missing code)
+ */
+export interface UntaggedLotRow {
+  lot_id: string;
+  cardmarket_id: number;
+  name: string | null;
+  set: string | null;
+  condition: string;
+  language: string;
+  foil: boolean;
+  qty_remaining: number;       // qty in the lot
+  qty_listed: number;          // qty currently on CM matching this lot
+  current_comment: string | null;
+  cm_url: string;              // direct link to the CM product page
+}
+
+export async function findUntaggedListings(investmentId: string): Promise<UntaggedLotRow[]> {
+  const db = await getDb();
+  const inv = await db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne({ _id: new ObjectId(investmentId) });
+  if (!inv || !inv.code) return [];
+
+  const code = inv.code;
+  const codeRegex = new RegExp(`\\b${code.replace("-", "\\-")}\\b`, "i");
+
+  // 1. All lots with remaining qty for this investment, joined with the
+  //    ev_cards entry for display name + set.
+  const lots = await db
+    .collection(COL_INVESTMENT_LOTS)
+    .aggregate<{
+      _id: ObjectId;
+      cardmarket_id: number;
+      foil: boolean;
+      condition: string;
+      language: string;
+      qty_remaining: number;
+      name: string | null;
+      set: string | null;
+    }>([
+      { $match: { investment_id: inv._id, qty_remaining: { $gt: 0 } } },
+      {
+        $lookup: {
+          from: "dashboard_ev_cards",
+          localField: "cardmarket_id",
+          foreignField: "cardmarket_id",
+          as: "ev_card",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          cardmarket_id: 1,
+          foil: 1,
+          condition: 1,
+          language: 1,
+          qty_remaining: 1,
+          name: { $ifNull: [{ $arrayElemAt: ["$ev_card.name", 0] }, null] },
+          set: { $ifNull: [{ $arrayElemAt: ["$ev_card.set_code", 0] }, null] },
+        },
+      },
+    ])
+    .toArray();
+
+  if (!lots.length) return [];
+
+  const cardmarketIds = Array.from(new Set(lots.map((l) => l.cardmarket_id)));
+
+  // 2. All CM listings matching any of those productIds. Pull a small
+  //    set of fields so we can match per-lot client-side; the cardinality
+  //    is at most a few dozen.
+  const stockDocs = await db
+    .collection("dashboard_cm_stock")
+    .find({ productId: { $in: cardmarketIds } })
+    .project({ productId: 1, condition: 1, language: 1, foil: 1, qty: 1, comment: 1 })
+    .toArray();
+
+  // 3. For each lot, find the matching listings and compute (qty_listed,
+  //    current_comment, has_code).
+  const out: UntaggedLotRow[] = [];
+  for (const lot of lots) {
+    const matches = stockDocs.filter(
+      (s) =>
+        s.productId === lot.cardmarket_id &&
+        s.condition === lot.condition &&
+        s.language === lot.language &&
+        Boolean(s.foil) === Boolean(lot.foil)
+    );
+    const qty_listed = matches.reduce((sum, m) => sum + ((m.qty as number) ?? 0), 0);
+    const tagged = matches.some((m) => typeof m.comment === "string" && codeRegex.test(m.comment));
+    if (tagged) continue; // lot's listings already carry the code
+
+    // Pick the first matching listing's comment for display (when there is one).
+    const sample = matches[0] ?? null;
+
+    out.push({
+      lot_id: lot._id.toHexString(),
+      cardmarket_id: lot.cardmarket_id,
+      name: lot.name,
+      set: lot.set,
+      condition: lot.condition,
+      language: lot.language,
+      foil: lot.foil,
+      qty_remaining: lot.qty_remaining,
+      qty_listed,
+      current_comment: (sample?.comment as string | null | undefined) ?? null,
+      cm_url: `https://www.cardmarket.com/en/Magic/Products/Singles?idProduct=${lot.cardmarket_id}`,
+    });
+  }
+
+  // Sort: never-listed first, then tagged-but-comment-wrong by qty_listed desc.
+  out.sort((a, b) => {
+    if (a.qty_listed === 0 && b.qty_listed > 0) return -1;
+    if (b.qty_listed === 0 && a.qty_listed > 0) return 1;
+    return b.qty_listed - a.qty_listed;
+  });
+
+  return out;
+}
+
 /** Expected EV for display. Best-effort; returns null if unavailable. */
 export async function computeExpectedEv(investment: Investment): Promise<number | null> {
   const db = await getDb();
