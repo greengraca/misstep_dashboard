@@ -77,8 +77,7 @@ export default function EvComparePanel({ sets, onRemove, onOpen, onClear }: EvCo
         </button>
       </div>
       <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${sets.length}, minmax(0, 1fr))` }}
+        className={`grid gap-3 grid-cols-1 ${sets.length >= 2 ? "sm:grid-cols-2" : ""} ${sets.length >= 3 ? "lg:grid-cols-3" : ""}`}
       >
         {sets.map((set, i) => {
           const playEv = apply(set.play_ev_net) ?? null;

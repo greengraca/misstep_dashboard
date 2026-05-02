@@ -5,7 +5,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
-import { DollarSign, Package, ShoppingCart, RefreshCw, ChevronDown, ChevronUp, Check, Printer, Loader2, TrendingUp, Activity, Zap, Clock } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, RefreshCw, ChevronDown, ChevronUp, ChevronRight, Check, Printer, Loader2, TrendingUp, Activity, Zap, Clock } from "lucide-react";
 import type { CmOrder, CmOrderItem, CmSyncLogEntry } from "@/lib/types";
 import { Panel, H1, H2 } from "@/components/dashboard/page-shell";
 import { StatusPill } from "@/components/dashboard/status-pill";
@@ -474,7 +474,7 @@ export default function CardmarketContent() {
               <button
                 key={d}
                 onClick={() => handleDirectionToggle(d)}
-                className="px-3 py-1.5 font-medium transition-all"
+                className="px-4 py-2 font-medium transition-all min-h-[36px]"
                 style={{
                   background: direction === d ? "var(--accent)" : "transparent",
                   color: direction === d ? "var(--accent-text)" : "var(--text-muted)",
@@ -527,7 +527,7 @@ export default function CardmarketContent() {
           <div className="flex items-center justify-end gap-2 pt-2">
             <button
               onClick={() => requestPrintEnvelopes(orders.orders)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all min-h-[36px]"
               style={{ background: "var(--accent)", color: "var(--accent-text)" }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-hover)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent)"; }}
@@ -541,7 +541,31 @@ export default function CardmarketContent() {
         <div className="pt-2">
           {orders?.orders?.length ? (
             <>
-              <div className="overflow-x-auto">
+              {/* Mobile: card view (no horizontal scroll). */}
+              <div className="sm:hidden flex flex-col gap-2">
+                {orders.orders.map((order: CmOrder, idx: number) => {
+                  const isExpanded = expandedOrder === order.orderId;
+                  const detail = isExpanded ? detailData?.data : null;
+                  return (
+                    <OrderCardMobile
+                      key={order.orderId}
+                      order={order}
+                      rowNum={(orderPage - 1) * orderPageSize + idx + 1}
+                      direction={direction}
+                      isExpanded={isExpanded}
+                      detail={detail}
+                      formatEur={formatEur}
+                      showPrint={activeTab === "paid"}
+                      onToggle={() => setExpandedOrder(isExpanded ? null : order.orderId)}
+                      onTogglePrinted={(printed) => togglePrinted(order.orderId, printed)}
+                      onPrint={() => requestPrintEnvelopes([order])}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Desktop: table view. */}
+              <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-xs min-w-[680px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
                 <thead>
                   <tr style={{ color: "var(--text-muted)" }}>
@@ -1052,5 +1076,254 @@ function OrderRow({
         </tr>
       )}
     </>
+  );
+}
+
+// ── Mobile-only order card (sm:hidden replaces the OrderRow table view) ──
+
+function OrderCardMobile({
+  order,
+  rowNum,
+  direction,
+  isExpanded,
+  detail,
+  formatEur,
+  showPrint,
+  onToggle,
+  onTogglePrinted,
+  onPrint,
+}: {
+  order: CmOrder;
+  rowNum: number;
+  direction: "sale" | "purchase";
+  isExpanded: boolean;
+  detail: { order: CmOrder | null; items: CmOrderItem[] } | null;
+  formatEur: (n: number | null | undefined) => string;
+  showPrint: boolean;
+  onToggle: () => void;
+  onTogglePrinted: (printed: boolean) => void;
+  onPrint: () => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fullOrder = detail?.order as any;
+  const items = detail?.items || [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const o = order as any;
+  const hasTimeline = !!o.timeline;
+  const missing: string[] = [];
+  if (hasTimeline) {
+    if (!o.itemCount) missing.push("itemCount");
+    if (!o.country) missing.push("country");
+    if (!o.counterparty) missing.push("counterparty");
+    if (o.itemValue == null) missing.push("itemValue");
+    if (o.shippingPrice == null) missing.push("shippingPrice");
+    if (!o.shippingMethod) missing.push("shippingMethod");
+  }
+  const syncState: "green" | "yellow" | "red" =
+    !hasTimeline ? "red" : missing.length > 0 ? "yellow" : "green";
+  const syncColor =
+    syncState === "green" ? "var(--success)"
+      : syncState === "yellow" ? "var(--warning)"
+      : "var(--error)";
+  const syncTitle =
+    syncState === "green" ? "Detail synced"
+      : syncState === "yellow" ? `Partial sync — missing: ${missing.join(", ")}`
+      : "Needs sync — visit order on CM";
+
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+        opacity: showPrint && order.printed ? 0.75 : 1,
+      }}
+    >
+      {/* Top: tap to expand */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-stretch gap-2 p-3 text-left transition-colors"
+        style={{ background: "transparent", border: "none", cursor: "pointer" }}
+      >
+        <span
+          className="flex flex-col items-center justify-center text-[10px] tabular-nums shrink-0"
+          style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", minWidth: 24 }}
+        >
+          {rowNum}
+        </span>
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <a
+              href={`https://www.cardmarket.com/en/Magic/Orders/${order.orderId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs"
+              style={{ color: "var(--accent)", textDecoration: "none", fontFamily: "var(--font-mono)" }}
+            >
+              {order.orderId}
+            </a>
+            <span
+              title={syncTitle}
+              style={{
+                width: 6, height: 6, borderRadius: "50%",
+                background: syncColor, flexShrink: 0,
+              }}
+            />
+            {order.trustee && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded"
+                style={{ background: "rgba(52, 211, 153, 0.12)", color: "var(--success)" }}
+              >
+                <Check size={10} /> trustee
+              </span>
+            )}
+            <span className="ml-auto text-sm font-semibold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+              {formatEur(order.totalPrice)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <CountryFlag pos={order.countryFlagPos} country={order.country} />
+            <span className="truncate min-w-0">
+              {order.counterparty}
+              {order.lastName && (
+                <span style={{ color: "var(--text-muted)" }}> · {order.lastName}</span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
+            <span>{direction === "sale" ? "Buyer" : "Seller"}</span>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span style={{ fontFamily: "var(--font-mono)" }}>{order.itemCount} cards</span>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span>
+              {order.orderDate}
+              {order.orderTime && <span style={{ opacity: 0.7 }}> {order.orderTime}</span>}
+            </span>
+          </div>
+        </div>
+        <ChevronRight
+          size={16}
+          className="self-center shrink-0 transition-transform"
+          style={{
+            color: "var(--text-muted)",
+            transform: isExpanded ? "rotate(90deg)" : "rotate(0)",
+          }}
+        />
+      </button>
+
+      {/* Action bar: printed checkbox + print envelope (paid tab only) */}
+      {showPrint && (
+        <div
+          className="flex items-center justify-between gap-3 px-3 py-2"
+          style={{ borderTop: "1px solid var(--border)" }}
+        >
+          <label
+            className="inline-flex items-center gap-2 text-xs cursor-pointer select-none"
+            onClick={(e) => e.stopPropagation()}
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <input
+              type="checkbox"
+              checked={!!order.printed}
+              onChange={(e) => onTogglePrinted(e.target.checked)}
+              style={{ accentColor: "var(--accent)" }}
+            />
+            Printed
+          </label>
+          {fullOrder?.shippingAddress?.name && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPrint(); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ background: "rgba(63,206,229,0.15)", color: "var(--accent)" }}
+            >
+              <Printer size={12} /> Print envelope
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Expanded detail */}
+      {isExpanded && (
+        <div
+          className="px-3 py-3"
+          style={{ borderTop: "1px solid var(--border)", background: "rgba(255,255,255,0.015)" }}
+        >
+          {fullOrder ? (
+            <div className="flex flex-col gap-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
+              {fullOrder.shippingMethod && (
+                <div>
+                  Shipping: <span style={{ color: "var(--text-secondary)" }}>{fullOrder.shippingMethod}</span>
+                  {fullOrder.shippingPrice != null && (
+                    <span style={{ color: "var(--text-secondary)" }}> · {formatEur(fullOrder.shippingPrice)}</span>
+                  )}
+                </div>
+              )}
+              {fullOrder.shippingAddress?.name && (
+                <div>
+                  To: <span style={{ color: "var(--text-secondary)" }}>{fullOrder.shippingAddress.name}, {fullOrder.shippingAddress.country}</span>
+                </div>
+              )}
+              {items.length > 0 ? (
+                <div className="flex flex-col gap-1.5 mt-1">
+                  {items.map((item: CmOrderItem) => (
+                    <div
+                      key={item.articleId}
+                      className="flex items-start gap-2 py-1.5"
+                      style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="text-xs truncate"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {item.name}
+                          {item.foil && <span className="ml-1 inline-flex align-middle"><FoilStar size={11} /></span>}
+                        </div>
+                        <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          <span className="inline-flex items-center gap-1 align-middle">
+                            <ExpansionIcon pos={item.expansionPos} set={item.set} />
+                            <span>{item.set}</span>
+                          </span>
+                          {" · "}
+                          <ConditionBadge condition={item.condition} />
+                          {" "}
+                          <span className="inline-flex align-middle">
+                            <LangFlag pos={item.langPos} language={item.language} />
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div
+                          className="text-xs"
+                          style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}
+                        >
+                          {formatEur(item.price)}
+                        </div>
+                        <div
+                          className="text-[10px]"
+                          style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}
+                        >
+                          ×{item.qty}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-center py-2">
+                  No item details yet — visit this order on Cardmarket to sync.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-[11px] text-center py-2" style={{ color: "var(--text-muted)" }}>
+              Loading…
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

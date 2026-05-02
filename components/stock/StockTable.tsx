@@ -277,7 +277,33 @@ export default function StockTable({
         overflow: "hidden",
       }}
     >
-      <div style={{ overflowX: "auto" }}>
+      {/* Mobile card list — replaces the full 11-column table below sm: */}
+      <div className="sm:hidden">
+        {loading && rows.length === 0 && (
+          <div className="px-4 py-6 text-xs text-center" style={{ color: "var(--text-muted)" }}>
+            Loading…
+          </div>
+        )}
+        {error && (
+          <div
+            className="px-4 py-6 text-xs text-center"
+            style={{ color: "var(--danger, #f87171)" }}
+          >
+            {error}
+          </div>
+        )}
+        {!loading && !error && rows.length === 0 && (
+          <div className="px-4 py-6 text-xs text-center" style={{ color: "var(--text-muted)" }}>
+            No stock matches these filters.
+          </div>
+        )}
+        {rows.map((row) => (
+          <StockCardMobile key={row.dedupKey} row={row} setMap={setMap} />
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden sm:block" style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -407,10 +433,11 @@ export default function StockTable({
               border: "1px solid rgba(255,255,255,0.10)",
               borderRadius: 6,
               color: "var(--text-primary)",
-              padding: "4px 10px",
+              padding: "8px 14px",
               fontSize: 12,
               cursor: page <= 1 ? "not-allowed" : "pointer",
               opacity: page <= 1 ? 0.5 : 1,
+              minHeight: 36,
             }}
           >
             Prev
@@ -424,15 +451,138 @@ export default function StockTable({
               border: "1px solid rgba(255,255,255,0.10)",
               borderRadius: 6,
               color: "var(--text-primary)",
-              padding: "4px 10px",
+              padding: "8px 14px",
               fontSize: 12,
               cursor: page >= totalPages ? "not-allowed" : "pointer",
               opacity: page >= totalPages ? 0.5 : 1,
+              minHeight: 36,
             }}
           >
             Next
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Mobile card row (sm:hidden replaces the desktop table on small screens) ──
+
+function StockCardMobile({
+  row,
+  setMap,
+}: {
+  row: StockListingWithTrend;
+  setMap?: SetMap;
+}) {
+  const cmHref = buildCardmarketUrl(row.set, row.name, row.foil, row.productId) ?? "#";
+  const meta = setMap?.[row.set];
+  const overpriced = row.overpriced_pct;
+  const overpricedColor =
+    overpriced == null
+      ? "var(--text-muted)"
+      : overpriced >= 0.2
+        ? "var(--danger, #f87171)"
+        : overpriced <= -0.2
+          ? "var(--success, #4ade80)"
+          : "var(--text-secondary)";
+  const overpricedLabel =
+    overpriced == null ? null : `${overpriced > 0 ? "+" : ""}${(overpriced * 100).toFixed(0)}%`;
+
+  return (
+    <div
+      className="flex items-start gap-3 px-3 py-3"
+      style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+    >
+      <div className="shrink-0 mt-0.5">
+        <CardHoverPreview name={row.name} set={row.set} />
+      </div>
+      <div className="flex-1 min-w-0 flex flex-col gap-1">
+        <div className="flex items-start justify-between gap-2">
+          <a
+            href={cmHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium no-underline hover:underline truncate min-w-0"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {row.name}
+          </a>
+          <span
+            className="shrink-0 text-sm font-semibold"
+            style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}
+          >
+            €{row.price.toFixed(2)}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 min-w-0 text-xs" style={{ color: "var(--text-muted)" }}>
+          {meta?.iconSvgUri && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={meta.iconSvgUri}
+              alt=""
+              width={12}
+              height={12}
+              style={{ filter: "invert(1)", flexShrink: 0 }}
+            />
+          )}
+          <span className="truncate">{row.set}</span>
+          {meta?.code && (
+            <span style={{ opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              · {meta.code}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-[11px] flex-wrap" style={{ color: "var(--text-muted)" }}>
+          <span style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+            ×{row.qty}
+          </span>
+          <span style={{ opacity: 0.4 }}>·</span>
+          <span>{row.condition}</span>
+          {row.foil && (
+            <>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <FoilStar size={12} />
+            </>
+          )}
+          {row.signed && (
+            <>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span className="inline-flex items-center gap-1" style={{ color: "var(--accent)" }}>
+                <PenLine size={11} /> signed
+              </span>
+            </>
+          )}
+          <LanguageFlag language={row.language} size={14} />
+          {row.trend_eur != null && (
+            <>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span style={{ fontFamily: "var(--font-mono)" }}>
+                trend €{row.trend_eur.toFixed(2)}
+              </span>
+              {overpricedLabel && (
+                <span style={{ color: overpricedColor, fontFamily: "var(--font-mono)" }}>
+                  ({overpricedLabel})
+                </span>
+              )}
+            </>
+          )}
+        </div>
+        {(row.comment || row.lastSeenAt) && (
+          <div className="text-[10px] flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+            {row.comment && (
+              <span className="truncate min-w-0 flex-1" title={row.comment}>
+                <MessageSquare size={10} className="inline mr-1 -mt-px" />
+                {row.comment}
+              </span>
+            )}
+            {row.lastSeenAt && (
+              <span className="shrink-0" style={{ fontFamily: "var(--font-mono)" }}>
+                {new Date(row.lastSeenAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

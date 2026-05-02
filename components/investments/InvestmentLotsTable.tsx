@@ -143,7 +143,116 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
           tagged with this investment&apos;s code.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+          {/* Mobile cards. */}
+          <div className="sm:hidden flex flex-col gap-2">
+            {lots.map((l) => {
+              const remValue =
+                l.live_price_eur != null ? l.qty_remaining * l.live_price_eur : null;
+              return (
+                <div
+                  key={l.id}
+                  className="rounded-lg p-3"
+                  style={{
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <a
+                      href={`https://www.cardmarket.com/en/Magic/Products/Singles?idProduct=${l.cardmarket_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-sm min-w-0"
+                      style={{ color: "var(--accent)", textDecoration: "none" }}
+                    >
+                      <span className="truncate">{l.name ?? `#${l.cardmarket_id}`}</span>
+                      {l.foil && <FoilStar />}
+                    </a>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <ConditionBadge condition={l.condition} />
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {l.language}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        Remaining
+                      </div>
+                      <div
+                        style={{
+                          color: l.qty_remaining > 0 ? "var(--text-primary)" : "var(--text-muted)",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {l.qty_remaining}
+                        <span style={{ color: "var(--text-muted)" }}>
+                          {" "}/ {l.qty_opened}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        Live
+                      </div>
+                      <div style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                        {formatEur(l.live_price_eur)}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        Rem. val
+                      </div>
+                      <div style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                        {formatEur(remValue)}
+                      </div>
+                    </div>
+                  </div>
+                  {(l.qty_sold > 0 || l.proceeds_eur > 0 || l.cost_basis_per_unit != null) && (
+                    <div
+                      className="mt-2 pt-2 grid grid-cols-3 gap-2 text-xs"
+                      style={{ borderTop: "1px solid var(--border-subtle)" }}
+                    >
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                          Sold
+                        </div>
+                        <div style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                          {l.qty_sold}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                          Cost/unit
+                        </div>
+                        <div style={{ color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                          {formatEur(l.cost_basis_per_unit)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                          Proceeds
+                        </div>
+                        <div
+                          style={{
+                            color: l.proceeds_eur > 0 ? "var(--success)" : "var(--text-muted)",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          {formatEur(l.proceeds_eur)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop table. */}
+          <div className="hidden sm:block overflow-x-auto">
           <table
             className="w-full text-xs min-w-[780px]"
             style={{ borderCollapse: "separate", borderSpacing: 0 }}
@@ -249,7 +358,8 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </Panel>
   );

@@ -17,6 +17,12 @@
   --card-inner-bg: #0c1117;
   --header-bg: rgba(10, 15, 20, 0.85);
 
+  /* Aliases — historical references that didn't follow the --bg-* / --bg-hover
+     naming. Aliased here so existing components keep rendering correctly. */
+  --bg: var(--bg-page);
+  --hover-bg: var(--bg-hover);
+  --overlay-bg: var(--bg-modal);
+
   /* Text */
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;

@@ -161,7 +161,8 @@ export default function HomeContent() {
                     </span>
                     <button
                       onClick={() => handleReimburse(item)}
-                      className="p-1.5 rounded-lg transition-colors"
+                      aria-label="Mark as reimbursed"
+                      className="inline-flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
                       style={{
                         background: "transparent",
                         border: "none",

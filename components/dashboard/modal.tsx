@@ -53,16 +53,17 @@ export default function Modal({
           animation: "slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-3">
           <h2
-            className="text-lg font-semibold"
+            className="text-lg font-semibold min-w-0 truncate"
             style={{ color: "var(--text-primary)" }}
           >
             {title}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors"
+            aria-label="Close"
+            className="shrink-0 inline-flex items-center justify-center w-10 h-10 -mr-2 rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>

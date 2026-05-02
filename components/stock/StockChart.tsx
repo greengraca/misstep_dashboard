@@ -90,9 +90,10 @@ export default function StockChart() {
                 borderRadius: 6,
                 color:
                   range === r.value ? "var(--text-primary)" : "var(--text-muted)",
-                padding: "4px 10px",
+                padding: "8px 14px",
                 fontSize: 12,
                 cursor: "pointer",
+                minHeight: 36,
               }}
             >
               {r.label}

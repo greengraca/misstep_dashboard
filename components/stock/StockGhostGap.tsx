@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import { AlertTriangle, ChevronDown, ChevronUp, Trash2, Loader2 } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
+import ConfirmModal from "@/components/dashboard/confirm-modal";
 
 interface GhostCandidate {
   _id: string;
@@ -49,6 +50,7 @@ export default function StockGhostGap() {
   const [expanded, setExpanded] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [removing, setRemoving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data, isLoading, mutate } = useSWR<GhostResponse>(
     "/api/stock/ghosts?limit=200",
@@ -83,10 +85,14 @@ export default function StockGhostGap() {
     }
   }
 
+  function requestRemoveSelected() {
+    if (!selected.size || removing) return;
+    setConfirmOpen(true);
+  }
+
   async function removeSelected() {
     if (!selected.size || removing) return;
     const ids = Array.from(selected);
-    if (!confirm(`Remove ${ids.length} ghost row${ids.length === 1 ? "" : "s"}?`)) return;
     setRemoving(true);
     try {
       await fetch("/api/stock/ghosts", {
@@ -197,7 +203,7 @@ export default function StockGhostGap() {
             </span>
             <button
               type="button"
-              onClick={removeSelected}
+              onClick={requestRemoveSelected}
               disabled={!selected.size || removing}
               style={{
                 background:
@@ -239,9 +245,10 @@ export default function StockGhostGap() {
               borderRadius: 8,
               maxHeight: 320,
               overflowY: "auto",
+              overflowX: "auto",
             }}
           >
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
               <thead>
                 <tr
                   style={{
@@ -373,6 +380,15 @@ export default function StockGhostGap() {
           </div>
         </div>
       )}
+      <ConfirmModal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={removeSelected}
+        title="Remove ghost rows"
+        message={`Remove ${selected.size} ghost row${selected.size === 1 ? "" : "s"}? This deletes them from the dashboard. They'll come back if Cardmarket still reports them on the next sync.`}
+        confirmLabel="Remove"
+        variant="danger"
+      />
     </div>
   );
 }

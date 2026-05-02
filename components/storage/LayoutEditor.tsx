@@ -232,21 +232,21 @@ function ShelfRowEditor(props: ShelfRowEditorProps) {
         </span>
         <button
           onClick={onMoveUp}
-          className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          className="inline-flex items-center justify-center w-9 h-9 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           aria-label="Move row up"
         >
           <ArrowUp size={14} />
         </button>
         <button
           onClick={onMoveDown}
-          className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          className="inline-flex items-center justify-center w-9 h-9 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
           aria-label="Move row down"
         >
           <ArrowDown size={14} />
         </button>
         <button
           onClick={onRemove}
-          className="p-1 text-[var(--text-muted)] hover:text-red-500"
+          className="inline-flex items-center justify-center w-9 h-9 rounded text-[var(--text-muted)] hover:text-red-500 hover:bg-[var(--bg-hover)] transition-colors"
           aria-label="Remove row"
         >
           <Trash2 size={14} />
@@ -313,24 +313,24 @@ function BoxEditor({ box, row, boxIdx, onTypeChange, onRemove, onMoveUp, onMoveD
       />
       <button
         onClick={onMoveUp}
-        className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        className="inline-flex items-center justify-center w-8 h-8 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
         aria-label="Move box left"
       >
-        <ArrowUp size={10} />
+        <ArrowUp size={14} />
       </button>
       <button
         onClick={onMoveDown}
-        className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        className="inline-flex items-center justify-center w-8 h-8 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
         aria-label="Move box right"
       >
-        <ArrowDown size={10} />
+        <ArrowDown size={14} />
       </button>
       <button
         onClick={onRemove}
-        className="text-[var(--text-muted)] hover:text-red-500"
+        className="inline-flex items-center justify-center w-8 h-8 rounded text-[var(--text-muted)] hover:text-red-500 hover:bg-[var(--bg-hover)] transition-colors"
         aria-label="Remove box"
       >
-        <Trash2 size={10} />
+        <Trash2 size={14} />
       </button>
     </div>
   );
