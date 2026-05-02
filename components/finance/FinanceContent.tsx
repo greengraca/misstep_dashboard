@@ -42,6 +42,31 @@ function getCurrentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/** Decrements a 'YYYY-MM' string by one calendar month. */
+function previousMonth(month: string): string {
+  const [yStr, mStr] = month.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return month;
+  const prevDate = new Date(Date.UTC(y, m - 2, 1));
+  const py = prevDate.getUTCFullYear();
+  const pm = String(prevDate.getUTCMonth() + 1).padStart(2, "0");
+  return `${py}-${pm}`;
+}
+
+function monthShortLabel(month: string): string {
+  const [yStr, mStr] = month.split("-");
+  const d = new Date(Date.UTC(Number(yStr), Number(mStr) - 1, 1));
+  return d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+}
+
+/** Period-over-period delta as a percent change. Returns null when the
+ *  previous value is 0 (delta would be infinite / undefined). */
+function pctDelta(curr: number, prev: number): number | null {
+  if (!Number.isFinite(prev) || prev === 0) return null;
+  return ((curr - prev) / Math.abs(prev)) * 100;
+}
+
 function isoToday(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -68,6 +93,17 @@ export default function FinanceContent() {
     `/api/ext/revenue?month=${month}`, fetcher
   );
   const cmRev = cmRevData?.data;
+
+  // Previous month — fetched in parallel so each StatCard can render
+  // ↑/↓ % vs the prior month. Same data shapes; same SWR config.
+  const prevMonth = previousMonth(month);
+  const prevLabel = monthShortLabel(prevMonth);
+  const { data: prevTxData } = useSWR<{ data: Transaction[] }>(`/api/finance?month=${prevMonth}`, fetcher);
+  const prevTransactions = prevTxData?.data ?? [];
+  const { data: prevCmRevData } = useSWR<{ data: { orderCount: number; totalSales: number; grossArticleValue: number; sellingFees: number; trusteeFees: number; shippingCosts: number; netRevenue: number } }>(
+    `/api/ext/revenue?month=${prevMonth}`, fetcher
+  );
+  const prevCmRev = prevCmRevData?.data;
 
   // Team members (dynamic, sourced from DB so renames / additions flow through
   // without a code edit). Falls back to [] while loading — the Paid By select
@@ -129,6 +165,33 @@ export default function FinanceContent() {
     .filter((t) => t.type === "expense" && t.category === "direct")
     .reduce((s, t) => s + t.amount, 0);
   const treasuryAccount = totalWithdrawals - checkedReimbursements + directIncome - directExpenses;
+
+  // Previous-month aggregates — same formulas, computed once and used for
+  // each StatCard's delta. Treasury and Net Balance are running-status
+  // metrics derived from this-month flows; comparing them month-over-month
+  // is meaningful but only when the previous month had any activity.
+  const prevManualIncome = prevTransactions.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const prevCmIncome = prevCmRev?.netRevenue ?? 0;
+  const prevTotalIncome = prevManualIncome + prevCmIncome;
+  const prevTotalExpenses = prevTransactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const prevTotalWithdrawals = prevTransactions.filter((t) => t.type === "withdrawal").reduce((s, t) => s + t.amount, 0);
+  const prevShippingExpenses = prevTransactions.filter((t) => t.type === "expense" && t.category === "shipping").reduce((s, t) => s + t.amount, 0);
+  const prevShippingProfit = (prevCmRev?.shippingCosts ?? 0) - prevShippingExpenses;
+  const prevNetBalance = prevTotalIncome - prevTotalExpenses + prevShippingProfit;
+  const prevCheckedReimbursements = prevTransactions.filter((t) => t.type === "expense" && t.reimbursed).reduce((s, t) => s + t.amount, 0);
+  const prevDirectIncome = prevTransactions.filter((t) => t.type === "income" && t.category === "direct").reduce((s, t) => s + t.amount, 0);
+  const prevDirectExpenses = prevTransactions.filter((t) => t.type === "expense" && t.category === "direct").reduce((s, t) => s + t.amount, 0);
+  const prevTreasury = prevTotalWithdrawals - prevCheckedReimbursements + prevDirectIncome - prevDirectExpenses;
+
+  // Build delta props once per card — null skips the chip when the prior
+  // month had zero of that metric (no meaningful baseline).
+  const deltaIncome    = pctDelta(totalIncome,    prevTotalIncome);
+  const deltaExpenses  = pctDelta(totalExpenses,  prevTotalExpenses);
+  const deltaWithdraw  = pctDelta(totalWithdrawals, prevTotalWithdrawals);
+  const deltaShipProf  = pctDelta(shippingProfit, prevShippingProfit);
+  const deltaTreasury  = pctDelta(treasuryAccount, prevTreasury);
+  const deltaNet       = pctDelta(netBalance,     prevNetBalance);
+  const deltaLabel     = `vs ${prevLabel}`;
 
   function openAdd() {
     setEditingTx(null);
@@ -344,6 +407,7 @@ export default function FinanceContent() {
           icon={<TrendingUp size={20} style={{ color: "var(--success)" }} />}
           tone="success"
           tooltip="Manual income + Cardmarket net revenue"
+          delta={deltaIncome != null ? { value: deltaIncome, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Expenses"
@@ -351,6 +415,9 @@ export default function FinanceContent() {
           icon={<TrendingDown size={20} style={{ color: "var(--error)" }} />}
           tone="danger"
           tooltip="All expenses: shipping, operational, direct, and other"
+          /* For expenses, lower = better, so we flip the sign on the delta
+             so the user sees ↓ N% as success (they spent less). */
+          delta={deltaExpenses != null ? { value: -deltaExpenses, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Withdrawals"
@@ -358,6 +425,7 @@ export default function FinanceContent() {
           icon={<Banknote size={20} style={{ color: "var(--text-tertiary)" }} />}
           tone="muted"
           tooltip="Money withdrawn from Cardmarket balance"
+          delta={deltaWithdraw != null ? { value: deltaWithdraw, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Shipping Profit"
@@ -365,6 +433,7 @@ export default function FinanceContent() {
           icon={<Package size={20} style={{ color: shippingProfit >= 0 ? "var(--success)" : "var(--error)" }} />}
           tone={shippingProfit >= 0 ? "success" : "danger"}
           tooltip="Cardmarket shipping collected minus actual postage costs"
+          delta={deltaShipProf != null ? { value: deltaShipProf, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Treasury Account"
@@ -372,6 +441,7 @@ export default function FinanceContent() {
           icon={<Landmark size={20} style={{ color: "var(--text-tertiary)" }} />}
           tone="muted"
           tooltip="Withdrawals - Reimbursements paid + Direct Transactions net"
+          delta={deltaTreasury != null ? { value: deltaTreasury, label: deltaLabel } : undefined}
         />
         <StatCard
           title="Net Balance"
@@ -379,6 +449,7 @@ export default function FinanceContent() {
           icon={<Wallet size={20} style={{ color: netBalance >= 0 ? "var(--success)" : "var(--error)" }} />}
           tone={netBalance >= 0 ? "success" : "danger"}
           tooltip={isLoading ? "Income - Expenses + Shipping Profit" : `€${totalIncome.toFixed(2)} − €${totalExpenses.toFixed(2)} + €${shippingProfit.toFixed(2)} = €${netBalance.toFixed(2)}`}
+          delta={deltaNet != null ? { value: deltaNet, label: deltaLabel } : undefined}
         />
       </div>
 
