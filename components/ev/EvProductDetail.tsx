@@ -206,6 +206,7 @@ function BasicLandToggle({ product, onChanged }: { product: EvProduct; onChanged
       <label
         className="inline-flex items-center gap-2 cursor-pointer select-none"
         style={{ color: "var(--text-muted)" }}
+        title="When on, basic lands (Plains, Island, Swamp, Mountain, Forest) are excluded from the EV calculation. They have negligible market value and otherwise inflate the gross with €0.05 contributions per copy. Toggle off only for sets where basic lands have a meaningful price (e.g. full-art Unstable basics)."
       >
         <input
           type="checkbox"

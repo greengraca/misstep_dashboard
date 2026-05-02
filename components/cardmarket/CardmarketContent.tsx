@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import StatCard from "@/components/dashboard/stat-card";
@@ -619,41 +620,59 @@ export default function CardmarketContent() {
       {status?.recentLogs?.length > 0 && (
         <Panel>
           <H2 icon={<Zap size={16} />}>Sync Activity</H2>
-          <div className="flex flex-col gap-1">
-            {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => (
-              <div key={i} className="py-1.5" style={{ borderBottom: "1px solid var(--border)" }}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <StatusPill tone="accent">{log.dataType}</StatusPill>
-                    {log.stats.added > 0 && (
-                      <StatusPill tone="success">+{log.stats.added} added</StatusPill>
-                    )}
-                    {log.stats.updated > 0 && (
-                      <StatusPill tone="info">~{log.stats.updated} updated</StatusPill>
-                    )}
-                    {log.stats.skipped > 0 && (
-                      <StatusPill tone="muted">={log.stats.skipped} skipped</StatusPill>
-                    )}
-                    {(log.stats as Record<string, number>).removed > 0 && (
-                      <StatusPill tone="danger">-{(log.stats as Record<string, number>).removed} removed</StatusPill>
-                    )}
+          <div className="flex flex-col">
+            {status.recentLogs.slice(0, 10).map((log: CmSyncLogEntry, i: number) => {
+              // Click-through targets: stock-related logs jump to /stock,
+              // order-detail logs surface the orders panel by scrolling to it.
+              const isStock = log.dataType.toLowerCase().includes("stock");
+              const linkHref = isStock ? "/stock" : null;
+              const inner = (
+                <div
+                  className="py-2 px-2 -mx-2 transition-colors"
+                  style={{ borderBottom: "1px solid var(--border)", cursor: linkHref ? "pointer" : "default", borderRadius: 6 }}
+                  onMouseEnter={(e) => { if (linkHref) e.currentTarget.style.background = "var(--bg-card-hover)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <StatusPill tone="accent">{log.dataType}</StatusPill>
+                      {log.stats.added > 0 && (
+                        <StatusPill tone="success">+{log.stats.added} added</StatusPill>
+                      )}
+                      {log.stats.updated > 0 && (
+                        <StatusPill tone="info">~{log.stats.updated} updated</StatusPill>
+                      )}
+                      {log.stats.skipped > 0 && (
+                        <StatusPill tone="muted">={log.stats.skipped} skipped</StatusPill>
+                      )}
+                      {(log.stats as Record<string, number>).removed > 0 && (
+                        <StatusPill tone="danger">-{(log.stats as Record<string, number>).removed} removed</StatusPill>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {log.submittedBy}
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                        {formatAgo(log.receivedAt)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {log.submittedBy}
-                    </span>
-                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                      {formatAgo(log.receivedAt)}
-                    </span>
-                  </div>
+                  {log.details && (
+                    <div className="mt-0.5 text-[10px] pl-1" style={{ color: "var(--text-muted)" }}>
+                      {log.details}
+                    </div>
+                  )}
                 </div>
-                {log.details && (
-                  <div className="mt-0.5 text-[10px] pl-1" style={{ color: "var(--text-muted)" }}>
-                    {log.details}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+              return linkHref ? (
+                <Link key={i} href={linkHref} style={{ textDecoration: "none", color: "inherit" }}>
+                  {inner}
+                </Link>
+              ) : (
+                <div key={i}>{inner}</div>
+              );
+            })}
           </div>
         </Panel>
       )}
