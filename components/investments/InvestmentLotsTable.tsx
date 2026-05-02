@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Search, BookOpen } from "lucide-react";
 import { fetcher } from "@/lib/fetcher";
 import { FoilStar } from "@/components/dashboard/cm-sprite";
+import { Panel, H2 } from "@/components/dashboard/page-shell";
+import { StatusPill } from "@/components/dashboard/status-pill";
 
 type Lot = {
   id: string;
@@ -20,12 +22,6 @@ type Lot = {
   cost_basis_per_unit: number | null;
   proceeds_eur: number;
   live_price_eur: number | null;
-};
-
-const surfaceStyle = {
-  background: "var(--surface-gradient)",
-  backdropFilter: "var(--surface-blur)",
-  border: "1px solid rgba(255,255,255,0.10)",
 };
 
 const CONDITION_COLORS: Record<string, string> = {
@@ -73,27 +69,12 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
   const lots = data?.lots ?? [];
 
   return (
-    <div className="rounded-xl overflow-hidden" style={surfaceStyle}>
-      <div
-        className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-        style={{ borderBottom: "1px solid var(--border)" }}
-      >
+    <Panel>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <BookOpen size={14} style={{ color: "var(--accent)" }} />
-          <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            Lot ledger
-          </h2>
+          <H2 icon={<BookOpen size={16} />}>Lot ledger</H2>
           {lots.length > 0 && (
-            <span
-              className="text-[10px] px-1.5 py-0.5 rounded"
-              style={{
-                background: "rgba(63,206,229,0.15)",
-                color: "var(--accent)",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              {lots.length}
-            </span>
+            <StatusPill tone="accent">{lots.length}</StatusPill>
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -162,7 +143,7 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
           tagged with this investment&apos;s code.
         </p>
       ) : (
-        <div className="px-4 pb-4 overflow-x-auto">
+        <div className="overflow-x-auto">
           <table
             className="w-full text-xs min-w-[780px]"
             style={{ borderCollapse: "separate", borderSpacing: 0 }}
@@ -189,7 +170,7 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
                   <tr
                     key={l.id}
                     style={{ borderTop: "1px solid var(--border)" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-card-hover)"; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
                     <td className="py-2">
@@ -270,6 +251,6 @@ export default function InvestmentLotsTable({ investmentId }: { investmentId: st
           </table>
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
