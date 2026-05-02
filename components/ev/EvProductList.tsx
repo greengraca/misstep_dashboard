@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import type { EvProduct } from "@/lib/types";
 import EvProductCard from "./EvProductCard";
+import { Layers } from "lucide-react";
 
 type ProductWithSnap = EvProduct & {
   latest_snapshot?: {
@@ -50,12 +51,21 @@ export default function EvProductList() {
   if (products.length === 0) {
     return (
       <div
-        className="text-center py-12"
+        className="flex flex-col items-center text-center py-16 gap-3"
         style={{ color: "var(--text-muted)" }}
       >
-        <div className="text-base mb-2">No products yet.</div>
-        <div className="text-[13px]">
-          Ask Claude to &quot;add an EV product&quot; to seed one.
+        <div
+          className="p-3 rounded-xl"
+          style={{ background: "var(--accent-light)" }}
+        >
+          <Layers size={28} style={{ color: "var(--accent)" }} />
+        </div>
+        <div className="text-base font-medium" style={{ color: "var(--text-primary)" }}>
+          No fixed-pool products seeded yet
+        </div>
+        <div className="text-[13px] max-w-md">
+          Products are commander precons, planeswalker decks, starter decks — anything with a known card list.
+          Run <code style={{ background: "rgba(0,0,0,0.35)", padding: "1px 6px", borderRadius: 4, fontFamily: "var(--font-mono)", color: "var(--accent)" }}>npm run seed:ev-product &lt;slug&gt;</code> from <code style={{ background: "rgba(0,0,0,0.35)", padding: "1px 6px", borderRadius: 4, fontFamily: "var(--font-mono)", color: "var(--accent)" }}>scripts/</code> to seed one.
         </div>
       </div>
     );
