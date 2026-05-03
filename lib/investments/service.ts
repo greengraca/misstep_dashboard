@@ -1,6 +1,6 @@
 import { ObjectId, type Db } from "mongodb";
 import { getDb } from "@/lib/mongodb";
-import { COL_PRODUCTS as COL_EV_PRODUCTS, latestPlayEvBySet } from "@/lib/ev-products";
+import { COL_PRODUCTS as COL_EV_PRODUCTS } from "@/lib/ev-products";
 import {
   COL_INVESTMENTS,
   COL_INVESTMENT_LOTS,
@@ -683,10 +683,28 @@ export async function getSalesHistory(investmentId: string): Promise<SalesHistor
 export async function computeExpectedEv(investment: Investment): Promise<number | null> {
   const db = await getDb();
   if (investment.source.kind === "box") {
-    const map = await latestPlayEvBySet([investment.source.set_code]);
-    const perPackEv = map[investment.source.set_code];
-    if (perPackEv == null) return null;
-    return perPackEv * investment.source.packs_per_box * investment.source.box_count;
+    // The snapshot's `play_ev_net` is already the BOX EV (regardless of
+    // booster type — generateSnapshot writes `result.box_ev_net` into
+    // both the play-booster and jumpstart branches). Multiply by box
+    // count and we're done — no pack-level pivot needed.
+    //
+    // We previously routed through `latestPlayEvBySet`, which divides
+    // by `play_pack_ev_net` (or `play_ev_net / 36` as legacy fallback)
+    // and we then multiplied back by `packs_per_box × box_count`. For
+    // play-booster sets the round-trip cancelled cleanly. For
+    // jumpstart sets `play_pack_ev_net` is never written, the /36
+    // fallback assumed a Draft Booster box (24-pack jumpstart boxes
+    // came out short by a 36/24 = 1.5× factor) — so a 12-box J25
+    // investment showed €875 instead of €1,313.
+    const snap = await db
+      .collection("dashboard_ev_snapshots")
+      .find({ set_code: investment.source.set_code, play_ev_net: { $ne: null } })
+      .sort({ date: -1 })
+      .limit(1)
+      .next();
+    const boxEvNet = snap?.play_ev_net as number | null | undefined;
+    if (boxEvNet == null) return null;
+    return boxEvNet * investment.source.box_count;
   }
   if (investment.source.kind === "product") {
     const snap = await db
