@@ -7,6 +7,7 @@ import {
   consumeSale,
   reverseSale,
 } from "@/lib/investments/attribution";
+import { parseInvestmentTag } from "@/lib/investments/codes";
 import type {
   CmBalanceSnapshot,
   CmOrder,
@@ -1049,11 +1050,21 @@ async function processStock(
   // multiple firings per tuple in a single batch (C1 + C2 fix).
   const tupleKeys = new Set<string>();
   const cmSetNameByTuple = new Map<string, string | undefined>();
+  // Tag-bearing comment per tuple. maybeGrowLot needs the listing's
+  // comment (it parses the MS-XXXX tag from it) — without this map the
+  // post-aggregation snapshot below sends `comment: undefined`, which
+  // makes parseInvestmentTag return null and silently no-ops every
+  // grow attribution from the stock path. Only cache tag-bearing
+  // comments — untagged ones add nothing.
+  const commentByTuple = new Map<string, string>();
   for (const l of listings) {
     if (typeof l.productId === "number") {
       const key = `${l.productId}|${l.foil || false}|${l.condition}|${l.language || "English"}`;
       tupleKeys.add(key);
       if (!cmSetNameByTuple.has(key)) cmSetNameByTuple.set(key, l.set);
+      if (l.comment && !commentByTuple.has(key) && parseInvestmentTag(l.comment)) {
+        commentByTuple.set(key, l.comment);
+      }
     }
   }
 
@@ -1267,6 +1278,7 @@ async function processStock(
         condition: row._id.condition,
         language: row._id.language,
         qtyDelta,
+        comment: commentByTuple.get(key) ?? null,
         cmSetName: cmSetNameByTuple.get(key),
         cardSetCode: cardSetCodeByProductId.get(row._id.productId) ?? null,
       };
@@ -1315,11 +1327,18 @@ async function processProductStock(
   // reduce stock and MUST NOT trigger grow attribution.
   const tupleKeys = new Set<string>();
   const cmSetNameByTuple = new Map<string, string | undefined>();
+  // See processStock for why this map exists. Same bug shape: without
+  // it, the snapshot below sends `comment: undefined` and tag-based
+  // grow attribution silently no-ops on every product-page sync.
+  const commentByTuple = new Map<string, string>();
   for (const l of listings) {
     if (l.qty > 0 && typeof l.productId === "number") {
       const key = `${l.productId}|${l.foil || false}|${l.condition}|${l.language || "English"}`;
       tupleKeys.add(key);
       if (!cmSetNameByTuple.has(key)) cmSetNameByTuple.set(key, l.set);
+      if (l.comment && !commentByTuple.has(key) && parseInvestmentTag(l.comment)) {
+        commentByTuple.set(key, l.comment);
+      }
     }
   }
 
@@ -1505,6 +1524,7 @@ async function processProductStock(
         condition: row._id.condition,
         language: row._id.language,
         qtyDelta,
+        comment: commentByTuple.get(key) ?? null,
         cmSetName: cmSetNameByTuple.get(key),
         cardSetCode: cardSetCodeByProductId.get(row._id.productId) ?? null,
       };
