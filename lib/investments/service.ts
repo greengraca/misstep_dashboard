@@ -871,7 +871,13 @@ export interface LotListItem {
   condition: string;
   language: string;
   name: string | null;
+  /** Scryfall set code, e.g. "j25". Null when no ev_card matches the
+   *  cardmarket_id (Scryfall mis-mapping for that printing). */
   set_code: string | null;
+  /** Cardmarket's set name, e.g. "Foundations Jumpstart". Sourced from
+   *  ev_sets when ev_cards joins, falling back to dashboard_cm_stock so
+   *  we have something to feed buildCardmarketUrl when ev_cards misses. */
+  set_name: string | null;
   qty_opened: number;
   qty_sold: number;
   qty_remaining: number;
@@ -880,51 +886,156 @@ export interface LotListItem {
   live_price_eur: number | null;
 }
 
+export const LOT_SORT_FIELDS = [
+  "name",
+  "qty_opened",
+  "qty_sold",
+  "qty_remaining",
+  "cost_basis_per_unit",
+  "live_price_eur",
+  "rem_value_eur",
+  "proceeds_eur",
+] as const;
+export type LotSortField = (typeof LOT_SORT_FIELDS)[number];
+export type LotSortDir = "asc" | "desc";
+
+export interface LotListResult {
+  rows: LotListItem[];
+  /** Total lots in the filtered set (pre-pagination). */
+  total: number;
+  /** Aggregates across the filtered set (pre-pagination), so the UI
+   *  footer reflects the full filter scope rather than the current page. */
+  totals: {
+    qty_opened: number;
+    qty_sold: number;
+    qty_remaining: number;
+    live_value_eur: number;
+    proceeds_eur: number;
+  };
+  page: number;
+  pageSize: number;
+}
+
+const LOT_PAGE_SIZE_DEFAULT = 50;
+const LOT_PAGE_SIZE_MAX = 200;
+
 export async function listLots(params: {
   id: string;
   search?: string;
   foil?: boolean;
   language?: string;
   minRemaining?: number;
-}): Promise<LotListItem[]> {
+  sort?: LotSortField;
+  dir?: LotSortDir;
+  page?: number;
+  pageSize?: number;
+}): Promise<LotListResult> {
   await ensureInvestmentIndexes();
-  if (!ObjectId.isValid(params.id)) return [];
+  const empty: LotListResult = {
+    rows: [],
+    total: 0,
+    totals: { qty_opened: 0, qty_sold: 0, qty_remaining: 0, live_value_eur: 0, proceeds_eur: 0 },
+    page: 1,
+    pageSize: LOT_PAGE_SIZE_DEFAULT,
+  };
+  if (!ObjectId.isValid(params.id)) return empty;
+
+  const requestedPageSize = params.pageSize && Number.isFinite(params.pageSize) ? params.pageSize : LOT_PAGE_SIZE_DEFAULT;
+  const pageSize = Math.max(1, Math.min(LOT_PAGE_SIZE_MAX, Math.floor(requestedPageSize)));
+  const requestedPage = params.page && Number.isFinite(params.page) ? params.page : 1;
+  const page = Math.max(1, Math.floor(requestedPage));
+
+  const sort: LotSortField = (LOT_SORT_FIELDS as readonly string[]).includes(params.sort ?? "")
+    ? (params.sort as LotSortField)
+    : "qty_remaining";
+  const dir: LotSortDir = params.dir === "asc" ? "asc" : "desc";
+
   const db = await getDb();
-  const filter: Record<string, unknown> = { investment_id: new ObjectId(params.id) };
-  if (params.foil !== undefined) filter.foil = params.foil;
-  if (params.language !== undefined) filter.language = params.language;
-  if (params.minRemaining !== undefined) filter.qty_remaining = { $gte: params.minRemaining };
+  const baseFilter: Record<string, unknown> = { investment_id: new ObjectId(params.id) };
+  if (params.foil !== undefined) baseFilter.foil = params.foil;
+  if (params.language !== undefined) baseFilter.language = params.language;
+  if (params.minRemaining !== undefined) baseFilter.qty_remaining = { $gte: params.minRemaining };
+
+  // Pull every lot for the filter scope so we can compute totals + apply
+  // the search filter (which joins through to ev_cards / stock for the
+  // name) before paginating. Lot counts per investment are bounded — even
+  // a 12-box J25 jumpstart only produces ~340 distinct tuples — so this
+  // doesn't need a streaming/cursor pattern at current scale.
   const lots = await db
     .collection(COL_INVESTMENT_LOTS)
-    .find(filter)
+    .find(baseFilter)
     .toArray();
-  if (lots.length === 0) return [];
+  if (lots.length === 0) return { ...empty, page, pageSize };
+
   const cmIds = Array.from(new Set(lots.map((l) => l.cardmarket_id as number)));
-  const cards = await db
-    .collection("dashboard_ev_cards")
-    .find({ cardmarket_id: { $in: cmIds } })
-    .project<{ cardmarket_id: number; name: string; set: string; cm_prices?: Record<string, { trend?: number }> }>({
-      cardmarket_id: 1,
-      name: 1,
-      set: 1,
-      cm_prices: 1,
-    })
-    .toArray();
-  const cardByCmId = new Map<number, (typeof cards)[number]>();
-  for (const c of cards) cardByCmId.set(c.cardmarket_id, c);
-  const rows: LotListItem[] = lots.map((l) => {
-    const card = cardByCmId.get(l.cardmarket_id as number);
+
+  // Hydrate name/set_code/live price from ev_cards, with a stock fallback
+  // for cards Scryfall mis-mapped (so the UI shows "Desperate Lunge"
+  // instead of "#795719" even when ev_cards has no row for that
+  // cardmarket_id). The fallback uses CM's name + set name from the
+  // user's own listing, which is the closest source of truth available.
+  const [evCards, stockRows] = await Promise.all([
+    db
+      .collection("dashboard_ev_cards")
+      .find({ cardmarket_id: { $in: cmIds } })
+      .project<{ cardmarket_id: number; name: string; set: string; cm_prices?: Record<string, { trend?: number }> }>({
+        cardmarket_id: 1,
+        name: 1,
+        set: 1,
+        cm_prices: 1,
+      })
+      .toArray(),
+    db
+      .collection("dashboard_cm_stock")
+      .find({ productId: { $in: cmIds } })
+      .project<{ productId: number; name: string; set: string }>({
+        productId: 1,
+        name: 1,
+        set: 1,
+      })
+      .toArray(),
+  ]);
+  const evCardByCmId = new Map<number, (typeof evCards)[number]>();
+  for (const c of evCards) evCardByCmId.set(c.cardmarket_id, c);
+  const stockByCmId = new Map<number, (typeof stockRows)[number]>();
+  for (const r of stockRows) {
+    // First-write-wins: stock can have many rows per productId (different
+    // conditions, foils, languages). They all carry the same name/set, so
+    // any one suffices.
+    if (!stockByCmId.has(r.productId)) stockByCmId.set(r.productId, r);
+  }
+
+  // Resolve set_code → CM set name via ev_sets. Used when the ev_cards
+  // row exists (preferred path); the stock fallback already carries CM's
+  // set name natively.
+  const evSetCodes = Array.from(new Set(evCards.map((c) => c.set))).filter(Boolean);
+  const setNameByCode = new Map<string, string>();
+  if (evSetCodes.length > 0) {
+    const sets = await db
+      .collection("dashboard_ev_sets")
+      .find({ code: { $in: evSetCodes } })
+      .project<{ code: string; name: string }>({ code: 1, name: 1 })
+      .toArray();
+    for (const s of sets) setNameByCode.set(s.code, s.name);
+  }
+
+  let allRows: LotListItem[] = lots.map((l) => {
+    const cmId = l.cardmarket_id as number;
+    const card = evCardByCmId.get(cmId);
+    const stock = stockByCmId.get(cmId);
     const priceKey = l.foil ? "foil" : "nonfoil";
-    const trend =
-      (card?.cm_prices?.[priceKey]?.trend as number | undefined) ?? null;
+    const trend = (card?.cm_prices?.[priceKey]?.trend as number | undefined) ?? null;
+    const setCode = card?.set ?? null;
+    const setName = setCode ? (setNameByCode.get(setCode) ?? null) : (stock?.set ?? null);
     return {
       id: String(l._id),
-      cardmarket_id: l.cardmarket_id as number,
+      cardmarket_id: cmId,
       foil: l.foil as boolean,
       condition: l.condition as string,
       language: (l.language as string) ?? "English",
-      name: card?.name ?? null,
-      set_code: card?.set ?? null,
+      name: card?.name ?? stock?.name ?? null,
+      set_code: setCode,
+      set_name: setName,
       qty_opened: l.qty_opened as number,
       qty_sold: l.qty_sold as number,
       qty_remaining: l.qty_remaining as number,
@@ -933,11 +1044,63 @@ export async function listLots(params: {
       live_price_eur: trend,
     };
   });
+
   if (params.search) {
     const q = params.search.toLowerCase();
-    return rows.filter((r) => r.name?.toLowerCase().includes(q));
+    allRows = allRows.filter((r) => r.name?.toLowerCase().includes(q));
   }
-  return rows;
+
+  const total = allRows.length;
+  const totals = allRows.reduce(
+    (acc, r) => {
+      acc.qty_opened += r.qty_opened;
+      acc.qty_sold += r.qty_sold;
+      acc.qty_remaining += r.qty_remaining;
+      if (r.live_price_eur != null) acc.live_value_eur += r.qty_remaining * r.live_price_eur;
+      acc.proceeds_eur += r.proceeds_eur;
+      return acc;
+    },
+    { qty_opened: 0, qty_sold: 0, qty_remaining: 0, live_value_eur: 0, proceeds_eur: 0 }
+  );
+
+  // Sort happens after totals (totals are scope-wide, not page-wide). Null
+  // values for the sort key always go to the bottom regardless of dir, so
+  // a desc sort on Live price doesn't push every "—" row to the top.
+  const sign = dir === "asc" ? 1 : -1;
+  const remValue = (r: LotListItem): number | null =>
+    r.live_price_eur != null ? r.qty_remaining * r.live_price_eur : null;
+  const sortKey = (r: LotListItem): string | number | null => {
+    switch (sort) {
+      case "name": return r.name?.toLowerCase() ?? null;
+      case "qty_opened": return r.qty_opened;
+      case "qty_sold": return r.qty_sold;
+      case "qty_remaining": return r.qty_remaining;
+      case "cost_basis_per_unit": return r.cost_basis_per_unit;
+      case "live_price_eur": return r.live_price_eur;
+      case "rem_value_eur": return remValue(r);
+      case "proceeds_eur": return r.proceeds_eur;
+    }
+  };
+  allRows.sort((a, b) => {
+    const ka = sortKey(a);
+    const kb = sortKey(b);
+    if (ka == null && kb == null) {
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    }
+    if (ka == null) return 1;   // nulls last
+    if (kb == null) return -1;
+    if (typeof ka === "number" && typeof kb === "number") {
+      if (ka !== kb) return sign * (ka - kb);
+    } else {
+      const cmp = String(ka).localeCompare(String(kb));
+      if (cmp !== 0) return sign * cmp;
+    }
+    return (a.name ?? "").localeCompare(b.name ?? "");
+  });
+
+  const start = (page - 1) * pageSize;
+  const rows = allRows.slice(start, start + pageSize);
+  return { rows, total, totals, page, pageSize };
 }
 
 export type AdjustLotResult = "ok" | "not_found" | "below_sold" | "frozen" | "invalid_input";
