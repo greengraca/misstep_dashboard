@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import useSWR from "swr";
+import useSWR, { mutate as globalMutate } from "swr";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetcher } from "@/lib/fetcher";
-import { ArrowLeft, ChevronDown, Archive, Lock, Trash2, Copy, Check } from "lucide-react";
+import { ArrowLeft, ChevronDown, Archive, Lock, Trash2, Copy, Check, Plus } from "lucide-react";
 import type { InvestmentDetail as Detail } from "@/lib/investments/types";
 import ConfirmModal from "@/components/dashboard/confirm-modal";
 import { H1 } from "@/components/dashboard/page-shell";
@@ -17,6 +17,8 @@ import CloseInvestmentModal from "./CloseInvestmentModal";
 import UntaggedListingsModal from "./UntaggedListingsModal";
 import InvestmentTimeline from "./InvestmentTimeline";
 import SalesHistoryChart from "./SalesHistoryChart";
+import InvestmentSalesPanel from "./InvestmentSalesPanel";
+import ManualSaleModal from "./ManualSaleModal";
 
 const STATUS_TONE: Record<Detail["status"], StatusPillTone> = {
   listing: "accent",
@@ -144,6 +146,8 @@ export default function InvestmentDetail({ id }: { id: string }) {
   const [showArchive, setShowArchive] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showUntagged, setShowUntagged] = useState(false);
+  const [showManualSale, setShowManualSale] = useState(false);
+  const [salesRefreshKey, setSalesRefreshKey] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -196,7 +200,22 @@ export default function InvestmentDetail({ id }: { id: string }) {
           </div>
           <H1 subtitle={sourceLabel(detail.source)}>{detail.name}</H1>
         </div>
-        <div ref={menuRef} className="relative">
+        <div className="flex items-center gap-2">
+          {detail.status === "listing" && (
+            <button
+              onClick={() => setShowManualSale(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <Plus size={12} />
+              Record manual sale
+            </button>
+          )}
+          <div ref={menuRef} className="relative">
           <button
             onClick={() => setMenuOpen((x) => !x)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
@@ -267,6 +286,7 @@ export default function InvestmentDetail({ id }: { id: string }) {
             </div>
           )}
         </div>
+        </div>
       </div>
 
       <InvestmentTimeline investmentId={detail.id} />
@@ -278,6 +298,8 @@ export default function InvestmentDetail({ id }: { id: string }) {
       <SalesHistoryChart investmentId={detail.id} />
 
       <InvestmentLotsTable investmentId={detail.id} />
+
+      <InvestmentSalesPanel investmentId={detail.id} refreshKey={salesRefreshKey} />
 
       <SealedFlipsSection
         investmentId={detail.id}
@@ -333,6 +355,26 @@ export default function InvestmentDetail({ id }: { id: string }) {
         investmentId={detail.id}
         code={detail.code}
         onClose={() => setShowUntagged(false)}
+      />
+
+      <ManualSaleModal
+        open={showManualSale}
+        onClose={() => setShowManualSale(false)}
+        investmentId={detail.id}
+        onSaved={() => {
+          // Refresh: KPIs (proceeds, listed value) come from the parent
+          // /api/investments/[id]; lot ledger + sales panel + sales chart
+          // each have their own SWR key under /api/investments/[id]/...
+          // Bump the local refreshKey to force the sales panel to refetch,
+          // and globally mutate every key that starts with the investment's
+          // API prefix so the lot ledger picks up the new qty too.
+          mutate();
+          setSalesRefreshKey((k) => k + 1);
+          const prefix = `/api/investments/${detail.id}/`;
+          globalMutate(
+            (key) => typeof key === "string" && key.startsWith(prefix)
+          );
+        }}
       />
     </div>
   );
