@@ -110,6 +110,16 @@ export interface InvestmentSaleLog {
   unit_price_eur: number;
   net_per_unit_eur: number;
   attributed_at: Date;
+  /** Free-text note. Set by the manual-sale flow only; absent on CM sales. */
+  note?: string;
+  /** Manual-sale flag. When true, the sale was recorded via the manual-sale
+   *  modal rather than from a CM order sync. Drives the "Manual" pill in the
+   *  Sales panel and gates which rows are user-deletable. */
+  manual?: boolean;
+  /** When true, the sale grew the lot AND consumed it (off-the-books mode).
+   *  The DELETE handler reverses the qty_opened grow on top of the standard
+   *  reverse. Only meaningful when `manual: true`. */
+  grew_lot?: boolean;
 }
 
 // DTOs used by API routes
