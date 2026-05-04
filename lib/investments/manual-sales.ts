@@ -250,3 +250,99 @@ export async function deleteManualSale(
 
   return { status: "ok" };
 }
+
+export interface SaleLogListItem {
+  id: string;
+  cardmarket_id: number;
+  foil: boolean;
+  condition: string;
+  language: string;
+  name: string | null;
+  qty: number;
+  unit_price_eur: number;
+  net_per_unit_eur: number;
+  attributed_at: string;          // ISO date for JSON safety
+  source: "cardmarket" | "manual";
+  order_id: string;               // CM numeric or "manual:..."
+  note: string | null;
+}
+
+export interface SaleLogListResult {
+  rows: SaleLogListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+const SALE_LOG_PAGE_SIZE_DEFAULT = 25;
+const SALE_LOG_PAGE_SIZE_MAX = 200;
+
+export async function listSaleLog(params: {
+  db: Db;
+  investmentId: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<SaleLogListResult> {
+  if (!ObjectId.isValid(params.investmentId)) {
+    return { rows: [], total: 0, page: 1, pageSize: SALE_LOG_PAGE_SIZE_DEFAULT };
+  }
+  const requestedPageSize = params.pageSize && Number.isFinite(params.pageSize)
+    ? params.pageSize : SALE_LOG_PAGE_SIZE_DEFAULT;
+  const pageSize = Math.max(1, Math.min(SALE_LOG_PAGE_SIZE_MAX, Math.floor(requestedPageSize)));
+  const requestedPage = params.page && Number.isFinite(params.page) ? params.page : 1;
+  const page = Math.max(1, Math.floor(requestedPage));
+
+  const invObjId = new ObjectId(params.investmentId);
+  const filter = { investment_id: invObjId };
+  const total = await params.db
+    .collection(COL_INVESTMENT_SALE_LOG)
+    .countDocuments(filter);
+  if (total === 0) return { rows: [], total, page, pageSize };
+
+  const docs = await params.db
+    .collection<InvestmentSaleLog>(COL_INVESTMENT_SALE_LOG)
+    .find(filter)
+    .sort({ attributed_at: -1, _id: -1 })
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
+    .toArray();
+
+  // Hydrate name from ev_cards, fallback to cm_stock for Scryfall-mismapped
+  // cards (same pattern as listLots).
+  const cmIds = Array.from(new Set(docs.map((d) => d.cardmarket_id)));
+  const [evCards, stockRows] = await Promise.all([
+    params.db.collection("dashboard_ev_cards")
+      .find({ cardmarket_id: { $in: cmIds } })
+      .project<{ cardmarket_id: number; name: string }>({ cardmarket_id: 1, name: 1 })
+      .toArray(),
+    params.db.collection("dashboard_cm_stock")
+      .find({ productId: { $in: cmIds } })
+      .project<{ productId: number; name: string }>({ productId: 1, name: 1 })
+      .toArray(),
+  ]);
+  const nameByCmId = new Map<number, string>();
+  for (const c of evCards) nameByCmId.set(c.cardmarket_id, c.name);
+  for (const r of stockRows) {
+    if (!nameByCmId.has(r.productId)) nameByCmId.set(r.productId, r.name);
+  }
+
+  const rows: SaleLogListItem[] = docs.map((d) => ({
+    id: String(d._id),
+    cardmarket_id: d.cardmarket_id,
+    foil: d.foil,
+    condition: d.condition,
+    language: d.language,
+    name: nameByCmId.get(d.cardmarket_id) ?? null,
+    qty: d.qty,
+    unit_price_eur: d.unit_price_eur,
+    net_per_unit_eur: d.net_per_unit_eur,
+    attributed_at: d.attributed_at instanceof Date
+      ? d.attributed_at.toISOString()
+      : new Date(d.attributed_at as unknown as string).toISOString(),
+    source: d.manual ? "manual" : "cardmarket",
+    order_id: d.order_id,
+    note: d.note ?? null,
+  }));
+
+  return { rows, total, page, pageSize };
+}
