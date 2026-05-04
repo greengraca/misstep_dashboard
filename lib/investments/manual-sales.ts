@@ -346,3 +346,208 @@ export async function listSaleLog(params: {
 
   return { rows, total, page, pageSize };
 }
+
+export interface SellableCardItem {
+  cardmarket_id: number;
+  name: string;
+  set_name: string | null;
+  rarity: string | null;
+  foil_default: boolean;          // helps the picker pick the right default
+  /** Sum of qty_remaining across all tuples of this card name in the
+   *  investment, or null if no lot exists. Drives the "Tracked: N" badge. */
+  lot_remaining: number | null;
+}
+
+export interface SellableCardsResult {
+  rows: SellableCardItem[];
+}
+
+export async function listSellableCards(params: {
+  db: Db;
+  investmentId: string;
+  q?: string;
+}): Promise<SellableCardsResult> {
+  if (!ObjectId.isValid(params.investmentId)) return { rows: [] };
+  const invObjId = new ObjectId(params.investmentId);
+
+  const inv = await params.db
+    .collection<Investment>(COL_INVESTMENTS)
+    .findOne({ _id: invObjId });
+  if (!inv) return { rows: [] };
+
+  const q = (params.q ?? "").trim();
+  // Empty query: return existing-lot cards only (concise dropdown on first
+  // open). Any q≥1 char: search the full set catalogue plus existing lots.
+  const queryNameRegex = q ? new RegExp(escapeRegex(q), "i") : null;
+
+  // Step 1: existing lots for this investment, indexed by cardmarket_id.
+  // Always included regardless of q (so collection-kind picker still works,
+  // and so the 5 mismapped J25 cards show up).
+  const lots = await params.db
+    .collection(COL_INVESTMENT_LOTS)
+    .aggregate<{
+      _id: { cardmarket_id: number; foil: boolean };
+      qty_remaining: number;
+    }>([
+      { $match: { investment_id: invObjId } },
+      {
+        $group: {
+          _id: { cardmarket_id: "$cardmarket_id", foil: "$foil" },
+          qty_remaining: { $sum: "$qty_remaining" },
+        },
+      },
+    ])
+    .toArray();
+  const lotsByCmId = new Map<number, { qty_remaining: number; foil_default: boolean }>();
+  for (const l of lots) {
+    const prev = lotsByCmId.get(l._id.cardmarket_id);
+    const summed = (prev?.qty_remaining ?? 0) + l.qty_remaining;
+    lotsByCmId.set(l._id.cardmarket_id, {
+      qty_remaining: summed,
+      foil_default: prev?.foil_default ?? l._id.foil,
+    });
+  }
+
+  // Step 2: candidate ev_cards for the investment's set(s).
+  const setCodes = await resolveSetCodesForInvestment(params.db, inv);
+  const evMatch: Record<string, unknown> = { set: { $in: setCodes } };
+  if (queryNameRegex) evMatch.name = queryNameRegex;
+  const evCards = setCodes.length === 0 || inv.source.kind === "collection"
+    ? []
+    : await params.db
+        .collection("dashboard_ev_cards")
+        .find(evMatch)
+        .project<{ cardmarket_id: number; name: string; rarity: string; set: string; finishes: string[] }>({
+          cardmarket_id: 1,
+          name: 1,
+          rarity: 1,
+          set: 1,
+          finishes: 1,
+        })
+        .limit(200)
+        .toArray();
+
+  // Step 3: stock fallback for cards that exist in lots but not ev_cards
+  // (Scryfall mismaps). Scoped to the investment's set names so we don't
+  // pull unrelated stock.
+  const lotCmIds = Array.from(lotsByCmId.keys());
+  const evCmIds = new Set(evCards.map((c) => c.cardmarket_id));
+  const orphanLotCmIds = lotCmIds.filter((id) => !evCmIds.has(id));
+  const stockFallback = orphanLotCmIds.length > 0
+    ? await params.db
+        .collection("dashboard_cm_stock")
+        .find({
+          productId: { $in: orphanLotCmIds },
+          ...(inv.cm_set_names?.length ? { set: { $in: inv.cm_set_names } } : {}),
+          ...(queryNameRegex ? { name: queryNameRegex } : {}),
+        })
+        .project<{ productId: number; name: string; set: string; foil: boolean }>({
+          productId: 1, name: 1, set: 1, foil: 1,
+        })
+        .toArray()
+    : [];
+
+  // Resolve set codes → set names for display.
+  const setNameByCode = new Map<string, string>();
+  if (setCodes.length > 0) {
+    const sets = await params.db
+      .collection("dashboard_ev_sets")
+      .find({ code: { $in: setCodes } })
+      .project<{ code: string; name: string }>({ code: 1, name: 1 })
+      .toArray();
+    for (const s of sets) setNameByCode.set(s.code, s.name);
+  }
+
+  // Merge into one result list keyed by cardmarket_id. ev_cards win on
+  // metadata; stock provides the orphan rows.
+  const merged = new Map<number, SellableCardItem>();
+  for (const c of evCards) {
+    merged.set(c.cardmarket_id, {
+      cardmarket_id: c.cardmarket_id,
+      name: c.name,
+      set_name: setNameByCode.get(c.set) ?? null,
+      rarity: c.rarity ?? null,
+      foil_default: !(c.finishes ?? []).includes("nonfoil"),
+      lot_remaining: lotsByCmId.get(c.cardmarket_id)?.qty_remaining ?? null,
+    });
+  }
+  for (const r of stockFallback) {
+    if (merged.has(r.productId)) continue;
+    merged.set(r.productId, {
+      cardmarket_id: r.productId,
+      name: r.name,
+      set_name: r.set,
+      rarity: null,
+      foil_default: lotsByCmId.get(r.productId)?.foil_default ?? false,
+      lot_remaining: lotsByCmId.get(r.productId)?.qty_remaining ?? null,
+    });
+  }
+
+  // For collection-kind (no set catalogue), seed merged from existing lots
+  // by joining to ev_cards / stock.
+  if (inv.source.kind === "collection" && merged.size === 0 && lotCmIds.length > 0) {
+    const [evHits, stockHits] = await Promise.all([
+      params.db.collection("dashboard_ev_cards")
+        .find({ cardmarket_id: { $in: lotCmIds } })
+        .project<{ cardmarket_id: number; name: string; rarity: string; set: string; finishes: string[] }>({
+          cardmarket_id: 1, name: 1, rarity: 1, set: 1, finishes: 1,
+        })
+        .toArray(),
+      params.db.collection("dashboard_cm_stock")
+        .find({ productId: { $in: lotCmIds } })
+        .project<{ productId: number; name: string; set: string }>({
+          productId: 1, name: 1, set: 1,
+        })
+        .toArray(),
+    ]);
+    const stockByCmId = new Map(stockHits.map((s) => [s.productId, s]));
+    for (const cmId of lotCmIds) {
+      const ev = evHits.find((e) => e.cardmarket_id === cmId);
+      const stock = stockByCmId.get(cmId);
+      const name = ev?.name ?? stock?.name ?? `#${cmId}`;
+      if (queryNameRegex && !queryNameRegex.test(name)) continue;
+      merged.set(cmId, {
+        cardmarket_id: cmId,
+        name,
+        set_name: ev ? (setNameByCode.get(ev.set) ?? null) : (stock?.set ?? null),
+        rarity: ev?.rarity ?? null,
+        foil_default: lotsByCmId.get(cmId)?.foil_default ?? false,
+        lot_remaining: lotsByCmId.get(cmId)?.qty_remaining ?? null,
+      });
+    }
+  }
+
+  // Sort: cards with existing lots first (most likely target), then alpha.
+  const rows = Array.from(merged.values())
+    .sort((a, b) => {
+      const aHas = a.lot_remaining != null ? 1 : 0;
+      const bHas = b.lot_remaining != null ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 50);
+
+  return { rows };
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function resolveSetCodesForInvestment(
+  db: Db,
+  inv: Investment
+): Promise<string[]> {
+  // box: source.set_code is authoritative.
+  if (inv.source.kind === "box") return [inv.source.set_code];
+  // product / customer_bulk / collection: resolve via ev_sets by cm_set_names.
+  if (inv.cm_set_names?.length) {
+    const sets = await db
+      .collection("dashboard_ev_sets")
+      .find({ name: { $in: inv.cm_set_names } })
+      .project<{ code: string }>({ code: 1 })
+      .toArray();
+    return sets.map((s) => s.code);
+  }
+  return [];
+}
