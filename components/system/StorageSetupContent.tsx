@@ -811,7 +811,7 @@ function Hero() {
           <Thermometer size={12} /> 4–6 h spread over 2 evenings
         </span>
         <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
-          <Boxes size={12} /> €200 already spent
+          <Boxes size={12} /> €220 already spent
         </span>
         <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
           <CodeIcon size={12} /> ESPHome firmware · MQTT · HiveMQ free tier
